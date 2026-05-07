@@ -38,9 +38,3 @@ audio/
 transcripts/
 logs/
 models/
-*.wav
-*.flac
-*.mp3
-*.m4a
-*.mp4
-*.mov
