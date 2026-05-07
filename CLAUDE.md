@@ -96,6 +96,19 @@ pytest tests/integration/test_real_whisper.py
 - Prefer focused patches and tests over broad refactors.
 - Keep user-facing docs, examples, and specs aligned when behavior changes.
 
+## Branching
+
+Use the Gitflow naming rules in [AGENTS.md](AGENTS.md):
+
+- Branch from `develop` for normal work and target PRs back to `develop`.
+- Use `feat/<name>`, `fix/<name>`, `chore/<name>`, `docs/<name>`,
+  `test/<name>`, `refactor/<name>`, `perf/<name>`, or `ci/<name>` for normal
+  work.
+- Use `release/vX.Y.Z` for release-prep branches from `develop`.
+- Use `hotfix/<name>` only for urgent fixes branched from `main`; sync the fix
+  back to `develop` after release.
+- Keep branch slugs lowercase, ASCII, and kebab-case.
+
 ## Release Notes
 
 The canonical release process is [docs/releasing.md](docs/releasing.md); the

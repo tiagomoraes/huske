@@ -10,6 +10,11 @@ for now: changes land on `develop`, stable release snapshots are promoted to
   dependency PRs target `develop`.
 - `main` is the stable release branch. Only release promotion PRs should target
   `main`.
+- Work branches are created from `develop` unless they are release or hotfix
+  branches.
+- Release branches are created from `develop`.
+- Hotfix branches are created from `main`, released from `main`, and then
+  merged back into `develop`.
 - Release tags use `vX.Y.Z`, for example `v0.2.0`.
 - Never tag `develop` for a public release. The tag must point at the released
   `main` commit.
@@ -21,6 +26,45 @@ Recommended repository settings:
 - Disallow force pushes and branch deletion on `develop` and `main`.
 - Keep `main` stricter than `develop`: only release promotion PRs should merge
   there.
+
+## Branch Naming
+
+Branch names must be lowercase ASCII, use `/` after the type prefix, and use
+kebab-case for the descriptive slug. Do not use spaces, underscores, personal
+names, or vague slugs like `changes` or `updates`.
+
+Use these prefixes:
+
+| Prefix | Use for | Base branch | PR target |
+| --- | --- | --- | --- |
+| `feat/<name>` | New user-facing behavior | `develop` | `develop` |
+| `fix/<name>` | Bug fixes for unreleased/current development work | `develop` | `develop` |
+| `hotfix/<name>` | Urgent fixes for the released `main` line | `main` | `main`, then back to `develop` |
+| `chore/<name>` | Maintenance tasks | `develop` | `develop` |
+| `docs/<name>` | Documentation-only changes | `develop` | `develop` |
+| `test/<name>` | Test-only changes | `develop` | `develop` |
+| `refactor/<name>` | Behavior-preserving code changes | `develop` | `develop` |
+| `perf/<name>` | Performance improvements | `develop` | `develop` |
+| `ci/<name>` | CI and GitHub Actions changes | `develop` | `develop` |
+| `release/vX.Y.Z` | Release preparation | `develop` | `develop` |
+
+Examples:
+
+```text
+feat/configurable-audio-retention
+fix/recovery-empty-session-cleanup
+hotfix/transcript-write-crash
+chore/update-dependencies
+docs/release-process
+test/chunker-boundary-cases
+refactor/transcription-worker-queue
+perf/audio-buffer-drain
+ci/cache-python-deps
+release/v0.2.0
+```
+
+Automation-owned prefixes such as `dependabot/...` are allowed for their tools.
+Human and agent-created branches should use the Gitflow prefixes above.
 
 ## Versioning
 
@@ -95,6 +139,55 @@ gh pr create --base develop --head release/v$VERSION \
 ```
 
 Merge this PR only after review and CI pass.
+
+## Hotfix Releases
+
+Use a hotfix only when the current `main` branch needs an urgent patch before
+the normal `develop` release train.
+
+Create the hotfix from `main`:
+
+```bash
+git fetch origin --prune --tags
+git switch main
+git pull --ff-only
+git switch -c hotfix/<short-critical-fix>
+```
+
+Make the minimal fix, update `pyproject.toml` and `CHANGELOG.md` for the patch
+version, and validate:
+
+```bash
+git diff --check
+pytest tests/unit
+pytest tests/integration/test_pipeline_no_whisper.py tests/integration/test_smoke.py
+```
+
+Open the hotfix PR to `main`:
+
+```bash
+gh pr create --repo tiagomoraes/huske \
+  --base main \
+  --head hotfix/<short-critical-fix> \
+  --title "hotfix: <short critical fix>" \
+  --body "Fixes an urgent issue for the released main line."
+```
+
+After the hotfix PR merges to `main`, tag and publish it using the same
+`main`-tagged GitHub release flow below. Then bring the fix back to `develop`
+immediately:
+
+```bash
+gh pr create --repo tiagomoraes/huske \
+  --base develop \
+  --head main \
+  --title "chore: sync main hotfix back to develop" \
+  --body "Brings the released hotfix back into develop."
+```
+
+If `main` contains release-only metadata that should not be merged wholesale,
+create a `fix/<same-short-fix>` branch from `develop` and cherry-pick the
+hotfix commit instead.
 
 ## Promote `develop` to `main`
 

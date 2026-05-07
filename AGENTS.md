@@ -21,6 +21,55 @@ add local workflow notes, but this file is the shared baseline.
 - Use synthetic audio and redacted paths in tests and examples.
 - Treat `huske doctor` output as potentially sensitive.
 
+## Gitflow and Branch Names
+
+This repository follows a lightweight Gitflow model:
+
+- `main` is the stable release branch.
+- `develop` is the integration branch and default PR target.
+- Work branches are created from `develop` unless they are release or hotfix
+  branches.
+- Release branches are created from `develop`.
+- Hotfix branches are created from `main` and must be merged back into
+  `develop` after the patch release.
+
+Branch names must be lowercase ASCII, use `/` after the type prefix, and use
+kebab-case for the descriptive slug. Do not use spaces, underscores, personal
+names, or vague slugs like `changes` or `updates`.
+
+Use these prefixes:
+
+- `feat/<short-feature-name>` for new user-facing behavior.
+- `fix/<short-bug-name>` for bug fixes targeting `develop`.
+- `hotfix/<short-critical-fix>` for urgent production/release fixes from
+  `main`.
+- `chore/<short-maintenance-name>` for maintenance tasks.
+- `docs/<short-doc-name>` for documentation-only changes.
+- `test/<short-test-name>` for test-only changes.
+- `refactor/<short-refactor-name>` for behavior-preserving code changes.
+- `perf/<short-performance-name>` for performance improvements.
+- `ci/<short-ci-name>` for CI and GitHub Actions changes.
+- `release/vX.Y.Z` for release-prep branches.
+
+Examples:
+
+```text
+feat/configurable-audio-retention
+fix/recovery-empty-session-cleanup
+hotfix/transcript-write-crash
+chore/update-dependencies
+docs/release-process
+test/chunker-boundary-cases
+refactor/transcription-worker-queue
+perf/audio-buffer-drain
+ci/cache-python-deps
+release/v0.2.0
+```
+
+Automation-owned prefixes such as `dependabot/...` are allowed for their tools.
+Agents should use the Gitflow prefixes above unless the user explicitly asks for
+a different branch name.
+
 ## Checks
 
 Current CI baseline:
@@ -65,6 +114,7 @@ Release branch model:
 
 - `develop` is the integration branch and the default PR target.
 - `main` is the stable release branch.
+- Work branches use the Gitflow naming rules above.
 - Tags must use `vX.Y.Z`.
 - Public release tags must point at `main`, never at `develop`.
 
