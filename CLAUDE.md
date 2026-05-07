@@ -1,6 +1,7 @@
 # huske Development Guidelines
 
-This file gives AI coding agents a concise project map. Public contribution
+This file gives Claude-specific guidance for this repository. Shared
+tool-agnostic agent rules live in [AGENTS.md](AGENTS.md). Public contribution
 rules live in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Project Shape
@@ -49,3 +50,20 @@ pytest tests/integration/test_real_whisper.py
   and UI are separate modules.
 - Prefer focused patches and tests over broad refactors.
 - Keep user-facing docs, examples, and specs aligned when behavior changes.
+
+## Release Notes
+
+The canonical release process is [docs/releasing.md](docs/releasing.md); the
+shared agent summary is in [AGENTS.md](AGENTS.md).
+
+Claude must not perform release operations unless the user explicitly asks for
+release or release-prep work. When asked:
+
+- Start release-prep work from an up-to-date `develop`.
+- Open release-prep PRs back to `develop`.
+- Promote releases through a PR from `develop` to `main`.
+- Tag only the merged `main` commit with `vX.Y.Z`.
+- Create GitHub releases only from existing tags, using `gh release create`
+  with `--verify-tag`.
+- Never push directly to `main` or `develop`, never force-push release tags, and
+  never move a published tag.
