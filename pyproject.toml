@@ -58,6 +58,24 @@ huske = "huske.cli:app"
 [tool.hatch.build.targets.wheel]
 packages = ["huske"]
 
+[tool.hatch.build.targets.sdist]
+include = [
+    "/CHANGELOG.md",
+    "/CODE_OF_CONDUCT.md",
+    "/CONTRIBUTING.md",
+    "/LICENSE",
+    "/README.md",
+    "/SECURITY.md",
+    "/SUPPORT.md",
+    "/THIRD_PARTY_NOTICES.md",
+    "/docs",
+    "/examples",
+    "/huske",
+    "/pyproject.toml",
+    "/specs",
+    "/tests",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"

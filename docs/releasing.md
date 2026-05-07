@@ -265,13 +265,42 @@ gh release create "v$VERSION" \
 `develop`; without an existing tag, GitHub CLI can create a release tag from the
 default branch instead of the intended `main` commit.
 
+Publishing the GitHub release triggers `.github/workflows/release.yml`. That
+workflow builds the sdist and wheel, attaches both distributions to the GitHub
+release, and publishes them to PyPI through trusted publishing.
+
+## PyPI Trusted Publishing
+
+PyPI publishing uses GitHub Actions trusted publishing, so no PyPI API token is
+stored in GitHub.
+
+Before the first PyPI release, add a pending publisher in PyPI:
+
+- PyPI project name: `huske`
+- Owner: `tiagomoraes`
+- Repository name: `huske`
+- Workflow filename: `release.yml`
+- Environment name: `pypi`
+
+If the PyPI publisher is configured after the GitHub release is created, rerun
+the failed `Publish to PyPI` job or manually run the `Release` workflow with
+`publish_pypi` enabled from the `vX.Y.Z` tag.
+
+## Homebrew
+
+Homebrew releases are maintained from the `tiagomoraes/homebrew-huske` tap after
+the matching PyPI release exists.
+
 ## Post-release
 
 1. Confirm the GitHub release points at the `vX.Y.Z` tag.
 2. Confirm the tag commit is contained in `origin/main`.
 3. Confirm `develop` contains the release commit.
-4. Announce the release wherever relevant.
-5. Open follow-up issues for anything intentionally deferred.
+4. Confirm the release workflow succeeded or record the failed publishing step.
+5. Confirm the PyPI project page is live after the first trusted publish.
+6. Confirm the Homebrew tap points at the released version, when applicable.
+7. Announce the release wherever relevant.
+8. Open follow-up issues for anything intentionally deferred.
 
 Helpful checks:
 
@@ -291,8 +320,9 @@ git branch --remote --contains "v$VERSION"
 
 ## Future Automation
 
-PyPI publishing and fully automated releases can be added later. Until then,
-keep release operations explicit, reviewed, and tied to `main` tags.
+The release workflow automates package builds, GitHub release assets, and PyPI
+publishing. The release promotion, tag creation, GitHub release publication, and
+Homebrew tap updates remain explicit maintainer steps tied to `main` tags.
 
 ## References
 
@@ -304,3 +334,7 @@ keep release operations explicit, reviewed, and tied to `main` tags.
   <https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches>
 - GitHub generated release notes:
   <https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes>
+- PyPI trusted publishing:
+  <https://docs.pypi.org/trusted-publishers/>
+- Homebrew taps:
+  <https://docs.brew.sh/Taps>

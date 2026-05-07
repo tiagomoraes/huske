@@ -49,7 +49,10 @@ it about your day.
 
 ```bash
 # 1. Install
-uv pip install -e ".[dev]"
+uv tool install huske
+
+# pipx works too:
+# pipx install huske
 
 # 2. Validate setup (will prompt for Screen Recording permission on first run)
 huske doctor
@@ -64,6 +67,12 @@ huske recover
 On first launch macOS will prompt you to grant **Screen Recording** permission
 to your Python interpreter — that's what ScreenCaptureKit needs to capture
 system audio. After approving once, it's silent forever.
+
+For prerelease builds or exact GitHub tags, install directly from the repository:
+
+```bash
+uv tool install "git+https://github.com/tiagomoraes/huske.git@v0.1.0"
+```
 
 See [quickstart.md](specs/001-huske-recorder/quickstart.md) for the full setup.
 

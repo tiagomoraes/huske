@@ -6,10 +6,7 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
-### Added
-
-- Open source project structure: license, contribution guide, code of conduct,
-  security policy, support guide, issue templates, PR template, and CI.
+- Nothing yet.
 
 ## 0.1.0
 
@@ -21,3 +18,5 @@ This project uses semantic versioning after the first public release.
 - Day-organized Markdown transcript output.
 - Recovery for orphaned audio chunks.
 - Rich terminal UI and setup doctor.
+- Open source project structure: license, contribution guide, code of conduct,
+  security policy, support guide, issue templates, PR template, and CI.
