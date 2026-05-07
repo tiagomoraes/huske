@@ -234,6 +234,6 @@ def run_doctor(
         else:
             console.print("[red]Some checks failed — see hints above.[/red]\n")
 
-    if not any(c.name == "input device" and c.ok for c in checks):
+    if not any(c.name == "microphone" and c.ok for c in checks):
         return 3
     return 0 if all(c.ok for c in checks) else 1
