@@ -30,7 +30,16 @@ from huske.capture.system_audio import (
     SystemAudioPermissionError,
     SystemAudioStream,
 )
+from huske.capture.system_audio_tap import (
+    CoreAudioTapPermissionError,
+    CoreAudioTapStream,
+    is_supported as is_tap_supported,
+)
 from huske.config import RuntimeConfig
+
+
+SystemAudioBackendInstance = SystemAudioStream | CoreAudioTapStream
+SystemAudioPermissionLike = SystemAudioPermissionError | CoreAudioTapPermissionError
 
 
 class BlockSink(Protocol):
@@ -123,7 +132,7 @@ class CaptureCoordinator:
 
         self._mic_stream: sd.InputStream | None = None
         self._mixer_thread: threading.Thread | None = None
-        self._system_stream: SystemAudioStream | None = None
+        self._system_stream: SystemAudioBackendInstance | None = None
         self._stop = threading.Event()
 
         self._mic_last: datetime | None = None
@@ -183,32 +192,8 @@ class CaptureCoordinator:
             self._mic_active = False
 
         # System audio.
-        if self._system_audio_enabled:
-            try:
-                self._system_stream = SystemAudioStream(
-                    sample_rate=self._cfg.sample_rate,
-                    on_event=self._on_event,
-                )
-                self._system_stream.start()
-                self._sys_active = True
-                self._on_warning_clear("system_audio")
-            except SystemAudioPermissionError as exc:
-                self._on_event("warn", f"system audio unavailable: {exc}")
-                self._on_warning(
-                    "system_audio",
-                    "Screen Recording permission needed for system audio. "
-                    "System Settings → Privacy & Security → Screen Recording.",
-                )
-                self._system_stream = None
-                self._sys_active = False
-            except Exception as exc:  # noqa: BLE001
-                self._on_event("error", f"system audio failed: {exc}")
-                self._on_warning(
-                    "system_audio",
-                    "System audio capture failed — mic-only mode.",
-                )
-                self._system_stream = None
-                self._sys_active = False
+        if self._system_audio_enabled and self._cfg.system_audio_backend != "off":
+            self._start_system_audio()
 
         if not self._mic_active and not self._sys_active:
             raise RuntimeError(
@@ -219,6 +204,68 @@ class CaptureCoordinator:
             target=self._mixer_loop, name="huske-mixer", daemon=True
         )
         self._mixer_thread.start()
+
+    def _start_system_audio(self) -> None:
+        backend = self._cfg.system_audio_backend
+        order: list[str]
+        if backend == "tap":
+            order = ["tap"]
+        elif backend == "sck":
+            order = ["sck"]
+        else:  # auto
+            order = ["tap", "sck"] if is_tap_supported() else ["sck"]
+
+        last_error: Exception | None = None
+        for choice in order:
+            try:
+                if choice == "tap":
+                    self._system_stream = CoreAudioTapStream(
+                        sample_rate=self._cfg.sample_rate,
+                        on_event=self._on_event,
+                    )
+                else:
+                    self._system_stream = SystemAudioStream(
+                        sample_rate=self._cfg.sample_rate,
+                        on_event=self._on_event,
+                    )
+                self._system_stream.start()
+                self._sys_active = True
+                self._on_warning_clear("system_audio")
+                return
+            except (SystemAudioPermissionError, CoreAudioTapPermissionError) as exc:
+                last_error = exc
+                self._on_event(
+                    "warn",
+                    f"system audio backend '{choice}' unavailable: {exc}",
+                )
+                self._system_stream = None
+                continue
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                self._on_event(
+                    "error", f"system audio backend '{choice}' failed: {exc}"
+                )
+                self._system_stream = None
+                continue
+
+        # Every backend in `order` failed.
+        if isinstance(last_error, SystemAudioPermissionError):
+            self._on_warning(
+                "system_audio",
+                "Screen Recording permission needed for system audio. "
+                "System Settings → Privacy & Security → Screen Recording.",
+            )
+        elif isinstance(last_error, CoreAudioTapPermissionError):
+            self._on_warning(
+                "system_audio",
+                "Core Audio tap unavailable — falling back to mic-only.",
+            )
+        else:
+            self._on_warning(
+                "system_audio",
+                "System audio capture failed — mic-only mode.",
+            )
+        self._sys_active = False
 
     def stop(self, timeout: float = 5.0) -> None:
         self._stop.set()
