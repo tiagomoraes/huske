@@ -208,12 +208,40 @@ class TranscriptionWorker:
     def stop(self, drain_timeout: float = 60.0) -> None:
         if self._proc is None:
             return
-        self._in_q.put(_SENTINEL)
+        try:
+            self._in_q.put(_SENTINEL)
+        except (ValueError, OSError):
+            # Queue already closed — nothing to signal.
+            pass
         self._proc.join(timeout=drain_timeout)
         if self._proc.is_alive():
             self._proc.terminate()
             self._proc.join(timeout=2.0)
+            if self._proc.is_alive():
+                self._proc.kill()
+                self._proc.join(timeout=2.0)
         self._proc = None
+        self._close_queues()
+
+    def _close_queues(self) -> None:
+        # Drain leftovers and close both queues so the multiprocessing
+        # resource_tracker doesn't warn about leaked semaphores at shutdown.
+        # cancel_join_thread() abandons any unsent items in the feeder thread
+        # — safe here because the worker process is gone.
+        for q in (self._in_q, self._out_q):
+            try:
+                while True:
+                    q.get_nowait()
+            except (queue.Empty, OSError, EOFError, ValueError):
+                pass
+            try:
+                q.cancel_join_thread()
+            except Exception:
+                pass
+            try:
+                q.close()
+            except Exception:
+                pass
 
     @property
     def queue_depth(self) -> int:

@@ -51,9 +51,6 @@ it about your day.
 # 1. Install
 uv tool install huske
 
-# pipx works too:
-# pipx install huske
-
 # 2. Validate setup (will prompt for Screen Recording permission on first run)
 huske doctor
 
@@ -62,6 +59,17 @@ huske run
 
 # 4. Reclaim orphans from a prior crash without recording
 huske recover
+```
+
+Other install options:
+
+```bash
+# Alternative Python tool installer:
+pipx install huske
+
+# macOS Apple Silicon with Homebrew:
+brew tap tiagomoraes/huske
+brew install huske
 ```
 
 On first launch macOS will prompt you to grant **Screen Recording** permission
@@ -75,6 +83,18 @@ uv tool install "git+https://github.com/tiagomoraes/huske.git@v0.1.0"
 ```
 
 See [quickstart.md](specs/001-huske-recorder/quickstart.md) for the full setup.
+
+### Update notifications
+
+On startup, huske checks PyPI at most once every 24 hours and prints an
+"update available" banner with the right upgrade command for your install
+method (`uv tool upgrade huske`, `pipx upgrade huske`, or
+`brew upgrade huske`). The check runs in a background thread, is silent on
+network errors, on non-TTY stderr, and for editable installs. Disable it with:
+
+```bash
+export HUSKE_NO_UPDATE_CHECK=1
+```
 
 ## Privacy and consent
 

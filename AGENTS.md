@@ -127,6 +127,9 @@ Agent-safe release workflow:
 5. After that PR merges, create a promotion PR from `develop` to `main`.
 6. After the promotion PR merges, tag the resulting `main` commit.
 7. Create the GitHub release from the existing tag using `--verify-tag`.
+8. Let `.github/workflows/release.yml` publish GitHub assets and PyPI through
+   trusted publishing.
+9. Update the Homebrew tap at `tiagomoraes/homebrew-huske` after PyPI is live.
 
 Important guardrails:
 
@@ -137,8 +140,15 @@ Important guardrails:
 - Never use `gh release create` without `--verify-tag` for this repository.
   The default branch is `develop`, so an implicit tag could target the wrong
   branch.
+- Never use PyPI passwords or API tokens for releases. PyPI uses GitHub
+  Actions trusted publishing with the `pypi` GitHub environment.
 - Do not move or delete a published release tag. Fix forward with a patch
   release instead.
+- Do not replace the Homebrew formula's custom Python installation with plain
+  `virtualenv_install_with_resources`. The tap intentionally pins platform
+  wheels and builds PyAV (`av`) from sdist against Homebrew `ffmpeg`.
+- Validate Homebrew changes with `brew style`, `brew audit --strict --online`,
+  `brew install --build-from-source`, and `brew test`.
 
 Reference commands:
 
@@ -160,4 +170,12 @@ git tag -a vX.Y.Z -m "huske vX.Y.Z"
 git push origin vX.Y.Z
 gh release create vX.Y.Z --repo tiagomoraes/huske --verify-tag \
   --title "huske vX.Y.Z" --notes-file /tmp/huske-release-notes.md
+
+# After PyPI is live:
+brew tap tiagomoraes/huske
+cd "$(brew --repo tiagomoraes/huske)"
+brew style Formula/huske.rb
+brew audit --strict --online tiagomoraes/huske/huske
+brew install --build-from-source tiagomoraes/huske/huske
+brew test tiagomoraes/huske/huske
 ```

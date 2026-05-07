@@ -123,5 +123,13 @@ release or release-prep work. When asked:
 - Tag only the merged `main` commit with `vX.Y.Z`.
 - Create GitHub releases only from existing tags, using `gh release create`
   with `--verify-tag`.
+- Let `.github/workflows/release.yml` build GitHub release assets and publish
+  PyPI through trusted publishing. Do not use PyPI API tokens.
+- After PyPI is live, update the Homebrew tap in
+  `tiagomoraes/homebrew-huske`. Preserve its custom formula structure: most
+  Python dependencies are pinned wheels, and PyAV (`av`) is built from sdist
+  against Homebrew `ffmpeg`.
+- Validate tap changes with `brew style`, `brew audit --strict --online`,
+  `brew install --build-from-source`, and `brew test`.
 - Never push directly to `main` or `develop`, never force-push release tags, and
   never move a published tag.
