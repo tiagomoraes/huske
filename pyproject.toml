@@ -1,0 +1,103 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "huske"
+version = "0.1.0"
+description = "Always-on terminal audio recorder + local transcription (Whisper)"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Tiago Moraes" }]
+keywords = ["audio", "transcription", "whisper", "terminal", "tui"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Sound/Audio :: Capture/Recording",
+]
+dependencies = [
+    "sounddevice>=0.4.6",
+    "soundfile>=0.12.1",
+    "numpy>=1.26",
+    "faster-whisper>=1.0.3",
+    "rich>=13.7",
+    "typer>=0.12",
+    "pydantic>=2.6",
+    "structlog>=24.1",
+    "pyyaml>=6.0",
+    # System audio capture on macOS via ScreenCaptureKit (macOS 13+).
+    "pyobjc-framework-ScreenCaptureKit>=10; sys_platform == 'darwin'",
+    "pyobjc-framework-CoreMedia>=10; sys_platform == 'darwin'",
+]
+
+[project.urls]
+Homepage = "https://github.com/tiagomoraes/huske"
+Repository = "https://github.com/tiagomoraes/huske"
+Issues = "https://github.com/tiagomoraes/huske/issues"
+Changelog = "https://github.com/tiagomoraes/huske/blob/develop/CHANGELOG.md"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+huske = "huske.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["huske"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/CHANGELOG.md",
+    "/CODE_OF_CONDUCT.md",
+    "/CONTRIBUTING.md",
+    "/LICENSE",
+    "/README.md",
+    "/SECURITY.md",
+    "/SUPPORT.md",
+    "/THIRD_PARTY_NOTICES.md",
+    "/docs",
+    "/examples",
+    "/huske",
+    "/pyproject.toml",
+    "/specs",
+    "/tests",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "RUF"]
+ignore = ["E501"]  # line length handled by formatter
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+disallow_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "integration: end-to-end tests using fake audio sources",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

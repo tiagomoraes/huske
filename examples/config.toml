@@ -1,0 +1,36 @@
+# Example huske configuration file.
+# Copy to ~/.config/huske/config.toml to apply globally; CLI flags still win.
+
+# Chunk duration in minutes (1–60). Default: 15.
+chunk_minutes = 15
+
+# Where transcripts go.
+output_root = "~/huske/transcripts"
+
+# Where transient audio chunks live (deleted post-transcription unless keep_audio = true).
+audio_root = "~/huske/audio"
+
+# Whisper-class model size: tiny | base | small | medium | large-v3
+model = "base"
+
+# CTranslate2 compute type: int8 | int8_float16 | float16 | float32
+compute_type = "int8"
+
+# Inference device: auto | cpu | cuda. Apple Silicon: keep "auto" or "cpu".
+device = "auto"
+
+# Optional language hint, ISO 639-1. Omit for auto-detect.
+# language = "pt"
+
+# Microphone device name (substring match). System audio is always captured
+# via ScreenCaptureKit on macOS 13+ and is independent of this setting.
+# input_device = "MacBook Pro Microphone"
+
+# Keep raw WAV chunks after successful transcription.
+keep_audio = false
+
+# Logging: DEBUG | INFO | WARNING | ERROR
+log_level = "INFO"
+
+# Run without the Rich live UI (plain log lines instead).
+no_ui = false
