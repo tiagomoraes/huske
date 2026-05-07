@@ -96,6 +96,7 @@ class RenderState:
 
     session_id: str = ""
     recording: bool = False
+    stopping: bool = False
     current_chunk_seq: int = 0
     chunk_started_at: datetime | None = None
     next_rotation_at: datetime | None = None

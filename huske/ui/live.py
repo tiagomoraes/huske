@@ -45,26 +45,7 @@ def _level_bar(db: float, width: int = 24) -> Text:
     return Text(bar, style=color)
 
 
-def _render(state: RenderState) -> Layout:
-    layout = Layout()
-    layout.split_column(
-        Layout(name="header", size=3),
-        Layout(name="main"),
-        Layout(name="footer", size=8),
-    )
-
-    # Header.
-    header_text = Text()
-    header_text.append("huske ", style="bold cyan")
-    header_text.append(f"{__version__}  ", style="cyan")
-    header_text.append(f"session {state.session_id[-12:]}  ", style="dim")
-    header_text.append(
-        f"→ {state.output_root}" if state.output_root else "",
-        style="dim",
-    )
-    layout["header"].update(Panel(Align.left(header_text), border_style="cyan"))
-
-    # Main.
+def _render_running(state: RenderState) -> Panel:
     now = datetime.now().astimezone()
     elapsed = (
         (now - state.chunk_started_at).total_seconds()
@@ -76,7 +57,11 @@ def _render(state: RenderState) -> Layout:
         if state.next_rotation_at
         else 0.0
     )
-    indicator = Text("● RECORDING", style="bold red") if state.recording else Text("○ idle", style="dim")
+    indicator = (
+        Text("● RECORDING", style="bold red")
+        if state.recording
+        else Text("○ idle", style="dim")
+    )
     main_table = Table.grid(padding=(0, 2))
     main_table.add_column(justify="left", no_wrap=True)
     main_table.add_column(justify="left")
@@ -93,7 +78,6 @@ def _render(state: RenderState) -> Layout:
         Text(f"in {_fmt_duration(countdown)}", style="white"),
     )
 
-    # Levels.
     if len(state.peak_levels) >= 1:
         main_table.add_row(
             Text("mic level", style="dim"),
@@ -115,7 +99,6 @@ def _render(state: RenderState) -> Layout:
         Text("queue", style="dim"),
         Text(f"{state.queue_depth} transcription(s) pending", style="white"),
     )
-
     last_saved = (
         Text(str(state.last_saved), style="green")
         if state.last_saved
@@ -124,17 +107,91 @@ def _render(state: RenderState) -> Layout:
     main_table.add_row(Text("last saved", style="dim"), last_saved)
 
     warnings_block: list[Text] = []
-    for key, msg in state.warnings.items():
+    for _key, msg in state.warnings.items():
         warnings_block.append(Text(f"⚠  {msg}", style="yellow"))
 
-    main_group: list[object] = [main_table]
+    parts: list[object] = [main_table]
     if warnings_block:
-        main_group.append(Text(""))
-        main_group.extend(warnings_block)
+        parts.append(Text(""))
+        parts.extend(warnings_block)
 
-    layout["main"].update(
-        Panel(Group(*main_group), title="status", border_style="white", padding=(1, 2))
+    return Panel(Group(*parts), title="status", border_style="white", padding=(1, 2))
+
+
+def _render_stopping(state: RenderState) -> Panel:
+    indicator = Text("◐ STOPPING", style="bold yellow")
+    if state.queue_depth > 0:
+        sub = Text(
+            f"transcribing {state.queue_depth} chunk(s)…", style="yellow"
+        )
+    else:
+        sub = Text("finalizing…", style="yellow")
+
+    main_table = Table.grid(padding=(0, 2))
+    main_table.add_column(justify="left", no_wrap=True)
+    main_table.add_column(justify="left")
+    main_table.add_row(indicator, sub)
+    main_table.add_row(
+        Text("queue", style="dim"),
+        Text(f"{state.queue_depth} pending", style="yellow"),
     )
+    last_saved = (
+        Text(str(state.last_saved), style="green")
+        if state.last_saved
+        else Text("(none yet)", style="dim")
+    )
+    main_table.add_row(Text("last saved", style="dim"), last_saved)
+
+    hints = [
+        Text(""),
+        Text(
+            "Wait for drain to finish — Ctrl+C again has no effect.",
+            style="dim",
+        ),
+        Text(
+            "If you must kill: `kill -9` then `huske recover` reclaims orphans.",
+            style="dim",
+        ),
+    ]
+
+    warnings_block: list[Text] = []
+    for _key, msg in state.warnings.items():
+        warnings_block.append(Text(f"⚠  {msg}", style="yellow"))
+
+    parts: list[object] = [main_table, *hints]
+    if warnings_block:
+        parts.append(Text(""))
+        parts.extend(warnings_block)
+
+    return Panel(
+        Group(*parts), title="stopping", border_style="yellow", padding=(1, 2)
+    )
+
+
+def _render(state: RenderState) -> Layout:
+    layout = Layout()
+    layout.split_column(
+        Layout(name="header", size=3),
+        Layout(name="main"),
+        Layout(name="footer", size=8),
+    )
+
+    # Header.
+    header_text = Text()
+    header_text.append("huske ", style="bold cyan")
+    header_text.append(f"{__version__}  ", style="cyan")
+    header_text.append(f"session {state.session_id[-12:]}  ", style="dim")
+    header_text.append(
+        f"→ {state.output_root}" if state.output_root else "",
+        style="dim",
+    )
+    layout["header"].update(Panel(Align.left(header_text), border_style="cyan"))
+
+    # Main.
+    if state.stopping:
+        layout["main"].update(_render_stopping(state))
+    else:
+        layout["main"].update(_render_running(state))
 
     # Footer — events.
     events_table = Table.grid(padding=(0, 1))

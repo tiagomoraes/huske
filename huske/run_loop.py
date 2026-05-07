@@ -163,34 +163,34 @@ def run_session(
     state.update(recording=True)
 
     exit_code = 0
-    try:
-        if cfg.no_ui:
-            _print(f"[huske] recording — Ctrl+C to stop. transcripts → {cfg.output_root}")
-            _main_loop(
-                cfg, state, rotator, capture, worker, stop_flag, log,
-                on_result, ui=None,
-            )
-        else:
-            with LiveUI(state) as ui:
-                _main_loop(
-                    cfg, state, rotator, capture, worker, stop_flag, log,
-                    on_result, ui=ui,
-                )
-    except Exception as exc:  # noqa: BLE001
-        log.error("run_failed", error=str(exc))
-        exit_code = 1
-    finally:
-        # Graceful stop.
+
+    def _session_loop(ui: LiveUI | None) -> None:
+        # Phase 1: normal recording — runs until Ctrl+C / SIGTERM sets stop_flag.
+        _main_loop(
+            cfg, state, rotator, capture, worker, stop_flag, log,
+            on_result, ui=ui,
+        )
+
+        # Phase 2: stopping. Keep the UI alive while we drain.
+        state.update(recording=False, stopping=True)
+        if ui is not None:
+            ui.update()
+
         on_event("info", "stopping capture…")
         capture.stop()
         rotator.finalize_current()
-        state.update(recording=False)
+        if ui is not None:
+            ui.update()
 
-        # Drain pending transcriptions.
         with pending_lock:
             pending_count = len(pending_chunks)
         on_event("info", f"draining {pending_count} transcription(s)…")
+        state.update(queue_depth=worker.queue_depth)
+        if ui is not None:
+            ui.update()
+
         deadline = time.monotonic() + 600.0  # 10 min hard cap
+        last_ui_update = 0.0
         while True:
             with pending_lock:
                 if not pending_chunks:
@@ -198,29 +198,50 @@ def run_session(
             if time.monotonic() >= deadline:
                 on_event("error", "drain timed out")
                 break
-            result = worker.poll_result(timeout=1.0)
-            if result is None:
-                if not worker.alive:
-                    on_event("error", "worker exited unexpectedly")
-                    break
-                continue
-            seq = result["chunk_seq"]
-            on_result(seq)
-            if result["ok"]:
-                state.update(
-                    last_saved=Path(result["transcript_path"]),
-                    queue_depth=max(0, worker.queue_depth),
-                )
-                on_event(
-                    "info",
-                    f"chunk {seq:03d} → {Path(result['transcript_path']).name}",
-                )
-            else:
-                on_event("error", f"chunk {seq:03d} failed: {result['error'].splitlines()[0]}")
+            result = worker.poll_result(timeout=0.1)
+            if result is not None:
+                seq = result["chunk_seq"]
+                on_result(seq)
+                if result["ok"]:
+                    state.update(last_saved=Path(result["transcript_path"]))
+                    on_event(
+                        "info",
+                        f"chunk {seq:03d} → {Path(result['transcript_path']).name}",
+                    )
+                else:
+                    on_event(
+                        "error",
+                        f"chunk {seq:03d} failed: {result['error'].splitlines()[0]}",
+                    )
+            elif not worker.alive:
+                on_event("error", "worker exited unexpectedly")
+                break
 
+            now = time.monotonic()
+            if now - last_ui_update >= 0.25:
+                state.update(queue_depth=worker.queue_depth)
+                if ui is not None:
+                    ui.update()
+                last_ui_update = now
+
+        # Final UI update so the user sees "0 pending" before we tear down.
+        state.update(queue_depth=0)
+        if ui is not None:
+            ui.update()
+
+    try:
+        if cfg.no_ui:
+            _print(f"[huske] recording — Ctrl+C to stop. transcripts → {cfg.output_root}")
+            _session_loop(ui=None)
+        else:
+            with LiveUI(state) as live:
+                _session_loop(ui=live)
+    except Exception as exc:  # noqa: BLE001
+        log.error("run_failed", error=str(exc))
+        exit_code = 1
+    finally:
         worker.stop(drain_timeout=5.0)
         session.release_lock()
-        # Clean up session dir if empty.
         cleanup_session_dir(session.audio_root)
         session.state = SessionState.STOPPED
         log.info("stopped")
