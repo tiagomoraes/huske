@@ -9,7 +9,7 @@
 ## Prerequisites
 
 - **macOS 13 (Ventura) or newer** on Apple Silicon.
-- **Python 3.11 or 3.12** (3.13 not yet supported by faster-whisper wheels at the time of writing).
+- **Python 3.11, 3.12, or 3.13**.
 - ~3 GB free disk for the default `base` Whisper model.
 
 That's it. **No BlackHole, no Aggregate Device, no Audio MIDI Setup.**

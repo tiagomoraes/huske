@@ -30,3 +30,17 @@ Thumbs.db
 # Local data
 .env
 .env.local
+.env.*
+!.env.example
+
+# Generated recordings, transcripts, logs, and model/cache data
+audio/
+transcripts/
+logs/
+models/
+*.wav
+*.flac
+*.mp3
+*.m4a
+*.mp4
+*.mov

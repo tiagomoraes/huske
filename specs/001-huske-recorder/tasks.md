@@ -16,7 +16,7 @@ description: "Implementation task list for Huske — Always-On Terminal Audio Re
 
 - **[P]**: Can run in parallel (different files, no dependencies on incomplete tasks)
 - **[Story]**: User story this task belongs to (`[US1]`, `[US2]`, `[US3]`). Setup, Foundational, and Polish phases have no story label.
-- All file paths are absolute repo-relative (repo root is `/Users/tiagomoraes/code/huske/`).
+- All file paths are repo-relative from the repository root.
 
 ---
 

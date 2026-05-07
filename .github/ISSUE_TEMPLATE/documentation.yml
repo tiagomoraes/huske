@@ -1,0 +1,28 @@
+name: Documentation
+description: Report unclear, missing, or outdated documentation.
+title: "docs: "
+body:
+  - type: input
+    id: page
+    attributes:
+      label: Page or section
+      placeholder: "README.md#quickstart"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is unclear or missing?
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested change
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy checklist
+      options:
+        - label: This report does not include real audio, transcripts, private logs, credentials, or private paths.
+          required: true

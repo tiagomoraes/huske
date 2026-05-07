@@ -1,0 +1,66 @@
+name: Bug report
+description: Report a reproducible problem with huske.
+title: "fix: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not attach real audio, transcripts, private logs, credentials, or screenshots with private content.
+  - type: input
+    id: version
+    attributes:
+      label: huske version or commit
+      placeholder: "0.1.0 or commit SHA"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      placeholder: "macOS 14.5, Apple Silicon, Python 3.12"
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command or workflow
+      description: Include the exact command and relevant config with private values removed.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Use synthetic or redacted data.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Paste redacted `huske doctor` output or tracebacks only.
+      render: shell
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy checklist
+      options:
+        - label: I removed real audio, transcripts, private logs, names, credentials, and private paths.
+          required: true
