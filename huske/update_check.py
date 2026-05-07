@@ -218,22 +218,28 @@ def _is_newer(latest: str, current: str) -> bool:
 def _detect_install_method() -> str:
     """Best-effort: ``uv``, ``pipx``, ``brew``, or ``unknown``.
 
-    Inspects ``sys.executable`` rather than the entry-point script. Tools
-    create a venv per package; the python interpreter inside that venv is
-    canonical and stable across symlink shims like ``~/.local/bin/huske``.
+    Inspects ``sys.executable`` *unresolved*. A venv created by ``uv tool``
+    or ``pipx`` has ``bin/python`` symlinked to a base interpreter — which on
+    macOS is often Homebrew Python. Resolving that symlink would point us
+    into ``/opt/homebrew/Cellar/python@…/…`` and misclassify a pipx/uv
+    install as brew. The unresolved path keeps the enclosing tool's directory
+    intact, which is exactly the signal we want.
+
+    Order matters: check uv/pipx markers before brew, so that a pipx venv
+    using Homebrew Python is still detected as pipx.
     """
     try:
-        exe = str(Path(sys.executable).resolve()).lower()
-    except OSError:
+        exe_raw = sys.executable or ""
+    except Exception:
         return "unknown"
-    exe_norm = exe.replace("\\", "/")
+    exe = exe_raw.replace("\\", "/").lower()
 
-    if "/cellar/" in exe_norm or "/homebrew/" in exe_norm or "/linuxbrew/" in exe_norm:
-        return "brew"
-    if "/uv/tools/" in exe_norm:
+    if "/uv/tools/" in exe:
         return "uv"
-    if "/pipx/" in exe_norm and "/venvs/" in exe_norm:
+    if "/pipx/" in exe and "/venvs/" in exe:
         return "pipx"
+    if "/cellar/" in exe or "/homebrew/" in exe or "/linuxbrew/" in exe:
+        return "brew"
     return "unknown"
 
 

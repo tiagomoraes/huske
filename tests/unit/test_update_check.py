@@ -74,6 +74,51 @@ def test_detect_install_method(
     assert update_check._detect_install_method() == expected
 
 
+def test_detect_install_method_uses_unresolved_path_for_pipx(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: a pipx venv whose ``bin/python`` symlinks to a Homebrew
+    Python must still be detected as pipx, not brew.
+
+    Earlier the detector called ``Path.resolve()`` on ``sys.executable``,
+    which followed the symlink into ``/opt/homebrew/Cellar/python@…/…`` and
+    misclassified the install. The detector must use the unresolved path so
+    the enclosing ``pipx/venvs`` directory is preserved.
+    """
+    target = tmp_path / "homebrew" / "Cellar" / "python@3.11" / "3.11.7" / "bin" / "python3.11"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    target.chmod(0o755)
+
+    venv_python = tmp_path / "pipx" / "venvs" / "huske" / "bin" / "python"
+    venv_python.parent.mkdir(parents=True, exist_ok=True)
+    venv_python.symlink_to(target)
+    # Sanity check: resolving really would have taken us into Cellar.
+    assert "Cellar" in str(venv_python.resolve())
+
+    monkeypatch.setattr(update_check.sys, "executable", str(venv_python))
+    assert update_check._detect_install_method() == "pipx"
+
+
+def test_detect_install_method_uses_unresolved_path_for_uv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same as the pipx case, for an ``uv tool`` install with a symlinked
+    base interpreter."""
+    target = tmp_path / "homebrew" / "Cellar" / "python@3.12" / "3.12.5" / "bin" / "python3.12"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    target.chmod(0o755)
+
+    venv_python = tmp_path / "uv" / "tools" / "huske" / "bin" / "python"
+    venv_python.parent.mkdir(parents=True, exist_ok=True)
+    venv_python.symlink_to(target)
+    assert "Cellar" in str(venv_python.resolve())
+
+    monkeypatch.setattr(update_check.sys, "executable", str(venv_python))
+    assert update_check._detect_install_method() == "uv"
+
+
 # ---------------------------------------------------------------------------
 # Cache round-trip
 # ---------------------------------------------------------------------------
