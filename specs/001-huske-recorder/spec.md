@@ -3,7 +3,7 @@
 **Feature Branch**: `001-huske-recorder`
 **Created**: 2026-05-07
 **Status**: Draft
-**Input**: User description: "Um aplicativo que roda no terminal e fica sempre gravando o que vc tá falando e o audio do computador. Usa um modelo local tipo whisper pra transcrever esse audio. A gente pode dividir em chunks de 15 min, por exemplo. O objetivo é que eu consiga ter uma base de conhecimento do que eu fiz ao longo do dia no meu computador, e que eu possa integrar ela com um LLM, tipo o claude cowork local, para que de pra fazer perguntas sobre o dia, pro claude cowork fazer schedule de coisas, tipo criar todos no mcp do todoist, etc. Ao fim de um chunk desse, a transcrição só precisa ser salva dentro de um diretório especifico do computador que o calude coworm tem acesso, num primeiro momento. De forma organizada isso, por pastas por dia, label de horário da transcrição, etc. essa primeira versão do app o foco é no sistema que vai rodar no terminal e, enquanto ele tiver rodando vai gravando sem parar e a cada 15 min vai disparando as transcrições, mas continua rodando. Isso pode rodar no terminal, com uma interface bonitinha. O nome do app pode ser 'huske' que é lembra em norueguês."
+**Input**: Build a terminal app named `huske` that continuously records microphone and system audio, transcribes it locally with a Whisper-class model, splits work into configurable chunks, and writes organized Markdown transcripts for later LLM-assisted review.
 
 ## Overview
 

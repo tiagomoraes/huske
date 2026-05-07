@@ -8,14 +8,14 @@ version = "0.1.0"
 description = "Always-on terminal audio recorder + local transcription (Whisper)"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Tiago Moraes" }]
 keywords = ["audio", "transcription", "whisper", "terminal", "tui"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: MacOS",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
@@ -37,6 +37,12 @@ dependencies = [
     "pyobjc-framework-ScreenCaptureKit>=10; sys_platform == 'darwin'",
     "pyobjc-framework-CoreMedia>=10; sys_platform == 'darwin'",
 ]
+
+[project.urls]
+Homepage = "https://github.com/tiagomoraes/huske"
+Repository = "https://github.com/tiagomoraes/huske"
+Issues = "https://github.com/tiagomoraes/huske/issues"
+Changelog = "https://github.com/tiagomoraes/huske/blob/develop/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [

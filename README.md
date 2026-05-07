@@ -1,5 +1,8 @@
 # huske
 
+[![CI](https://github.com/tiagomoraes/huske/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/tiagomoraes/huske/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 > *huske* — Norwegian for "to remember"
 
 A terminal app that runs in the background, continuously records your microphone
@@ -39,8 +42,8 @@ it about your day.
 
 ## Requirements
 
-- macOS 13 (Ventura) or newer on Apple Silicon.
-- Python 3.11 or 3.12.
+- macOS 13 (Ventura) or newer. Apple Silicon is the primary target.
+- Python 3.11, 3.12, or 3.13.
 
 ## Quickstart
 
@@ -64,14 +67,41 @@ system audio. After approving once, it's silent forever.
 
 See [quickstart.md](specs/001-huske-recorder/quickstart.md) for the full setup.
 
+## Privacy and consent
+
+huske is local-first: audio capture and transcription run on your machine, and
+the app writes transcripts to your configured filesystem path. That does not
+make the data low-risk. Recordings, transcripts, logs, filenames, and device
+metadata can contain private or legally sensitive information.
+
+- Get consent before recording other people or regulated conversations.
+- Do not commit generated audio, transcripts, logs, local configs, model caches,
+  or screenshots containing private content.
+- Redact `huske doctor` output before sharing it publicly.
+- Report security or privacy vulnerabilities privately through
+  [SECURITY.md](SECURITY.md).
+
 ## Documentation
 
+- [Development](docs/development.md) — local setup, checks, and test strategy.
+- [Contributing](CONTRIBUTING.md) — how to open issues and pull requests.
+- [Issue triage](docs/issue-triage.md) — labels and maintainer workflow.
+- [Release checklist](docs/releasing.md) — release preparation notes.
 - [Spec](specs/001-huske-recorder/spec.md) — what huske does and why.
 - [Plan](specs/001-huske-recorder/plan.md) — technical context and architecture.
 - [CLI contract](specs/001-huske-recorder/contracts/cli.md) — flags, exit codes.
 - [Transcript format contract](specs/001-huske-recorder/contracts/transcript-format.md) — the LLM-consumer interface.
 - [Quickstart](specs/001-huske-recorder/quickstart.md) — end-to-end setup.
 
+## Community
+
+- Follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+- Use issue templates for bugs, features, and documentation reports.
+- Use the [pull request template](.github/PULL_REQUEST_TEMPLATE.md) and include
+  the exact checks you ran.
+- For help, see [SUPPORT.md](SUPPORT.md).
+
 ## License
 
-MIT.
+huske is released under the [MIT License](LICENSE). Third-party notices are in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

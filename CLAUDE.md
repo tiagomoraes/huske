@@ -1,29 +1,51 @@
 # huske Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-05-07
+This file gives AI coding agents a concise project map. Public contribution
+rules live in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Active Technologies
+## Project Shape
 
-- Python 3.11+ (pattern matching, asyncio Task groups, faster typing). (001-huske-recorder)
+- Python CLI/TUI package in `huske/`.
+- Unit and integration tests in `tests/`.
+- Product specs and contracts in `specs/001-huske-recorder/`.
+- Public contributor documentation in `README.md`, `CONTRIBUTING.md`, and
+  `docs/`.
 
-## Project Structure
+## Core Commands
 
-```text
-src/
-tests/
+```bash
+pytest tests/unit
+pytest tests/integration/test_pipeline_no_whisper.py tests/integration/test_smoke.py
 ```
 
-## Commands
+Additional local quality checks:
 
-cd src [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLOGIES] pytest [ONLY COMMANDS FOR ACTIVE TECHNOLOGIES][ONLY COMMANDS FOR ACTIVE TECHNOLOGIES] ruff check .
+```bash
+ruff check .
+mypy huske
+```
 
-## Code Style
+Ruff and Mypy are configured but not CI gates yet; report existing baseline
+failures instead of broad cleanup unless the task is specifically about lint or
+typing.
 
-Python 3.11+ (pattern matching, asyncio Task groups, faster typing).: Follow standard conventions
+Optional integration checks:
 
-## Recent Changes
+```bash
+pytest tests/integration/test_system_audio.py
+pytest tests/integration/test_real_whisper.py
+```
 
-- 001-huske-recorder: Added Python 3.11+ (pattern matching, asyncio Task groups, faster typing).
+## Privacy Rules
 
-<!-- MANUAL ADDITIONS START -->
-<!-- MANUAL ADDITIONS END -->
+- Never commit generated audio, transcripts, logs, local config, model caches,
+  credentials, or screenshots containing private content.
+- Use synthetic audio and redacted paths in tests and examples.
+- Treat `huske doctor` output as potentially sensitive.
+
+## Implementation Notes
+
+- Preserve the local architecture: capture, chunking, transcription, recovery,
+  and UI are separate modules.
+- Prefer focused patches and tests over broad refactors.
+- Keep user-facing docs, examples, and specs aligned when behavior changes.

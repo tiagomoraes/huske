@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security or privacy vulnerability
+    url: https://github.com/tiagomoraes/huske/security/advisories/new
+    about: Please report vulnerabilities privately.
+  - name: Support policy
+    url: https://github.com/tiagomoraes/huske/blob/develop/SUPPORT.md
+    about: Read what information helps maintainers respond.
