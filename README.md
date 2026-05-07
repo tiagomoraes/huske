@@ -48,11 +48,9 @@ it about your day.
 ## Quickstart
 
 ```bash
-# 1. Install
-uv tool install huske
-
-# pipx works too:
-# pipx install huske
+# 1. Install with Homebrew (recommended on Apple Silicon macOS)
+brew tap tiagomoraes/huske
+brew install huske
 
 # 2. Validate setup (will prompt for Screen Recording permission on first run)
 huske doctor
@@ -62,6 +60,15 @@ huske run
 
 # 4. Reclaim orphans from a prior crash without recording
 huske recover
+```
+
+Python tool installers work too:
+
+```bash
+uv tool install huske
+
+# or:
+pipx install huske
 ```
 
 On first launch macOS will prompt you to grant **Screen Recording** permission
