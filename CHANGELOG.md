@@ -6,6 +6,10 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+- Nothing yet.
+
+## 0.2.0 - 2026-05-07
+
 ### Added
 
 - Update check on startup. Prints a stderr banner when a newer release is on
