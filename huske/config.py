@@ -16,9 +16,29 @@ else:  # pragma: no cover - older Pythons
 
 
 ModelSize = Literal["tiny", "base", "small", "medium", "large-v3"]
+# Kept for back-compat with existing config files. `compute_type` and `device`
+# were CTranslate2 knobs; the mlx-whisper backend always runs fp16 on Metal.
+# We accept and store them but the worker only honors `float32` to opt out of fp16.
 ComputeType = Literal["int8", "int8_float16", "float16", "float32"]
 Device = Literal["auto", "cpu", "cuda"]
 SystemAudioBackend = Literal["auto", "tap", "sck", "off"]
+
+
+_MLX_WHISPER_REPO_BY_SIZE: dict[str, str] = {
+    "tiny": "mlx-community/whisper-tiny-mlx",
+    "base": "mlx-community/whisper-base-mlx",
+    "small": "mlx-community/whisper-small-mlx",
+    "medium": "mlx-community/whisper-medium-mlx",
+    "large-v3": "mlx-community/whisper-large-v3-mlx",
+}
+
+
+def mlx_whisper_repo(model_size: str) -> str:
+    """Return the HF repo id mlx-whisper should load for ``model_size``."""
+    try:
+        return _MLX_WHISPER_REPO_BY_SIZE[model_size]
+    except KeyError as exc:  # pragma: no cover — Pydantic Literal already guards
+        raise ValueError(f"unknown model size: {model_size}") from exc
 
 
 class RuntimeConfig(BaseModel):

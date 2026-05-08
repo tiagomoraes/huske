@@ -98,7 +98,8 @@ pytest tests/integration/test_real_whisper.py
 ```
 
 `test_system_audio.py` needs macOS Screen Recording permission.
-`test_real_whisper.py` downloads and runs the `tiny` faster-whisper model.
+`test_real_whisper.py` downloads and runs the `tiny` mlx-whisper model
+(Apple Silicon only — skipped on other platforms).
 
 ## Release Process for Agents
 

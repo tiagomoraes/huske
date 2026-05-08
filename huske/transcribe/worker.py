@@ -1,19 +1,18 @@
 """Transcription worker subprocess.
 
-Why a subprocess? faster-whisper holds the GIL while doing CPU/Metal-bound
-inference; running it in-process would starve the audio drainer thread.
+Why a subprocess? mlx-whisper does Metal-bound inference that releases the
+GIL, but the model loads (~hundreds of MB to GPU) and audio decoding happen
+on the Python side and would still hitch the audio drainer if run in-process.
+A spawn subprocess also keeps the worker's MLX state isolated from PortAudio
+in the parent.
 """
 
 from __future__ import annotations
 
 import multiprocessing as mp
-import os
 import queue
-import sys
 import traceback
-from dataclasses import asdict, dataclass
-from datetime import datetime
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -58,18 +57,15 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
     from datetime import datetime as _dt
     from pathlib import Path as _Path
 
-    from faster_whisper import WhisperModel
+    import mlx_whisper
 
-    from huske.config import RuntimeConfig
-    from huske.paths import day_folder, transcript_filename
+    from huske.config import mlx_whisper_repo
     from huske.models import AudioChunk
+    from huske.paths import transcript_filename
     from huske.transcribe.writer import (
         build_transcript_from_segments,
         write_transcript,
     )
-
-    model: WhisperModel | None = None
-    model_signature: tuple[str, str, str] | None = None
 
     while True:
         msg = in_q.get()
@@ -79,44 +75,41 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
             continue
         job_data = msg
         try:
-            sig = (
-                job_data["config_model"],
-                job_data["config_compute_type"],
-                job_data["config_device"],
-            )
-            if model is None or sig != model_signature:
-                device_arg = sig[2] if sig[2] != "auto" else "auto"
-                # faster-whisper picks auto by inspecting hardware.
-                model = WhisperModel(
-                    sig[0],
-                    compute_type=sig[1],
-                    device="cpu" if device_arg == "cpu" else "auto",
-                )
-                model_signature = sig
+            model_size = job_data["config_model"]
+            hf_repo = mlx_whisper_repo(model_size)
+            # Map legacy CTranslate2 compute_type to mlx fp16 on/off. Anything
+            # other than float32 stays on the fp16 default — that's the only
+            # knob mlx-whisper exposes here.
+            fp16 = job_data.get("config_compute_type") != "float32"
 
             audio_path = job_data["audio_path"]
             language = job_data["language"]
             transcribe_kwargs: dict[str, Any] = {
-                "beam_size": 5,
-                "vad_filter": True,
+                "path_or_hf_repo": hf_repo,
+                "fp16": fp16,
+                "verbose": None,
             }
             if language:
                 transcribe_kwargs["language"] = language
 
-            segments_iter, info = model.transcribe(audio_path, **transcribe_kwargs)
+            # mlx-whisper caches the loaded model across calls via ModelHolder,
+            # so the first job pays the load cost and subsequent jobs reuse it.
+            result = mlx_whisper.transcribe(audio_path, **transcribe_kwargs)
+
             seg_list: list[dict] = []
             text_parts: list[str] = []
-            for seg in segments_iter:
-                text = seg.text.strip()
+            for seg in result.get("segments") or []:
+                text = (seg.get("text") or "").strip()
                 seg_list.append(
                     {
-                        "start": float(seg.start),
-                        "end": float(seg.end),
+                        "start": float(seg.get("start", 0.0)),
+                        "end": float(seg.get("end", 0.0)),
                         "text": text,
                     }
                 )
-                text_parts.append(text)
-            body = "\n\n".join(p for p in text_parts if p)
+                if text:
+                    text_parts.append(text)
+            body = "\n\n".join(text_parts)
 
             start_time = _dt.fromisoformat(job_data["start_time"])
             end_time = _dt.fromisoformat(job_data["end_time"])
@@ -130,8 +123,8 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
                 actual_duration_seconds=job_data["actual_duration_seconds"],
                 gap_seconds=job_data["gap_seconds"],
                 audio_sources=job_data["audio_sources"],
-                model=f"faster-whisper:{sig[0]}",
-                language=info.language or "auto",
+                model=f"mlx-whisper:{model_size}",
+                language=result.get("language") or language or "auto",
                 incomplete=job_data["incomplete"],
                 text=body,
                 segments=seg_list or None,

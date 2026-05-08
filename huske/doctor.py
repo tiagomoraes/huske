@@ -70,14 +70,22 @@ def run_doctor(
     # huske version.
     checks.append(Check("huske version", True, __version__))
 
-    # faster-whisper importable.
+    # mlx-whisper importable.
     try:
-        import faster_whisper  # noqa: F401
+        import importlib.metadata as _md
 
-        checks.append(Check("faster-whisper", True, faster_whisper.__version__))
+        import mlx_whisper  # noqa: F401
+
+        version = _md.version("mlx-whisper")
+        checks.append(Check("mlx-whisper", True, version))
     except Exception as exc:  # noqa: BLE001
         checks.append(
-            Check("faster-whisper", False, str(exc), "pip install faster-whisper")
+            Check(
+                "mlx-whisper",
+                False,
+                str(exc),
+                "pip install 'mlx-whisper>=0.4' (Apple Silicon Mac only).",
+            )
         )
 
     # Model cached check (does not download — we attempt to load only at run time).
