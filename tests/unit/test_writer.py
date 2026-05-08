@@ -146,6 +146,48 @@ def test_body_from_source_segments_groups_adjacent_same_source() -> None:
     assert body == expected
 
 
+def test_body_from_source_segments_empty_text_does_not_split_run() -> None:
+    chunk_start = datetime(2026, 5, 7, 14, 30, 0, tzinfo=timezone.utc)
+    segments = [
+        {"start": 0.0, "end": 2.0, "text": "Primeira parte.", "source": "system"},
+        {"start": 2.0, "end": 3.0, "text": "   ", "source": "microphone"},
+        {"start": 3.0, "end": 5.0, "text": "Continuação.", "source": "system"},
+    ]
+    body = body_from_source_segments(chunk_start, segments)
+    assert body == "[14:30:00 · system] Primeira parte. Continuação."
+
+
+def test_body_from_source_segments_breaks_long_same_source_run() -> None:
+    chunk_start = datetime(2026, 5, 7, 14, 30, 0, tzinfo=timezone.utc)
+    segments = [
+        {"start": 0.0, "end": 5.0, "text": "Início.", "source": "system"},
+        {"start": 60.0, "end": 65.0, "text": "Meio.", "source": "system"},
+        {"start": 95.0, "end": 100.0, "text": "Depois.", "source": "system"},
+    ]
+    body = body_from_source_segments(chunk_start, segments)
+    expected = (
+        "[14:30:00 · system] Início. Meio.\n\n"
+        "[14:31:35 · system] Depois."
+    )
+    assert body == expected
+
+
+def test_body_from_source_segments_empty_source_does_not_merge_with_neighbors() -> None:
+    chunk_start = datetime(2026, 5, 7, 14, 30, 0, tzinfo=timezone.utc)
+    segments = [
+        {"start": 0.0, "end": 2.0, "text": "Primeira.", "source": "system"},
+        {"start": 2.0, "end": 3.0, "text": "Sem fonte.", "source": ""},
+        {"start": 3.0, "end": 5.0, "text": "Segunda.", "source": "system"},
+    ]
+    body = body_from_source_segments(chunk_start, segments)
+    expected = (
+        "[14:30:00 · system] Primeira.\n\n"
+        "[14:30:02 · ] Sem fonte.\n\n"
+        "[14:30:03 · system] Segunda."
+    )
+    assert body == expected
+
+
 def test_body_from_source_segments_skips_empty_text() -> None:
     chunk_start = datetime(2026, 5, 7, 14, 30, 0, tzinfo=timezone.utc)
     segments = [
