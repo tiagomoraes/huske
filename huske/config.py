@@ -18,6 +18,7 @@ else:  # pragma: no cover - older Pythons
 ModelSize = Literal["tiny", "base", "small", "medium", "large-v3"]
 ComputeType = Literal["int8", "int8_float16", "float16", "float32"]
 Device = Literal["auto", "cpu", "cuda"]
+SystemAudioBackend = Literal["auto", "tap", "sck", "off"]
 
 
 class RuntimeConfig(BaseModel):
@@ -47,6 +48,14 @@ class RuntimeConfig(BaseModel):
 
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     no_ui: bool = False
+
+    # Backend used to capture system audio on macOS.
+    #   auto: Core Audio tap on macOS 14.4+ (resilient to screen-share
+    #         conflicts), ScreenCaptureKit on older macOS.
+    #   tap : force Core Audio tap (errors on unsupported macOS).
+    #   sck : force ScreenCaptureKit (the legacy backend).
+    #   off : disable system audio capture entirely (mic-only).
+    system_audio_backend: SystemAudioBackend = "auto"
 
     @field_validator("output_root", "audio_root", "logs_root", mode="before")
     @classmethod

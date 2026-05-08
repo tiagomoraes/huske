@@ -57,6 +57,11 @@ def run(
     config_path: Optional[Path] = typer.Option(None, "--config"),
     log_level: str = typer.Option("INFO", "--log-level"),
     no_ui: bool = typer.Option(False, "--no-ui"),
+    system_audio_backend: Optional[str] = typer.Option(
+        None,
+        "--system-audio-backend",
+        help="System audio backend: auto (default), tap, sck, off.",
+    ),
 ) -> None:
     """Start a recording session. Press Ctrl+C or 'q' to stop."""
     from huske.run_loop import run_session
@@ -73,6 +78,7 @@ def run(
         keep_audio=keep_audio,
         log_level=log_level,
         no_ui=no_ui,
+        system_audio_backend=system_audio_backend,
     )
     raise typer.Exit(run_session(config_path=config_path, cli_overrides=cli_overrides))
 
