@@ -128,6 +128,24 @@ def test_body_from_source_segments_inline_format() -> None:
     assert body == expected
 
 
+def test_body_from_source_segments_groups_adjacent_same_source() -> None:
+    chunk_start = datetime(2026, 5, 7, 14, 30, 0, tzinfo=timezone.utc)
+    segments = [
+        {"start": 0.0, "end": 4.0, "text": "Olá, vamos começar.", "source": "system"},
+        {"start": 4.0, "end": 7.0, "text": "Hoje queria revisar.", "source": "system"},
+        {"start": 7.5, "end": 9.0, "text": "Oi, tudo certo.", "source": "microphone"},
+        {"start": 10.0, "end": 12.0, "text": "Voltando ao roadmap.", "source": "system"},
+        {"start": 12.0, "end": 14.0, "text": "Temos três pontos.", "source": "system"},
+    ]
+    body = body_from_source_segments(chunk_start, segments)
+    expected = (
+        "[14:30:00 · system] Olá, vamos começar. Hoje queria revisar.\n\n"
+        "[14:30:07 · mic] Oi, tudo certo.\n\n"
+        "[14:30:10 · system] Voltando ao roadmap. Temos três pontos."
+    )
+    assert body == expected
+
+
 def test_body_from_source_segments_skips_empty_text() -> None:
     chunk_start = datetime(2026, 5, 7, 14, 30, 0, tzinfo=timezone.utc)
     segments = [
