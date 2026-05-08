@@ -35,6 +35,9 @@ def main(
     ),
 ) -> None:
     """huske — always-on audio recorder + local transcription."""
+    from huske.update_check import notify_if_outdated
+
+    notify_if_outdated()
     if ctx.invoked_subcommand is None:
         # Default subcommand is `run`.
         ctx.invoke(run)

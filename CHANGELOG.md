@@ -8,6 +8,17 @@ This project uses semantic versioning after the first public release.
 
 - Nothing yet.
 
+## 0.2.0 - 2026-05-07
+
+### Added
+
+- Update check on startup. Prints a stderr banner when a newer release is on
+  PyPI, with the upgrade command tailored to the install method
+  (`uv tool upgrade huske`, `pipx upgrade huske`, or `brew upgrade huske`).
+  The check is cached for 24 h, runs in a background thread, is silent for
+  editable installs and non-TTY stderr, and can be disabled with
+  `HUSKE_NO_UPDATE_CHECK=1`.
+
 ## 0.1.0
 
 ### Added

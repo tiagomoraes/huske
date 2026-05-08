@@ -272,9 +272,12 @@ release, and publishes them to PyPI through trusted publishing.
 ## PyPI Trusted Publishing
 
 PyPI publishing uses GitHub Actions trusted publishing, so no PyPI API token is
-stored in GitHub.
+stored in GitHub. The `huske` PyPI project was created during the `v0.1.0`
+release and is configured for the `release.yml` workflow in the GitHub
+environment named `pypi`.
 
-Before the first PyPI release, add a pending publisher in PyPI:
+If the PyPI project ever has to be recreated, add a pending publisher in PyPI
+before publishing:
 
 - PyPI project name: `huske`
 - Owner: `tiagomoraes`
@@ -286,10 +289,77 @@ If the PyPI publisher is configured after the GitHub release is created, rerun
 the failed `Publish to PyPI` job or manually run the `Release` workflow with
 `publish_pypi` enabled from the `vX.Y.Z` tag.
 
+After the workflow publishes, verify the package before updating Homebrew:
+
+```bash
+python -m venv /tmp/huske-pypi-check
+/tmp/huske-pypi-check/bin/python -m pip install --upgrade pip
+/tmp/huske-pypi-check/bin/python -m pip install "huske==$VERSION"
+/tmp/huske-pypi-check/bin/huske --version
+```
+
 ## Homebrew
 
 Homebrew releases are maintained from the `tiagomoraes/homebrew-huske` tap after
-the matching PyPI release exists.
+the matching PyPI release exists. Users install it with:
+
+```bash
+brew tap tiagomoraes/huske
+brew install huske
+```
+
+Homebrew maps the tap name `tiagomoraes/huske` to the repository
+`tiagomoraes/homebrew-huske`.
+
+Update the tap after PyPI verification:
+
+```bash
+VERSION=0.2.0
+brew tap tiagomoraes/huske
+cd "$(brew --repo tiagomoraes/huske)"
+git pull --ff-only
+```
+
+Update `Formula/huske.rb`:
+
+1. Change the stable `url` to the new PyPI sdist URL.
+2. Change `sha256` to the new sdist hash.
+3. Refresh Python `resource` blocks from the exact PyPI dependency set.
+4. Preserve the custom `install` method. Do not replace it with plain
+   `virtualenv_install_with_resources`.
+
+The formula intentionally installs most Python dependencies from pinned wheels
+because several transitive packages publish macOS platform wheels. The `av`
+resource is intentionally an sdist and is built against Homebrew `ffmpeg`; the
+PyAV wheels vendor dynamic libraries that do not relocate cleanly in Homebrew.
+Keep the `pkgconf`, `ffmpeg`, `cython`, and `build_isolation: false` behavior
+unless the formula has been retested without it.
+
+A structured pip report is the easiest source for resource URLs and hashes:
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install --dry-run --ignore-installed \
+  --report /tmp/huske-pip-report.json "huske==$VERSION"
+```
+
+Validate the tap locally:
+
+```bash
+brew style Formula/huske.rb
+brew audit --strict --online tiagomoraes/huske/huske
+brew install --build-from-source tiagomoraes/huske/huske
+brew test tiagomoraes/huske/huske
+huske --version
+```
+
+Commit and push the tap:
+
+```bash
+git add Formula/huske.rb README.md
+git commit -m "Update huske to v$VERSION"
+git push
+```
 
 ## Post-release
 
@@ -297,10 +367,12 @@ the matching PyPI release exists.
 2. Confirm the tag commit is contained in `origin/main`.
 3. Confirm `develop` contains the release commit.
 4. Confirm the release workflow succeeded or record the failed publishing step.
-5. Confirm the PyPI project page is live after the first trusted publish.
-6. Confirm the Homebrew tap points at the released version, when applicable.
-7. Announce the release wherever relevant.
-8. Open follow-up issues for anything intentionally deferred.
+5. Confirm the PyPI project page is live and `huske==$VERSION` installs.
+6. Confirm the Homebrew tap points at the released version and passes
+   `brew test`.
+7. Confirm the public install commands in `README.md` are still correct.
+8. Announce the release wherever relevant.
+9. Open follow-up issues for anything intentionally deferred.
 
 Helpful checks:
 
