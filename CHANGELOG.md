@@ -6,7 +6,15 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
-- Nothing yet.
+### Added
+
+- Optional periodic screenshots. `huske run --screenshots` captures a JPEG
+  of every attached display every 10 seconds (`--screenshot-interval`
+  configurable, default 10 s). Files land at
+  `~/huske/screenshots/YYYY-MM-DD/<session_id>/HHMMSS_dN.jpg` so multimodal
+  LLMs can correlate them with the day's transcripts. Capture uses the
+  built-in macOS `screencapture` tool — no new Python dependency, and it
+  reuses the existing Screen Recording permission. Off by default.
 
 ## 0.2.0 - 2026-05-07
 

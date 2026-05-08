@@ -104,6 +104,22 @@ def incomplete_root(cfg: "RuntimeConfig") -> Path:
     return cfg.audio_root / "incomplete"
 
 
+def screenshots_session_dir(
+    cfg: "RuntimeConfig", session_id: str, when: datetime
+) -> Path:
+    """Per-day, per-session screenshot directory.
+
+    ``~/huske/screenshots/YYYY-MM-DD/<session_id>/`` so downstream LLMs can
+    correlate screenshots with that day's transcripts by timestamp.
+    """
+    return cfg.screenshots_root / when.date().isoformat() / session_id
+
+
+def screenshot_filename(when: datetime, display_index: int) -> str:
+    """``HHMMSS_dN.jpg`` per the layout in the spec."""
+    return f"{when.strftime('%H%M%S')}_d{display_index}.jpg"
+
+
 def ensure_dirs(cfg: "RuntimeConfig", session_id: str) -> None:
     """Create the per-session directories. Idempotent."""
     cfg.output_root.mkdir(parents=True, exist_ok=True)

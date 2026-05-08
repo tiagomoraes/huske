@@ -34,3 +34,12 @@ log_level = "INFO"
 
 # Run without the Rich live UI (plain log lines instead).
 no_ui = false
+
+# Periodic screenshots — disabled by default. Captures a JPEG of every
+# attached display every `screenshots_interval_seconds` seconds. Files go to
+# `screenshots_root/YYYY-MM-DD/<session_id>/HHMMSS_dN.jpg`. Read the privacy
+# notes in README.md before enabling.
+# screenshots_enabled = true
+# screenshots_interval_seconds = 10.0
+# screenshots_root = "~/huske/screenshots"
+# screenshots_max_displays = 4
