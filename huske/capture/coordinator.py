@@ -348,16 +348,23 @@ class CaptureCoordinator:
 
             # Mic is our reference clock — its callback fires at a steady rate
             # (set by PortAudio's blocksize). System audio arrives irregularly,
-            # so we drain whatever's available alongside each mic tick.
+            # so we drain whatever's available alongside each mic tick and pad
+            # with trailing silence to keep the per-source WAVs frame-aligned
+            # on the same clock — otherwise a system source that starts late
+            # (or has a backend gap) would land at offset 0 in its WAV instead
+            # of at the wall-clock position when its audio actually arrived.
             if not self._mic_active:
-                # System-only fallback: drain at fixed cadence.
+                # System-only fallback: drain at fixed cadence (no mic clock to
+                # align to, so don't pad — first-block timing is ~50 ms accurate).
                 avail = min(self._sys_buf.available, block_frames)
                 if avail < block_frames // 4:
                     self._stop.wait(_MIXER_BLOCK_SECONDS)
                     continue
                 sys_part = self._sys_buf.take(avail)
                 if sys_part.size:
-                    self._sink.write_block(sys_part, source="system")
+                    self._sink.write_block(
+                        sys_part, source="system", now=datetime.now().astimezone()
+                    )
                 continue
 
             mic_avail = self._mic_buf.available
@@ -368,21 +375,35 @@ class CaptureCoordinator:
 
             mic_part = self._mic_buf.take(block_frames)
             sys_part = self._sys_buf.take(block_frames)
-
-            self._sink.write_block(mic_part, source="microphone")
-            if sys_part.size:
-                self._sink.write_block(sys_part, source="system")
+            self._emit_aligned_pair(mic_part, sys_part)
 
         # Drain remaining buffered audio on shutdown.
         while self._mic_buf.available > 0 or self._sys_buf.available > 0:
             mic_part = self._mic_buf.take(self._mic_buf.available)
             sys_part = self._sys_buf.take(self._sys_buf.available)
-            if mic_part.size:
-                self._sink.write_block(mic_part, source="microphone")
-            if sys_part.size:
-                self._sink.write_block(sys_part, source="system")
             if mic_part.size == 0 and sys_part.size == 0:
                 break
+            self._emit_aligned_pair(mic_part, sys_part)
+
+    def _emit_aligned_pair(
+        self, mic_part: np.ndarray, sys_part: np.ndarray
+    ) -> None:
+        """Forward one mixer tick's mic + system frames to the chunker.
+
+        ``mic_part`` is the reference frame count for this tick. ``sys_part``
+        is padded with trailing silence to match — keeping the per-source
+        WAVs aligned on the mic clock so segment offsets reported by Whisper
+        map to absolute wall-clock time via ``chunk_start + segment.start``.
+        Both writes share a single captured ``now`` so they cannot land in
+        different chunks if the tick crosses a rotation boundary.
+        """
+        now = datetime.now().astimezone()
+        if mic_part.size:
+            self._sink.write_block(mic_part, source="microphone", now=now)
+        if self._sys_active:
+            sys_part = _pad_to_length(sys_part, mic_part.shape[0])
+            if sys_part.size:
+                self._sink.write_block(sys_part, source="system", now=now)
 
     def _drain_system(self) -> None:
         if self._system_stream is None:
@@ -401,3 +422,15 @@ def _to_db(x: float) -> float:
     if x <= 1e-6:
         return -120.0
     return float(20.0 * np.log10(min(x, 1.0)))
+
+
+def _pad_to_length(part: np.ndarray, target: int) -> np.ndarray:
+    """Trailing-pad ``part`` with zeros so its length matches ``target``.
+
+    If ``target`` is 0 (no reference) or ``part`` is already long enough,
+    returns ``part`` unchanged.
+    """
+    if target <= 0 or part.shape[0] >= target:
+        return part
+    pad = np.zeros(target - part.shape[0], dtype=np.float32)
+    return np.concatenate([part, pad])
