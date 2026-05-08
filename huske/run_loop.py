@@ -23,6 +23,7 @@ from huske.recovery.scanner import (
     move_to_incomplete,
     scan_orphans,
 )
+from huske.screenshots import ScreenshotCapturer
 from huske.session import RecordingSession
 from huske.transcribe.worker import TranscriptionWorker, chunk_to_job
 from huske.ui.live import LiveUI
@@ -162,6 +163,18 @@ def run_session(
     rotator.set_default_audio_sources(list(actual_sources))
     state.update(recording=True)
 
+    screenshotter: ScreenshotCapturer | None = None
+    if cfg.screenshots_enabled:
+        cfg.screenshots_root.mkdir(parents=True, exist_ok=True)
+        screenshotter = ScreenshotCapturer(
+            cfg=cfg, session_id=session.session_id, on_event=on_event
+        )
+        screenshotter.start()
+        on_event(
+            "info",
+            f"screenshots every {cfg.screenshots_interval_seconds:g}s → {cfg.screenshots_root}",
+        )
+
     exit_code = 0
 
     def _session_loop(ui: LiveUI | None) -> None:
@@ -178,6 +191,9 @@ def run_session(
 
         on_event("info", "stopping capture…")
         capture.stop()
+        if screenshotter is not None:
+            screenshotter.stop()
+            on_event("info", f"screenshots saved: {screenshotter.captures}")
         rotator.finalize_current()
         if ui is not None:
             ui.update()
@@ -240,6 +256,8 @@ def run_session(
         log.error("run_failed", error=str(exc))
         exit_code = 1
     finally:
+        if screenshotter is not None and screenshotter.alive:
+            screenshotter.stop(timeout=1.0)
         worker.stop(drain_timeout=5.0)
         session.release_lock()
         cleanup_session_dir(session.audio_root)

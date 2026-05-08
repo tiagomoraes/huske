@@ -33,6 +33,7 @@ class RuntimeConfig(BaseModel):
     output_root: Path = Field(default=Path.home() / "huske" / "transcripts")
     audio_root: Path = Field(default=Path.home() / "huske" / "audio")
     logs_root: Path = Field(default=Path.home() / "huske" / "logs")
+    screenshots_root: Path = Field(default=Path.home() / "huske" / "screenshots")
 
     model: ModelSize = "base"
     compute_type: ComputeType = "int8"
@@ -46,6 +47,10 @@ class RuntimeConfig(BaseModel):
     block_size: int = Field(default=1024, gt=0)
     channels: int = Field(default=2, ge=1, le=2)
 
+    screenshots_enabled: bool = False
+    screenshots_interval_seconds: float = Field(default=10.0, gt=0.0, le=3600.0)
+    screenshots_max_displays: int = Field(default=4, ge=1, le=16)
+
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     no_ui: bool = False
 
@@ -57,7 +62,7 @@ class RuntimeConfig(BaseModel):
     #   off : disable system audio capture entirely (mic-only).
     system_audio_backend: SystemAudioBackend = "auto"
 
-    @field_validator("output_root", "audio_root", "logs_root", mode="before")
+    @field_validator("output_root", "audio_root", "logs_root", "screenshots_root", mode="before")
     @classmethod
     def _expand(cls, v: Any) -> Path:
         return Path(str(v)).expanduser()
