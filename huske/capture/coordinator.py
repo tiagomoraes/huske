@@ -140,6 +140,8 @@ class CaptureCoordinator:
         self._mixer_thread: threading.Thread | None = None
         self._system_stream: SystemAudioBackendInstance | None = None
         self._stop = threading.Event()
+        self._paused = threading.Event()
+        self._pause_lock = threading.Lock()
 
         self._mic_last: datetime | None = None
         self._sys_last: datetime | None = None
@@ -171,6 +173,26 @@ class CaptureCoordinator:
     @property
     def system_active(self) -> bool:
         return self._sys_active
+
+    @property
+    def paused(self) -> bool:
+        return self._paused.is_set()
+
+    def pause(self) -> None:
+        """Temporarily stop forwarding captured audio to the chunker."""
+        with self._pause_lock:
+            self._paused.set()
+            self._clear_buffers()
+            with self._peak_lock:
+                self._mic_peak = 0.0
+                self._sys_peak = 0.0
+
+    def resume(self) -> None:
+        """Resume forwarding newly captured audio to the chunker."""
+        with self._pause_lock:
+            self._clear_buffers()
+            self._drain_system(discard=True)
+            self._paused.clear()
 
     # ----------------------------------------------------------------- startup
 
@@ -317,6 +339,9 @@ class CaptureCoordinator:
             now = datetime.now().astimezone()
             self._mic_last = now
 
+            if self._paused.is_set():
+                return
+
             if indata.ndim == 1:
                 mono = indata
             elif indata.shape[1] == 1:
@@ -343,6 +368,12 @@ class CaptureCoordinator:
         block_frames = max(1, int(round(sr * _MIXER_BLOCK_SECONDS)))
 
         while not self._stop.is_set():
+            if self._paused.is_set():
+                self._drain_system(discard=True)
+                self._clear_buffers()
+                self._stop.wait(_MIXER_BLOCK_SECONDS)
+                continue
+
             # Pull system samples first (they arrive in larger irregular chunks).
             self._drain_system()
 
@@ -362,9 +393,12 @@ class CaptureCoordinator:
                     continue
                 sys_part = self._sys_buf.take(avail)
                 if sys_part.size:
-                    self._sink.write_block(
-                        sys_part, source="system", now=datetime.now().astimezone()
-                    )
+                    with self._pause_lock:
+                        if self._paused.is_set():
+                            continue
+                        self._sink.write_block(
+                            sys_part, source="system", now=datetime.now().astimezone()
+                        )
                 continue
 
             mic_avail = self._mic_buf.available
@@ -397,25 +431,34 @@ class CaptureCoordinator:
         Both writes share a single captured ``now`` so they cannot land in
         different chunks if the tick crosses a rotation boundary.
         """
-        now = datetime.now().astimezone()
-        if mic_part.size:
-            self._sink.write_block(mic_part, source="microphone", now=now)
-        if self._sys_active:
-            sys_part = _pad_to_length(sys_part, mic_part.shape[0])
-            if sys_part.size:
-                self._sink.write_block(sys_part, source="system", now=now)
+        with self._pause_lock:
+            if self._paused.is_set():
+                return
+            now = datetime.now().astimezone()
+            if mic_part.size:
+                self._sink.write_block(mic_part, source="microphone", now=now)
+            if self._sys_active:
+                sys_part = _pad_to_length(sys_part, mic_part.shape[0])
+                if sys_part.size:
+                    self._sink.write_block(sys_part, source="system", now=now)
 
-    def _drain_system(self) -> None:
+    def _drain_system(self, *, discard: bool = False) -> None:
         if self._system_stream is None:
             return
         for block, when in self._system_stream.drain_available():
             self._sys_last = when
+            if discard:
+                continue
             if block.size:
                 peak = float(np.abs(block).max())
                 with self._peak_lock:
                     if peak > self._sys_peak:
                         self._sys_peak = peak
             self._sys_buf.push(block)
+
+    def _clear_buffers(self) -> None:
+        self._mic_buf.take(self._mic_buf.available)
+        self._sys_buf.take(self._sys_buf.available)
 
 
 def _to_db(x: float) -> float:

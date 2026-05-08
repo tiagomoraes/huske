@@ -68,7 +68,9 @@ class RuntimeConfig(BaseModel):
     channels: int = Field(default=2, ge=1, le=2)
 
     screenshots_enabled: bool = False
-    screenshots_interval_seconds: float = Field(default=10.0, gt=0.0, le=3600.0)
+    # Filenames are second-precision (`HHMMSS_dN.jpg`), so subsecond intervals
+    # can overwrite the prior capture for the same display.
+    screenshots_interval_seconds: float = Field(default=10.0, ge=1.0, le=3600.0)
     screenshots_max_displays: int = Field(default=4, ge=1, le=16)
 
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"

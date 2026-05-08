@@ -75,8 +75,13 @@ huske --help                 Print help.
 - Errors → stderr in both modes.
 
 **Keyboard shortcuts** (UI mode only):
-- `q` or Ctrl+C → graceful stop.
-- `?` → show keybinding overlay.
+- Ctrl+C → graceful stop.
+- `?` → show or hide the controls overlay.
+- Inside the controls overlay, `q` → graceful stop.
+- Inside the controls overlay, `p` → pause or resume audio recording. Pausing finalizes the current partial
+  chunk and does not write audio while paused.
+- Inside the controls overlay, `s` → enable or disable periodic screenshots without restarting.
+- Inside the controls overlay, Esc → close controls.
 
 ---
 

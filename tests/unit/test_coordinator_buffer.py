@@ -193,3 +193,118 @@ def test_emit_aligned_pair_skips_system_when_inactive() -> None:
 
     assert len(calls) == 1
     assert calls[0]["source"] == "microphone"
+
+
+def test_pause_skips_emits_until_resume() -> None:
+    from pathlib import Path
+
+    from huske.capture.coordinator import CaptureCoordinator
+    from huske.config import RuntimeConfig
+
+    calls: list[dict] = []
+
+    class _FakeSink:
+        def write_block(self, block, source="microphone", now=None):
+            calls.append({"source": source, "frames": int(block.shape[0])})
+
+    cfg = RuntimeConfig(
+        output_root=Path("/tmp/_huske_test_unused"),
+        audio_root=Path("/tmp/_huske_test_unused"),
+        logs_root=Path("/tmp/_huske_test_unused"),
+        sample_rate=16000,
+    )
+    coord = CaptureCoordinator(cfg=cfg, mic_device_index=None, sink=_FakeSink())
+    mic = np.full(800, 0.1, dtype=np.float32)
+
+    coord.pause()
+    coord._emit_aligned_pair(mic, np.zeros(0, dtype=np.float32))
+    assert calls == []
+
+    coord.resume()
+    coord._emit_aligned_pair(mic, np.zeros(0, dtype=np.float32))
+    assert calls == [{"source": "microphone", "frames": 800}]
+
+
+def test_pause_waits_for_inflight_emit_before_returning() -> None:
+    from pathlib import Path
+
+    from huske.capture.coordinator import CaptureCoordinator
+    from huske.config import RuntimeConfig
+
+    entered_write = threading.Event()
+    release_write = threading.Event()
+    pause_started = threading.Event()
+    pause_done = threading.Event()
+    errors: list[BaseException] = []
+    calls: list[dict] = []
+
+    class _BlockingSink:
+        def write_block(self, block, source="microphone", now=None):
+            entered_write.set()
+            if not release_write.wait(timeout=2.0):
+                raise AssertionError("timed out waiting to release write")
+            calls.append({"source": source, "frames": int(block.shape[0])})
+
+    cfg = RuntimeConfig(
+        output_root=Path("/tmp/_huske_test_unused"),
+        audio_root=Path("/tmp/_huske_test_unused"),
+        logs_root=Path("/tmp/_huske_test_unused"),
+        sample_rate=16000,
+    )
+    coord = CaptureCoordinator(cfg=cfg, mic_device_index=None, sink=_BlockingSink())
+    mic = np.full(800, 0.1, dtype=np.float32)
+
+    def emit() -> None:
+        try:
+            coord._emit_aligned_pair(mic, np.zeros(0, dtype=np.float32))
+        except BaseException as exc:
+            errors.append(exc)
+
+    def pause() -> None:
+        pause_started.set()
+        coord.pause()
+        pause_done.set()
+
+    emit_thread = threading.Thread(target=emit)
+    emit_thread.start()
+    assert entered_write.wait(timeout=1.0)
+
+    pause_thread = threading.Thread(target=pause)
+    pause_thread.start()
+    assert pause_started.wait(timeout=1.0)
+    assert not pause_done.wait(timeout=0.05)
+
+    release_write.set()
+    emit_thread.join(timeout=1.0)
+    pause_thread.join(timeout=1.0)
+
+    assert not emit_thread.is_alive()
+    assert not pause_thread.is_alive()
+    assert errors == []
+    assert pause_done.is_set()
+    assert coord.paused
+    assert calls == [{"source": "microphone", "frames": 800}]
+
+
+def test_mic_callback_discards_audio_while_paused() -> None:
+    from pathlib import Path
+
+    from huske.capture.coordinator import CaptureCoordinator
+    from huske.config import RuntimeConfig
+
+    class _FakeSink:
+        def write_block(self, block, source="microphone", now=None):
+            raise AssertionError("paused coordinator should not write")
+
+    cfg = RuntimeConfig(
+        output_root=Path("/tmp/_huske_test_unused"),
+        audio_root=Path("/tmp/_huske_test_unused"),
+        logs_root=Path("/tmp/_huske_test_unused"),
+        sample_rate=16000,
+    )
+    coord = CaptureCoordinator(cfg=cfg, mic_device_index=None, sink=_FakeSink())
+    coord.pause()
+    coord._mic_callback(np.full((128, 1), 0.8, dtype=np.float32), 128, None, object())
+
+    assert coord._mic_buf.available == 0
+    assert coord.peak_levels_db() == (-120.0, -120.0)

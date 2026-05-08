@@ -57,11 +57,12 @@ def _render_running(state: RenderState) -> Panel:
         if state.next_rotation_at
         else 0.0
     )
-    indicator = (
-        Text("● RECORDING", style="bold red")
-        if state.recording
-        else Text("○ idle", style="dim")
-    )
+    if state.paused:
+        indicator = Text("|| PAUSED", style="bold yellow")
+    elif state.recording:
+        indicator = Text("● RECORDING", style="bold red")
+    else:
+        indicator = Text("○ idle", style="dim")
     main_table = Table.grid(padding=(0, 2))
     main_table.add_column(justify="left", no_wrap=True)
     main_table.add_column(justify="left")
@@ -99,6 +100,15 @@ def _render_running(state: RenderState) -> Panel:
         Text("queue", style="dim"),
         Text(f"{state.queue_depth} transcription(s) pending", style="white"),
     )
+    if state.screenshots_enabled:
+        screenshot_text = f"on ({state.screenshots_count} captured"
+        if state.last_screenshot_at is not None:
+            screenshot_text += f", last {state.last_screenshot_at.strftime('%H:%M:%S')}"
+        screenshot_text += ")"
+        screenshot_status = Text(screenshot_text, style="cyan")
+    else:
+        screenshot_status = Text("off", style="dim")
+    main_table.add_row(Text("screenshots", style="dim"), screenshot_status)
     last_saved = (
         Text(str(state.last_saved), style="green")
         if state.last_saved
@@ -168,12 +178,25 @@ def _render_stopping(state: RenderState) -> Panel:
     )
 
 
+def _render_help() -> Panel:
+    table = Table.grid(padding=(0, 2))
+    table.add_column(justify="left", no_wrap=True, style="bold cyan")
+    table.add_column(justify="left")
+    table.add_row("p", "pause or resume audio recording")
+    table.add_row("s", "toggle periodic screenshots")
+    table.add_row("?", "show or hide this help")
+    table.add_row("q", "graceful stop")
+    table.add_row("Esc", "close controls")
+    table.add_row("Ctrl+C", "graceful stop")
+    return Panel(table, title="controls", border_style="cyan", padding=(1, 2))
+
+
 def _render(state: RenderState) -> Layout:
     layout = Layout()
     layout.split_column(
         Layout(name="header", size=3),
         Layout(name="main"),
-        Layout(name="footer", size=8),
+        Layout(name="footer", size=9),
     )
 
     # Header.
@@ -188,7 +211,9 @@ def _render(state: RenderState) -> Layout:
     layout["header"].update(Panel(Align.left(header_text), border_style="cyan"))
 
     # Main.
-    if state.stopping:
+    if state.help_visible and not state.stopping:
+        layout["main"].update(_render_help())
+    elif state.stopping:
         layout["main"].update(_render_stopping(state))
     else:
         layout["main"].update(_render_running(state))
@@ -204,7 +229,10 @@ def _render(state: RenderState) -> Layout:
         sev = Text(ev.severity.upper().ljust(5), style=color_for.get(ev.severity, "white"))
         msg = Text(ev.message, style=color_for.get(ev.severity, "white"))
         events_table.add_row(Text(ts), sev, msg)
-    layout["footer"].update(Panel(events_table, title="events", border_style="dim"))
+    keys = Text("? controls | Ctrl+C stop", style="dim")
+    layout["footer"].update(
+        Panel(Group(events_table, Text(""), keys), title="events", border_style="dim")
+    )
 
     return layout
 

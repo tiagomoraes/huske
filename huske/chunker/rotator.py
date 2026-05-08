@@ -109,6 +109,15 @@ class ChunkRotator:
             self._close_current(when)
             self._closed = True
 
+    def pause_current(self, now: datetime | None = None) -> bool:
+        """Close the current chunk for a user pause, but allow later resume."""
+        when = now or datetime.now().astimezone()
+        with self._lock:
+            if self._closed or self._chunk_started_at is None:
+                return False
+            self._close_current(when)
+            return True
+
     @property
     def closed(self) -> bool:
         return self._closed

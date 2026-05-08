@@ -34,6 +34,7 @@ class ChunkState(str, Enum):
 
 
 AudioSource = Literal["microphone", "system"]
+TranscriptSegment = dict[str, object]
 
 
 @dataclass(slots=True)
@@ -81,7 +82,7 @@ class Transcript:
     incomplete: bool
     body: str
     huske_version: str
-    segments: list[dict] | None = None
+    segments: list[TranscriptSegment] | None = None
 
     @property
     def date(self) -> str:
@@ -101,7 +102,9 @@ class RenderState:
 
     session_id: str = ""
     recording: bool = False
+    paused: bool = False
     stopping: bool = False
+    help_visible: bool = False
     current_chunk_seq: int = 0
     chunk_started_at: datetime | None = None
     next_rotation_at: datetime | None = None
@@ -109,6 +112,9 @@ class RenderState:
     queue_depth: int = 0
     last_saved: Path | None = None
     output_root: Path | None = None
+    screenshots_enabled: bool = False
+    screenshots_count: int = 0
+    last_screenshot_at: datetime | None = None
     events: deque[Event] = field(default_factory=lambda: deque(maxlen=5))
     warnings: dict[str, str] = field(default_factory=dict)
     _lock: Lock = field(default_factory=Lock, repr=False)

@@ -35,7 +35,8 @@ it about your day.
 - **Resilient** — graceful stop finalizes the partial chunk; SIGKILL + restart
   auto-recovers orphaned audio.
 - **Pretty terminal UI** — Rich Live panel with countdown, mic + system level
-  meters, queue depth, last-saved transcript, rolling event log.
+  meters, queue depth, last-saved transcript, rolling event log, and runtime
+  controls for pause/resume and screenshots.
 - **LLM-ready output** — every transcript is a single Markdown file with full
   YAML frontmatter; the directory layout is documented in
   `~/huske/transcripts/README.md` (auto-generated).
@@ -79,6 +80,24 @@ brew install huske
 On first launch macOS will prompt you to grant **Screen Recording** permission
 to your Python interpreter — that's what ScreenCaptureKit needs to capture
 system audio. After approving once, it's silent forever.
+
+Runtime controls in the live UI:
+
+```text
+?       open or close the controls overlay
+
+Inside controls:
+p       pause or resume audio recording
+s       enable or disable periodic screenshots
+q       graceful stop
+Esc     close controls
+
+Ctrl+C  graceful stop from anywhere
+```
+
+Pausing finalizes the current partial chunk and stops writing audio until you
+resume. Toggling screenshots takes effect immediately, using the configured
+screenshots directory and interval.
 
 For prerelease builds or exact GitHub tags, install directly from the repository:
 
@@ -125,6 +144,8 @@ huske run --screenshots                       # opt in
 huske run --screenshots --screenshot-interval 30
 huske run --screenshots --screenshots-root ~/another/path
 ```
+
+The screenshot interval must be at least 1 second.
 
 > **Privacy.** Screenshots can capture passwords, private chats, financial
 > details, and anything else on screen. They're stored unencrypted on disk

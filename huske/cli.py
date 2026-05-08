@@ -62,9 +62,9 @@ def run(
     screenshot_interval: Optional[float] = typer.Option(
         None,
         "--screenshot-interval",
-        min=0.5,
+        min=1.0,
         max=3600.0,
-        help="Seconds between screenshots (default 10).",
+        help="Seconds between screenshots (default 10, minimum 1).",
     ),
     screenshots_root: Optional[Path] = typer.Option(
         None, "--screenshots-root", help="Where screenshots are written."
@@ -78,7 +78,7 @@ def run(
         help="System audio backend: auto (default), tap, sck, off.",
     ),
 ) -> None:
-    """Start a recording session. Press Ctrl+C or 'q' to stop."""
+    """Start a recording session with live keyboard controls."""
     from huske.run_loop import run_session
 
     cli_overrides = _collect_overrides(
