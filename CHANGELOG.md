@@ -6,6 +6,19 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+### Changed
+
+- Switched the transcription engine from `faster-whisper` (CTranslate2, CPU
+  only on Apple Silicon) to `mlx-whisper` (Apple MLX, runs on the M-series
+  GPU). On a Mac this is roughly 5–7× faster and removes the long
+  first-load hang we hit with the `small` model. Existing `model` /
+  `compute_type` / `device` keys in `~/.config/huske/config.toml` are still
+  accepted: model names map to the `mlx-community/whisper-<size>-mlx` repos,
+  `compute_type = "float32"` opts out of fp16, and `device` is ignored
+  (MLX always runs on the Apple GPU). The transcript `model:` field now
+  reads `mlx-whisper:<size>` instead of `faster-whisper:<size>`.
+  Apple Silicon only — Intel Macs are no longer supported.
+
 ### Added
 
 - Optional periodic screenshots. `huske run --screenshots` captures a JPEG

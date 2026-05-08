@@ -7,9 +7,9 @@
 
 A terminal app that runs in the background, continuously records your microphone
 plus your computer's system audio, and transcribes the audio locally with
-[faster-whisper](https://github.com/SYSTRAN/faster-whisper) — producing a
-day-organized, LLM-friendly knowledge base of everything that was said on your
-machine throughout the day.
+[mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) —
+producing a day-organized, LLM-friendly knowledge base of everything that was
+said on your machine throughout the day.
 
 Point Claude Code (or any other LLM agent) at `~/huske/transcripts/` and ask
 it about your day.
@@ -29,8 +29,8 @@ it about your day.
   mixed in software, no gaps at chunk boundaries.
 - **No drivers, no Audio MIDI Setup** — system audio comes through Apple's
   modern ScreenCaptureKit framework. Just grant Screen Recording permission once.
-- **Local transcription** — `faster-whisper`, default `base` model. Audio never
-  leaves your machine.
+- **Local transcription** — `mlx-whisper`, default `base` model, runs on the
+  Apple Silicon GPU via MLX. Audio never leaves your machine.
 - **Configurable chunk size** — default 15 minutes, anything from 6 s to 60 min.
 - **Resilient** — graceful stop finalizes the partial chunk; SIGKILL + restart
   auto-recovers orphaned audio.

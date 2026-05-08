@@ -27,7 +27,7 @@ do not rely on the heading or filename alone. Schema (v1):
 - `duration_actual_seconds` — what was actually captured (may be shorter)
 - `gap_seconds`    — total silence/disconnect gaps within the chunk
 - `audio_sources`  — subset of [microphone, system]
-- `model`          — `<engine>:<size>`, e.g. `faster-whisper:base`
+- `model`          — `<engine>:<size>`, e.g. `mlx-whisper:base`
 - `language`       — ISO 639-1 or `auto` if undetected
 - `incomplete`     — true if produced from recovery or graceful-stop
 - `huske_version`  — semver of the producing huske binary

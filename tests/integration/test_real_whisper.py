@@ -1,25 +1,33 @@
-"""End-to-end test that exercises the actual faster-whisper worker.
+"""End-to-end test that exercises the actual mlx-whisper worker.
 
-Marked as integration; downloads the `tiny` model on first run (~75 MB).
+Marked as integration; downloads the `tiny` mlx-whisper model on first run.
+Apple Silicon only — skipped on other platforms.
 """
 
 from __future__ import annotations
 
+import platform
+import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import pytest
 import soundfile as sf
 
-from huske.chunker.rotator import ChunkRotator
 from huske.config import RuntimeConfig
 from huske.models import AudioChunk
 from huske.transcribe.worker import TranscriptionWorker, chunk_to_job
 
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        sys.platform != "darwin" or platform.machine() != "arm64",
+        reason="mlx-whisper requires Apple Silicon",
+    ),
+]
 
 
 def _generate_speechlike_wav(path: Path, seconds: float = 1.5, sr: int = 16000) -> None:
@@ -70,20 +78,20 @@ def test_worker_round_trip_with_tiny_model(tmp_path: Path) -> None:
     worker.start()
     try:
         worker.submit(chunk_to_job(chunk, cfg))
-        # Wait up to 90s for the model to load + transcribe.
-        deadline = time.monotonic() + 90.0
+        # Wait up to 180s for the model to download + load + transcribe.
+        deadline = time.monotonic() + 180.0
         result = None
         while time.monotonic() < deadline:
             result = worker.poll_result(timeout=1.0)
             if result is not None:
                 break
-        assert result is not None, "worker did not return a result within 90s"
+        assert result is not None, "worker did not return a result within 180s"
         assert result["ok"], f"worker failed: {result.get('error')}"
         transcript_path = Path(result["transcript_path"])
         assert transcript_path.exists()
         body = transcript_path.read_text(encoding="utf-8")
         assert body.startswith("---\n")
-        assert "model: faster-whisper:tiny" in body
+        assert "model: mlx-whisper:tiny" in body
         # Audio should have been deleted (keep_audio=False).
         assert not audio_path.exists()
     finally:

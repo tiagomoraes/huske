@@ -81,9 +81,20 @@ def run_session(
     # We always mix down to mono — Whisper is mono and downmixing avoids extra work.
     cfg = cfg.model_copy(update={"channels": 1})
 
-    # Worker.
+    # Worker. Block until the subprocess has eagerly initialized Metal —
+    # if Core Audio capture starts first the worker dies silently on its
+    # first Metal allocation. The cold-start cost is one-off per session
+    # (~30 s on M-series) and replaces the same wait we would otherwise
+    # see at the first chunk.
     worker = TranscriptionWorker()
     worker.start()
+    _print("[huske] warming up transcription engine (mlx Metal)…")
+    if not worker.wait_ready(timeout=90.0):
+        _print(
+            "[error] transcription worker did not initialize within 90s — aborting"
+        )
+        worker.stop(drain_timeout=2.0)
+        return 4
 
     # Render state.
     state = RenderState(
