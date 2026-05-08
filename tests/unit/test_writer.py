@@ -11,6 +11,7 @@ import yaml
 from huske import __version__
 from huske.models import Transcript
 from huske.transcribe.writer import (
+    body_from_source_segments,
     build_transcript_from_segments,
     render_transcript,
     write_transcript,
@@ -109,3 +110,36 @@ def test_build_helper_round_trip() -> None:
     rendered = render_transcript(t)
     assert "oi tudo bem" in rendered
     assert "audio_sources:\n- microphone" in rendered or "audio_sources: [microphone]" in rendered or "audio_sources:\n  - microphone" in rendered
+
+
+def test_body_from_source_segments_inline_format() -> None:
+    chunk_start = datetime(2026, 5, 7, 14, 30, 0, tzinfo=timezone.utc)
+    segments = [
+        {"start": 0.0, "end": 4.0, "text": "Olá, vamos começar.", "source": "system"},
+        {"start": 1.0, "end": 3.0, "text": "Oi, tudo certo.", "source": "microphone"},
+        {"start": 8.5, "end": 11.0, "text": "Vamos ao roadmap.", "source": "system"},
+    ]
+    body = body_from_source_segments(chunk_start, segments)
+    expected = (
+        "[14:30:00 · system] Olá, vamos começar.\n\n"
+        "[14:30:01 · mic] Oi, tudo certo.\n\n"
+        "[14:30:08 · system] Vamos ao roadmap."
+    )
+    assert body == expected
+
+
+def test_body_from_source_segments_skips_empty_text() -> None:
+    chunk_start = datetime(2026, 5, 7, 14, 30, 0, tzinfo=timezone.utc)
+    segments = [
+        {"start": 0.0, "end": 1.0, "text": "  ", "source": "microphone"},
+        {"start": 2.0, "end": 3.0, "text": "Hello", "source": "microphone"},
+    ]
+    body = body_from_source_segments(chunk_start, segments)
+    assert body == "[14:30:02 · mic] Hello"
+
+
+def test_body_from_source_segments_empty_returns_empty_string() -> None:
+    body = body_from_source_segments(
+        datetime(2026, 5, 7, 14, 30, 0, tzinfo=timezone.utc), []
+    )
+    assert body == ""

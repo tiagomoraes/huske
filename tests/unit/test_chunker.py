@@ -124,3 +124,56 @@ def test_chunk_seq_monotonic(cfg: RuntimeConfig) -> None:
     assert seqs == sorted(seqs)
     assert seqs[0] == 1
     assert all(b - a == 1 for a, b in zip(seqs, seqs[1:]))
+
+
+def test_two_sources_produce_two_wavs_per_chunk(cfg: RuntimeConfig) -> None:
+    """Mic + system sources each get their own WAV with the source suffix."""
+    finalized: list[AudioChunk] = []
+    rot = ChunkRotator(
+        cfg=cfg,
+        session_id="20260507T091500_aaaa1111",
+        on_finalized=finalized.append,
+        default_audio_sources=["microphone", "system"],
+    )
+    start = datetime(2026, 5, 7, 9, 0, 0).astimezone()
+    # 0.5s of audio from each source — one partial chunk on finalize.
+    for i in range(5):
+        when = start + timedelta(seconds=i * 0.1)
+        rot.write_block(_block(cfg.block_size, cfg.channels, 0.1), source="microphone", now=when)
+        rot.write_block(_block(cfg.block_size, cfg.channels, 0.2), source="system", now=when)
+    rot.finalize_current(now=start + timedelta(seconds=0.5))
+
+    assert len(finalized) == 1
+    chunk = finalized[0]
+    assert set(chunk.audio_paths.keys()) == {"microphone", "system"}
+    assert chunk.audio_sources == ["microphone", "system"]
+    mic_path = chunk.audio_paths["microphone"]
+    sys_path = chunk.audio_paths["system"]
+    assert mic_path.name.endswith("_microphone.wav")
+    assert sys_path.name.endswith("_system.wav")
+    assert mic_path.exists() and sys_path.exists()
+    # audio_path mirrors the first source.
+    assert chunk.audio_path == mic_path
+
+
+def test_single_active_source_writes_only_one_wav(cfg: RuntimeConfig) -> None:
+    """If only mic ever fires, only the mic WAV exists; no empty system file."""
+    finalized: list[AudioChunk] = []
+    rot = ChunkRotator(
+        cfg=cfg,
+        session_id="20260507T091500_aaaa1111",
+        on_finalized=finalized.append,
+        default_audio_sources=["microphone", "system"],
+    )
+    start = datetime(2026, 5, 7, 9, 0, 0).astimezone()
+    for i in range(5):
+        rot.write_block(
+            _block(cfg.block_size, cfg.channels),
+            source="microphone",
+            now=start + timedelta(seconds=i * 0.1),
+        )
+    rot.finalize_current(now=start + timedelta(seconds=0.5))
+
+    chunk = finalized[0]
+    assert list(chunk.audio_paths.keys()) == ["microphone"]
+    assert chunk.audio_sources == ["microphone"]

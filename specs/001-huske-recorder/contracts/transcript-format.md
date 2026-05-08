@@ -92,13 +92,22 @@ huske_version: 0.1.0
 ```markdown
 # 09:30 – 09:45 (Wed 2026-05-07)
 
-[transcript text, plain prose, paragraphed roughly per Whisper segment.]
+[09:30:00 · system] Olá, vamos começar a reunião.
+
+[09:30:01 · mic] Oi, tudo certo.
+
+[09:30:08 · system] Hoje queria revisar o roadmap.
 ```
 
 - The H1 line is human-readable and may be reformatted; tooling should rely on the frontmatter, not the heading.
-- Paragraph breaks correspond to `faster-whisper` segment boundaries; long monologues become long paragraphs.
+- Each segment is one paragraph prefixed with `[HH:MM:SS · <source>]`, where:
+  - `HH:MM:SS` is the segment's local-time start (chunk `start_time` plus the segment offset within its WAV).
+  - `<source>` is `mic` for microphone or `system` for system audio.
+- Segments are sorted ascending by start time. Concurrent segments from
+  different sources appear back-to-back in source order, making overlapping
+  speech (e.g., you and a remote participant talking at once) visible to the
+  reader.
 - A chunk with no detected speech writes the body as: `_(no speech detected)_`.
-- Optional inline timestamps (when enabled in a future config flag) are rendered as `[mm:ss]` markers at segment boundaries.
 
 ---
 

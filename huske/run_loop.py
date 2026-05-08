@@ -320,7 +320,6 @@ def _main_loop(
 
         # UI render-state refresh.
         peaks = capture.peak_levels_db()
-        chunk = rotator.current_chunk
         state.update(
             peak_levels=peaks,
             current_chunk_seq=rotator.current_chunk_seq,
@@ -397,9 +396,16 @@ def _do_recovery(
     for sess in orphans:
         log.info("orphan_session", session_id=sess.session_id, chunks=len(sess.chunks))
         for chunk in sess.chunks:
+            # Move any sibling WAVs that failed validity (truncated/empty) to
+            # incomplete/, regardless of whether the chunk overall is valid.
+            for bad in chunk.invalid_paths:
+                target = move_to_incomplete(cfg, sess.session_id, bad)
+                report.moved_to_incomplete.append(target)
+                report.chunks_incomplete += 1
+
             if chunk.valid:
-                # Build a synthetic AudioChunk for the worker job.
                 end_time = chunk.start_time + timedelta(seconds=chunk.duration_seconds)
+                primary = next(iter(chunk.audio_paths.values()))
                 ac = AudioChunk(
                     chunk_seq=chunk.chunk_seq,
                     session_id=sess.session_id,
@@ -407,16 +413,12 @@ def _do_recovery(
                     end_time=end_time,
                     expected_duration_seconds=cfg.chunk_seconds,
                     actual_duration_seconds=chunk.duration_seconds,
-                    audio_path=chunk.audio_path,
+                    audio_path=primary,
+                    audio_paths=dict(chunk.audio_paths),  # type: ignore[arg-type]
+                    audio_sources=list(chunk.audio_paths.keys()),  # type: ignore[arg-type]
                 )
-                # Mark as incomplete (recovered).
-                ac.audio_sources = ["microphone"]  # unknown; safe default
                 worker.submit(chunk_to_job(ac, cfg) | {"incomplete": True})
                 report.chunks_valid += 1
-            else:
-                target = move_to_incomplete(cfg, sess.session_id, chunk.audio_path)
-                report.moved_to_incomplete.append(target)
-                report.chunks_incomplete += 1
         # Lock cleanup + dir cleanup attempted lazily; actual removal happens after
         # successful transcription (worker deletes WAV unless --keep-audio, then dir
         # becomes empty and `cleanup_session_dir` removes it on next opportunity).

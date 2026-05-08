@@ -52,6 +52,11 @@ class AudioChunk:
     audio_sources: list[AudioSource] = field(
         default_factory=lambda: ["microphone", "system"]
     )
+    # Per-source WAV paths populated by the chunker. When non-empty, this is
+    # the canonical source list and the worker transcribes each file
+    # independently. ``audio_path`` mirrors one of these (the first in
+    # ``audio_sources``) for callers that want a single representative path.
+    audio_paths: dict[AudioSource, Path] = field(default_factory=dict)
 
     @property
     def is_partial(self) -> bool:
