@@ -1,5 +1,5 @@
-"""Capture coordinator: runs mic (sounddevice) + system audio (ScreenCaptureKit) in parallel,
-mixes them down to a single mono stream that feeds the chunker.
+"""Capture coordinator: runs mic (sounddevice) + system audio (ScreenCaptureKit) in parallel
+and forwards each source separately to the chunker so they can be transcribed independently.
 
 Threads:
   - PortAudio audio thread (sounddevice-managed) calls ``_mic_callback`` directly
@@ -8,8 +8,9 @@ Threads:
     and not subject to GIL contention from our other Python threads.
   - The SCStream sample-handler thread (ScreenCaptureKit-managed) supplies system mono
     frames via ``SystemAudioStream``'s internal queue.
-  - Our ``_mixer_loop`` thread drains both ring buffers at fixed cadence, sums them
-    (each at gain 0.5), and forwards mono blocks to the chunker (the BlockSink).
+  - Our ``_mixer_loop`` thread drains both ring buffers at fixed cadence and forwards
+    each one to the chunker (the BlockSink) with its source tag — no mixing on disk.
+    Per-source peaks for the UI are tracked at push time on each source's audio thread.
 
 If system audio capture fails (permission missing, framework unavailable) the
 coordinator degrades to mic-only and surfaces a sticky warning.
@@ -30,11 +31,25 @@ from huske.capture.system_audio import (
     SystemAudioPermissionError,
     SystemAudioStream,
 )
+from huske.capture.system_audio_tap import (
+    CoreAudioTapPermissionError,
+    CoreAudioTapStream,
+    is_supported as is_tap_supported,
+)
 from huske.config import RuntimeConfig
 
 
+SystemAudioBackendInstance = SystemAudioStream | CoreAudioTapStream
+SystemAudioPermissionLike = SystemAudioPermissionError | CoreAudioTapPermissionError
+
+
 class BlockSink(Protocol):
-    def write_block(self, block: np.ndarray, now: datetime | None = None) -> None: ...
+    def write_block(
+        self,
+        block: np.ndarray,
+        source: str = "microphone",
+        now: datetime | None = None,
+    ) -> None: ...
 
 
 _MIXER_BLOCK_SECONDS = 0.05  # 50 ms — well below any chunk-rotation timing concern
@@ -123,7 +138,7 @@ class CaptureCoordinator:
 
         self._mic_stream: sd.InputStream | None = None
         self._mixer_thread: threading.Thread | None = None
-        self._system_stream: SystemAudioStream | None = None
+        self._system_stream: SystemAudioBackendInstance | None = None
         self._stop = threading.Event()
 
         self._mic_last: datetime | None = None
@@ -183,32 +198,8 @@ class CaptureCoordinator:
             self._mic_active = False
 
         # System audio.
-        if self._system_audio_enabled:
-            try:
-                self._system_stream = SystemAudioStream(
-                    sample_rate=self._cfg.sample_rate,
-                    on_event=self._on_event,
-                )
-                self._system_stream.start()
-                self._sys_active = True
-                self._on_warning_clear("system_audio")
-            except SystemAudioPermissionError as exc:
-                self._on_event("warn", f"system audio unavailable: {exc}")
-                self._on_warning(
-                    "system_audio",
-                    "Screen Recording permission needed for system audio. "
-                    "System Settings → Privacy & Security → Screen Recording.",
-                )
-                self._system_stream = None
-                self._sys_active = False
-            except Exception as exc:  # noqa: BLE001
-                self._on_event("error", f"system audio failed: {exc}")
-                self._on_warning(
-                    "system_audio",
-                    "System audio capture failed — mic-only mode.",
-                )
-                self._system_stream = None
-                self._sys_active = False
+        if self._system_audio_enabled and self._cfg.system_audio_backend != "off":
+            self._start_system_audio()
 
         if not self._mic_active and not self._sys_active:
             raise RuntimeError(
@@ -219,6 +210,68 @@ class CaptureCoordinator:
             target=self._mixer_loop, name="huske-mixer", daemon=True
         )
         self._mixer_thread.start()
+
+    def _start_system_audio(self) -> None:
+        backend = self._cfg.system_audio_backend
+        order: list[str]
+        if backend == "tap":
+            order = ["tap"]
+        elif backend == "sck":
+            order = ["sck"]
+        else:  # auto
+            order = ["tap", "sck"] if is_tap_supported() else ["sck"]
+
+        last_error: Exception | None = None
+        for choice in order:
+            try:
+                if choice == "tap":
+                    self._system_stream = CoreAudioTapStream(
+                        sample_rate=self._cfg.sample_rate,
+                        on_event=self._on_event,
+                    )
+                else:
+                    self._system_stream = SystemAudioStream(
+                        sample_rate=self._cfg.sample_rate,
+                        on_event=self._on_event,
+                    )
+                self._system_stream.start()
+                self._sys_active = True
+                self._on_warning_clear("system_audio")
+                return
+            except (SystemAudioPermissionError, CoreAudioTapPermissionError) as exc:
+                last_error = exc
+                self._on_event(
+                    "warn",
+                    f"system audio backend '{choice}' unavailable: {exc}",
+                )
+                self._system_stream = None
+                continue
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                self._on_event(
+                    "error", f"system audio backend '{choice}' failed: {exc}"
+                )
+                self._system_stream = None
+                continue
+
+        # Every backend in `order` failed.
+        if isinstance(last_error, SystemAudioPermissionError):
+            self._on_warning(
+                "system_audio",
+                "Screen Recording permission needed for system audio. "
+                "System Settings → Privacy & Security → Screen Recording.",
+            )
+        elif isinstance(last_error, CoreAudioTapPermissionError):
+            self._on_warning(
+                "system_audio",
+                "Core Audio tap unavailable — falling back to mic-only.",
+            )
+        else:
+            self._on_warning(
+                "system_audio",
+                "System audio capture failed — mic-only mode.",
+            )
+        self._sys_active = False
 
     def stop(self, timeout: float = 5.0) -> None:
         self._stop.set()
@@ -293,17 +346,25 @@ class CaptureCoordinator:
             # Pull system samples first (they arrive in larger irregular chunks).
             self._drain_system()
 
-            # Decide how many frames to emit.
-            # Strategy: aim for `block_frames`, but if mic has fewer, emit only what mic has
-            # (mic is our reference clock since it's a steady fixed-rate source).
+            # Mic is our reference clock — its callback fires at a steady rate
+            # (set by PortAudio's blocksize). System audio arrives irregularly,
+            # so we drain whatever's available alongside each mic tick and pad
+            # with trailing silence to keep the per-source WAVs frame-aligned
+            # on the same clock — otherwise a system source that starts late
+            # (or has a backend gap) would land at offset 0 in its WAV instead
+            # of at the wall-clock position when its audio actually arrived.
             if not self._mic_active:
-                # System-only fallback: drain at fixed cadence.
+                # System-only fallback: drain at fixed cadence (no mic clock to
+                # align to, so don't pad — first-block timing is ~50 ms accurate).
                 avail = min(self._sys_buf.available, block_frames)
                 if avail < block_frames // 4:
                     self._stop.wait(_MIXER_BLOCK_SECONDS)
                     continue
                 sys_part = self._sys_buf.take(avail)
-                self._sink.write_block(sys_part)
+                if sys_part.size:
+                    self._sink.write_block(
+                        sys_part, source="system", now=datetime.now().astimezone()
+                    )
                 continue
 
             mic_avail = self._mic_buf.available
@@ -314,31 +375,35 @@ class CaptureCoordinator:
 
             mic_part = self._mic_buf.take(block_frames)
             sys_part = self._sys_buf.take(block_frames)
-
-            if sys_part.shape[0] < mic_part.shape[0]:
-                pad = np.zeros(mic_part.shape[0] - sys_part.shape[0], dtype=np.float32)
-                sys_part = np.concatenate([sys_part, pad])
-
-            mixed = (mic_part + sys_part) * 0.5
-            self._sink.write_block(mixed)
+            self._emit_aligned_pair(mic_part, sys_part)
 
         # Drain remaining buffered audio on shutdown.
         while self._mic_buf.available > 0 or self._sys_buf.available > 0:
-            n = max(self._mic_buf.available, self._sys_buf.available)
-            mic_part = self._mic_buf.take(n)
-            sys_part = self._sys_buf.take(n)
-            if mic_part.shape[0] < n:
-                mic_part = np.concatenate(
-                    [mic_part, np.zeros(n - mic_part.shape[0], dtype=np.float32)]
-                )
-            if sys_part.shape[0] < n:
-                sys_part = np.concatenate(
-                    [sys_part, np.zeros(n - sys_part.shape[0], dtype=np.float32)]
-                )
-            mixed = (mic_part + sys_part) * 0.5
-            self._sink.write_block(mixed)
+            mic_part = self._mic_buf.take(self._mic_buf.available)
+            sys_part = self._sys_buf.take(self._sys_buf.available)
             if mic_part.size == 0 and sys_part.size == 0:
                 break
+            self._emit_aligned_pair(mic_part, sys_part)
+
+    def _emit_aligned_pair(
+        self, mic_part: np.ndarray, sys_part: np.ndarray
+    ) -> None:
+        """Forward one mixer tick's mic + system frames to the chunker.
+
+        ``mic_part`` is the reference frame count for this tick. ``sys_part``
+        is padded with trailing silence to match — keeping the per-source
+        WAVs aligned on the mic clock so segment offsets reported by Whisper
+        map to absolute wall-clock time via ``chunk_start + segment.start``.
+        Both writes share a single captured ``now`` so they cannot land in
+        different chunks if the tick crosses a rotation boundary.
+        """
+        now = datetime.now().astimezone()
+        if mic_part.size:
+            self._sink.write_block(mic_part, source="microphone", now=now)
+        if self._sys_active:
+            sys_part = _pad_to_length(sys_part, mic_part.shape[0])
+            if sys_part.size:
+                self._sink.write_block(sys_part, source="system", now=now)
 
     def _drain_system(self) -> None:
         if self._system_stream is None:
@@ -357,3 +422,15 @@ def _to_db(x: float) -> float:
     if x <= 1e-6:
         return -120.0
     return float(20.0 * np.log10(min(x, 1.0)))
+
+
+def _pad_to_length(part: np.ndarray, target: int) -> np.ndarray:
+    """Trailing-pad ``part`` with zeros so its length matches ``target``.
+
+    If ``target`` is 0 (no reference) or ``part`` is already long enough,
+    returns ``part`` unchanged.
+    """
+    if target <= 0 or part.shape[0] >= target:
+        return part
+    pad = np.zeros(target - part.shape[0], dtype=np.float32)
+    return np.concatenate([part, pad])

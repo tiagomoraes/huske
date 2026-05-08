@@ -16,8 +16,29 @@ else:  # pragma: no cover - older Pythons
 
 
 ModelSize = Literal["tiny", "base", "small", "medium", "large-v3"]
+# Kept for back-compat with existing config files. `compute_type` and `device`
+# were CTranslate2 knobs; the mlx-whisper backend always runs fp16 on Metal.
+# We accept and store them but the worker only honors `float32` to opt out of fp16.
 ComputeType = Literal["int8", "int8_float16", "float16", "float32"]
 Device = Literal["auto", "cpu", "cuda"]
+SystemAudioBackend = Literal["auto", "tap", "sck", "off"]
+
+
+_MLX_WHISPER_REPO_BY_SIZE: dict[str, str] = {
+    "tiny": "mlx-community/whisper-tiny-mlx",
+    "base": "mlx-community/whisper-base-mlx",
+    "small": "mlx-community/whisper-small-mlx",
+    "medium": "mlx-community/whisper-medium-mlx",
+    "large-v3": "mlx-community/whisper-large-v3-mlx",
+}
+
+
+def mlx_whisper_repo(model_size: str) -> str:
+    """Return the HF repo id mlx-whisper should load for ``model_size``."""
+    try:
+        return _MLX_WHISPER_REPO_BY_SIZE[model_size]
+    except KeyError as exc:  # pragma: no cover — Pydantic Literal already guards
+        raise ValueError(f"unknown model size: {model_size}") from exc
 
 
 class RuntimeConfig(BaseModel):
@@ -32,6 +53,7 @@ class RuntimeConfig(BaseModel):
     output_root: Path = Field(default=Path.home() / "huske" / "transcripts")
     audio_root: Path = Field(default=Path.home() / "huske" / "audio")
     logs_root: Path = Field(default=Path.home() / "huske" / "logs")
+    screenshots_root: Path = Field(default=Path.home() / "huske" / "screenshots")
 
     model: ModelSize = "base"
     compute_type: ComputeType = "int8"
@@ -45,10 +67,22 @@ class RuntimeConfig(BaseModel):
     block_size: int = Field(default=1024, gt=0)
     channels: int = Field(default=2, ge=1, le=2)
 
+    screenshots_enabled: bool = False
+    screenshots_interval_seconds: float = Field(default=10.0, gt=0.0, le=3600.0)
+    screenshots_max_displays: int = Field(default=4, ge=1, le=16)
+
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     no_ui: bool = False
 
-    @field_validator("output_root", "audio_root", "logs_root", mode="before")
+    # Backend used to capture system audio on macOS.
+    #   auto: Core Audio tap on macOS 14.4+ (resilient to screen-share
+    #         conflicts), ScreenCaptureKit on older macOS.
+    #   tap : force Core Audio tap (errors on unsupported macOS).
+    #   sck : force ScreenCaptureKit (the legacy backend).
+    #   off : disable system audio capture entirely (mic-only).
+    system_audio_backend: SystemAudioBackend = "auto"
+
+    @field_validator("output_root", "audio_root", "logs_root", "screenshots_root", mode="before")
     @classmethod
     def _expand(cls, v: Any) -> Path:
         return Path(str(v)).expanduser()

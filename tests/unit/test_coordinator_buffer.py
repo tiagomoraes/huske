@@ -10,7 +10,7 @@ import threading
 import numpy as np
 import pytest
 
-from huske.capture.coordinator import _SourceBuffer, _to_db
+from huske.capture.coordinator import _SourceBuffer, _pad_to_length, _to_db
 
 
 def _block(n: int, fill: float = 0.5) -> np.ndarray:
@@ -97,3 +97,99 @@ def test_to_db_helper() -> None:
     assert _to_db(1.0) == 0.0
     assert _to_db(0.5) == pytest.approx(-6.0206, abs=0.01)
     assert _to_db(2.0) == 0.0  # clamped at 1.0
+
+
+def test_pad_to_length_trailing_silence() -> None:
+    """Short block gets trailing zeros up to target length."""
+    part = np.full(200, 0.5, dtype=np.float32)
+    out = _pad_to_length(part, 800)
+    assert out.shape == (800,)
+    assert np.allclose(out[:200], 0.5)
+    assert np.allclose(out[200:], 0.0)
+
+
+def test_pad_to_length_passthrough_when_already_long_enough() -> None:
+    part = np.full(800, 0.5, dtype=np.float32)
+    out = _pad_to_length(part, 800)
+    assert out is part
+
+
+def test_pad_to_length_zero_target_returns_input() -> None:
+    """No reference clock (target=0) means no padding — return as-is."""
+    part = np.full(200, 0.5, dtype=np.float32)
+    out = _pad_to_length(part, 0)
+    assert out is part
+
+
+def test_pad_to_length_empty_input_becomes_full_silence() -> None:
+    """When the system buffer was empty this tick, pad fully fills with silence
+    so the per-source WAV stays frame-aligned with the mic clock."""
+    part = np.zeros(0, dtype=np.float32)
+    out = _pad_to_length(part, 800)
+    assert out.shape == (800,)
+    assert np.allclose(out, 0.0)
+
+
+def test_emit_aligned_pair_shares_now_and_pads_system() -> None:
+    """Both writes in a tick share one ``now`` and system is padded to mic length."""
+    from datetime import datetime
+    from pathlib import Path
+
+    from huske.capture.coordinator import CaptureCoordinator
+    from huske.config import RuntimeConfig
+
+    calls: list[dict] = []
+
+    class _FakeSink:
+        def write_block(self, block, source="microphone", now=None):
+            calls.append({"source": source, "frames": int(block.shape[0]), "now": now})
+
+    cfg = RuntimeConfig(
+        output_root=Path("/tmp/_huske_test_unused"),
+        audio_root=Path("/tmp/_huske_test_unused"),
+        logs_root=Path("/tmp/_huske_test_unused"),
+        sample_rate=16000,
+    )
+    coord = CaptureCoordinator(cfg=cfg, mic_device_index=None, sink=_FakeSink())
+    coord._sys_active = True  # simulate system source live for this tick
+    mic = np.full(800, 0.1, dtype=np.float32)
+    sys = np.full(200, 0.2, dtype=np.float32)
+    coord._emit_aligned_pair(mic, sys)
+
+    assert len(calls) == 2
+    mic_call, sys_call = calls
+    assert mic_call["source"] == "microphone"
+    assert sys_call["source"] == "system"
+    assert mic_call["frames"] == 800
+    assert sys_call["frames"] == 800  # padded to mic length
+    assert mic_call["now"] is sys_call["now"]
+    assert isinstance(mic_call["now"], datetime)
+
+
+def test_emit_aligned_pair_skips_system_when_inactive() -> None:
+    """If system audio never started, only the mic write fires."""
+    from pathlib import Path
+
+    from huske.capture.coordinator import CaptureCoordinator
+    from huske.config import RuntimeConfig
+
+    calls: list[dict] = []
+
+    class _FakeSink:
+        def write_block(self, block, source="microphone", now=None):
+            calls.append({"source": source, "frames": int(block.shape[0])})
+
+    cfg = RuntimeConfig(
+        output_root=Path("/tmp/_huske_test_unused"),
+        audio_root=Path("/tmp/_huske_test_unused"),
+        logs_root=Path("/tmp/_huske_test_unused"),
+        sample_rate=16000,
+    )
+    coord = CaptureCoordinator(cfg=cfg, mic_device_index=None, sink=_FakeSink())
+    # _sys_active stays False (default — system not started)
+    mic = np.full(800, 0.1, dtype=np.float32)
+    sys = np.zeros(0, dtype=np.float32)
+    coord._emit_aligned_pair(mic, sys)
+
+    assert len(calls) == 1
+    assert calls[0]["source"] == "microphone"

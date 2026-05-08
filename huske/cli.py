@@ -54,9 +54,29 @@ def run(
     language: Optional[str] = typer.Option(None, "--language"),
     input_device: Optional[str] = typer.Option(None, "--input-device"),
     keep_audio: bool = typer.Option(False, "--keep-audio/--no-keep-audio"),
+    screenshots: Optional[bool] = typer.Option(
+        None,
+        "--screenshots/--no-screenshots",
+        help="Capture a JPEG of every display every N seconds (off by default).",
+    ),
+    screenshot_interval: Optional[float] = typer.Option(
+        None,
+        "--screenshot-interval",
+        min=0.5,
+        max=3600.0,
+        help="Seconds between screenshots (default 10).",
+    ),
+    screenshots_root: Optional[Path] = typer.Option(
+        None, "--screenshots-root", help="Where screenshots are written."
+    ),
     config_path: Optional[Path] = typer.Option(None, "--config"),
     log_level: str = typer.Option("INFO", "--log-level"),
     no_ui: bool = typer.Option(False, "--no-ui"),
+    system_audio_backend: Optional[str] = typer.Option(
+        None,
+        "--system-audio-backend",
+        help="System audio backend: auto (default), tap, sck, off.",
+    ),
 ) -> None:
     """Start a recording session. Press Ctrl+C or 'q' to stop."""
     from huske.run_loop import run_session
@@ -71,8 +91,12 @@ def run(
         language=language,
         input_device=input_device,
         keep_audio=keep_audio,
+        screenshots_enabled=screenshots,
+        screenshots_interval_seconds=screenshot_interval,
+        screenshots_root=screenshots_root,
         log_level=log_level,
         no_ui=no_ui,
+        system_audio_backend=system_audio_backend,
     )
     raise typer.Exit(run_session(config_path=config_path, cli_overrides=cli_overrides))
 

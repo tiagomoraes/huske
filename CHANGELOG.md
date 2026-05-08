@@ -6,7 +6,30 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
-- Nothing yet.
+## 0.3.0 - 2026-05-08
+
+### Changed
+
+- Switched the transcription engine from `faster-whisper` (CTranslate2, CPU
+  only on Apple Silicon) to `mlx-whisper` (Apple MLX, runs on the M-series
+  GPU). On a Mac this is roughly 5–7× faster and removes the long
+  first-load hang we hit with the `small` model. Existing `model` /
+  `compute_type` / `device` keys in `~/.config/huske/config.toml` are still
+  accepted: model names map to the `mlx-community/whisper-<size>-mlx` repos,
+  `compute_type = "float32"` opts out of fp16, and `device` is ignored
+  (MLX always runs on the Apple GPU). The transcript `model:` field now
+  reads `mlx-whisper:<size>` instead of `faster-whisper:<size>`.
+  Apple Silicon only — Intel Macs are no longer supported.
+
+### Added
+
+- Optional periodic screenshots. `huske run --screenshots` captures a JPEG
+  of every attached display every 10 seconds (`--screenshot-interval`
+  configurable, default 10 s). Files land at
+  `~/huske/screenshots/YYYY-MM-DD/<session_id>/HHMMSS_dN.jpg` so multimodal
+  LLMs can correlate them with the day's transcripts. Capture uses the
+  built-in macOS `screencapture` tool — no new Python dependency, and it
+  reuses the existing Screen Recording permission. Off by default.
 
 ## 0.2.0 - 2026-05-07
 

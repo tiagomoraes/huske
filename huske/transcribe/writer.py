@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import yaml
@@ -97,3 +97,32 @@ def build_transcript_from_segments(
         huske_version=__version__,
         segments=segments,
     )
+
+
+_SOURCE_LABEL = {"microphone": "mic", "system": "system"}
+
+
+def _label_for(source: str) -> str:
+    return _SOURCE_LABEL.get(source, source)
+
+
+def body_from_source_segments(
+    chunk_start: datetime, segments: list[dict]
+) -> str:
+    """Render merged-by-source segments as paragraphs prefixed with ``[HH:MM:SS · source]``.
+
+    ``segments`` is a list of dicts with at least ``start`` (seconds offset
+    inside the chunk's WAV), ``text``, and ``source``. Empty/whitespace-only
+    text is skipped. Returns ``""`` if nothing remains — the caller (the
+    transcript renderer) substitutes the "no speech detected" placeholder.
+    """
+    lines: list[str] = []
+    for seg in segments:
+        text = (seg.get("text") or "").strip()
+        if not text:
+            continue
+        offset = float(seg.get("start", 0.0))
+        ts = (chunk_start + timedelta(seconds=offset)).strftime("%H:%M:%S")
+        source = _label_for(str(seg.get("source", "")))
+        lines.append(f"[{ts} · {source}] {text}")
+    return "\n\n".join(lines)

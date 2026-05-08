@@ -1,8 +1,12 @@
 """Chunk rotator: drives WAV writers, hands off at chunk boundaries.
 
+Each chunk has one WAV per audio source ("microphone", "system"). Writers are
+opened lazily on the first ``write_block`` per source, so a chunk where only
+one source produced audio yields only one WAV.
+
 Threading model: the ``CaptureCoordinator`` mixer thread (see
-``capture.coordinator``) calls ``write_block`` with mixed mono frames.
-Rotation is checked on every block. The coordinator also calls
+``capture.coordinator``) calls ``write_block`` once per drained source per
+tick. Rotation is checked on every block. The coordinator also calls
 ``finalize_current`` on graceful stop.
 
 Callbacks (``on_finalized``, ``on_event``) are invoked from the mixer
@@ -25,7 +29,7 @@ from huske.models import AudioChunk, ChunkState
 
 
 class ChunkRotator:
-    """Owns the current SoundFile writer and the current AudioChunk metadata."""
+    """Owns the current per-source WAV writers and the current chunk metadata."""
 
     def __init__(
         self,
@@ -39,19 +43,15 @@ class ChunkRotator:
         self._session_id = session_id
         self._on_finalized = on_finalized
         self._on_event = on_event or (lambda _sev, _msg: None)
-        self._default_audio_sources = default_audio_sources or ["microphone", "system"]
+        self._default_audio_sources = list(default_audio_sources or ["microphone", "system"])
 
         self._lock = threading.Lock()
-        self._writer: sf.SoundFile | None = None
-        self._chunk: AudioChunk | None = None
+        self._writers: dict[str, sf.SoundFile] = {}
+        self._chunk_paths: dict[str, Path] = {}
+        self._frames_written: dict[str, int] = {}
         self._chunk_seq = 0
         self._chunk_started_at: datetime | None = None
-        self._frames_written = 0
         self._closed = False
-
-    @property
-    def current_chunk(self) -> AudioChunk | None:
-        return self._chunk
 
     @property
     def current_chunk_seq(self) -> int:
@@ -67,32 +67,13 @@ class ChunkRotator:
             return None
         return self._chunk_started_at + timedelta(seconds=self._cfg.chunk_seconds)
 
-    def _open_new_chunk(self, when: datetime) -> None:
-        self._chunk_seq += 1
-        audio_path = paths.audio_chunk_path(
-            self._cfg, self._session_id, self._chunk_seq, when
-        )
-        audio_path.parent.mkdir(parents=True, exist_ok=True)
-        self._writer = sf.SoundFile(
-            str(audio_path),
-            mode="w",
-            samplerate=self._cfg.sample_rate,
-            channels=self._cfg.channels,
-            subtype="PCM_16",
-        )
-        self._chunk = AudioChunk(
-            chunk_seq=self._chunk_seq,
-            session_id=self._session_id,
-            start_time=when,
-            expected_duration_seconds=self._cfg.chunk_seconds,
-            audio_path=audio_path,
-            audio_sources=list(self._default_audio_sources),  # type: ignore[arg-type]
-        )
-        self._chunk_started_at = when
-        self._frames_written = 0
-
-    def write_block(self, block: np.ndarray, now: datetime | None = None) -> None:
-        """Append ``block`` (frames × channels) to the current chunk.
+    def write_block(
+        self,
+        block: np.ndarray,
+        source: str = "microphone",
+        now: datetime | None = None,
+    ) -> None:
+        """Append ``block`` (mono float32) to the writer for ``source``.
 
         Rotates BEFORE writing if the configured chunk duration has elapsed —
         the boundary block becomes the first block of the new chunk so the
@@ -104,44 +85,29 @@ class ChunkRotator:
 
         with self._lock:
             # Rotate first if the elapsed budget is exhausted.
-            if self._chunk is not None and self._writer is not None:
-                elapsed = (when - self._chunk.start_time).total_seconds()
+            if self._chunk_started_at is not None:
+                elapsed = (when - self._chunk_started_at).total_seconds()
                 if elapsed >= self._cfg.chunk_seconds:
                     self._close_current(when)
 
-            if self._writer is None or self._chunk is None:
+            if self._chunk_started_at is None:
                 self._open_new_chunk(when)
 
-            assert self._writer is not None and self._chunk is not None
-            self._writer.write(block)
-            self._frames_written += block.shape[0]
+            writer = self._writers.get(source)
+            if writer is None:
+                writer = self._open_writer_for_source(source)
+
+            writer.write(block)
+            self._frames_written[source] = self._frames_written.get(source, 0) + block.shape[0]
 
     def finalize_current(self, now: datetime | None = None) -> None:
         """Close the current chunk (e.g., on graceful stop). Safe to call multiple times."""
         when = now or datetime.now().astimezone()
         with self._lock:
-            if self._writer is None or self._chunk is None:
+            if self._chunk_started_at is None:
                 return
             self._close_current(when)
             self._closed = True
-
-    def _close_current(self, when: datetime) -> None:
-        assert self._writer is not None and self._chunk is not None
-        self._writer.close()
-        self._writer = None
-
-        actual = self._frames_written / float(self._cfg.sample_rate)
-        self._chunk.end_time = when
-        self._chunk.actual_duration_seconds = actual
-        self._chunk.state = ChunkState.FINALIZED
-
-        finalized = self._chunk
-        self._chunk = None
-        self._on_event(
-            "info",
-            f"chunk {finalized.chunk_seq} finalized ({actual:.1f}s) → {finalized.audio_path.name}",
-        )
-        self._on_finalized(finalized)
 
     @property
     def closed(self) -> bool:
@@ -151,3 +117,84 @@ class ChunkRotator:
         """Update the default audio_sources tag for newly-opened chunks."""
         with self._lock:
             self._default_audio_sources = list(sources)
+
+    # ------------------------------------------------------------------ inner
+
+    def _open_new_chunk(self, when: datetime) -> None:
+        self._chunk_seq += 1
+        self._chunk_started_at = when
+        self._writers = {}
+        self._chunk_paths = {}
+        self._frames_written = {}
+
+    def _open_writer_for_source(self, source: str) -> sf.SoundFile:
+        assert self._chunk_started_at is not None
+        path = paths.audio_chunk_path(
+            self._cfg,
+            self._session_id,
+            self._chunk_seq,
+            self._chunk_started_at,
+            source=source,
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        writer = sf.SoundFile(
+            str(path),
+            mode="w",
+            samplerate=self._cfg.sample_rate,
+            channels=1,
+            subtype="PCM_16",
+        )
+        self._writers[source] = writer
+        self._chunk_paths[source] = path
+        self._frames_written.setdefault(source, 0)
+        return writer
+
+    def _close_current(self, when: datetime) -> None:
+        assert self._chunk_started_at is not None
+
+        for writer in self._writers.values():
+            writer.close()
+
+        # Sources that actually received frames, ordered by `default_audio_sources`
+        # (anything unexpected appended at the end).
+        sources_used: list[str] = []
+        for s in self._default_audio_sources:
+            if s in self._chunk_paths:
+                sources_used.append(s)
+        for s in self._chunk_paths:
+            if s not in sources_used:
+                sources_used.append(s)
+
+        max_frames = max(self._frames_written.values()) if self._frames_written else 0
+        actual = max_frames / float(self._cfg.sample_rate)
+
+        primary_path = (
+            self._chunk_paths[sources_used[0]]
+            if sources_used
+            else Path()
+        )
+
+        chunk = AudioChunk(
+            chunk_seq=self._chunk_seq,
+            session_id=self._session_id,
+            start_time=self._chunk_started_at,
+            expected_duration_seconds=self._cfg.chunk_seconds,
+            audio_path=primary_path,
+            audio_paths=dict(self._chunk_paths),  # type: ignore[arg-type]
+            audio_sources=list(sources_used),  # type: ignore[arg-type]
+            end_time=when,
+            actual_duration_seconds=actual,
+            state=ChunkState.FINALIZED,
+        )
+
+        self._writers = {}
+        self._chunk_paths = {}
+        self._frames_written = {}
+        self._chunk_started_at = None
+
+        names = ", ".join(p.name for p in chunk.audio_paths.values())
+        self._on_event(
+            "info",
+            f"chunk {chunk.chunk_seq} finalized ({actual:.1f}s) → {names or chunk.audio_path.name}",
+        )
+        self._on_finalized(chunk)

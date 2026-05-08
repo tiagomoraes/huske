@@ -66,7 +66,8 @@ starting ──validate devices──▶ recording ──stop signal──▶ st
 | `expected_duration_seconds` | `int` | From config (default 900). |
 | `actual_duration_seconds` | `float \| None` | Set on close; equals `expected_*` for normal rotation, less for graceful-stop / sleep-truncation. |
 | `gap_seconds` | `float` | 0 if continuous; >0 if a sleep/disconnect gap was detected mid-chunk. |
-| `audio_path` | `Path` | `~/huske/audio/<session_id>/<chunk_seq:04d>_<HHmmss>.wav`. |
+| `audio_path` | `Path` | Primary (first source's) WAV path; mirrors one entry of `audio_paths`. Kept for back-compat with the recovery scanner and worker fallback. |
+| `audio_paths` | `dict[Literal["microphone","system"], Path]` | Per-source WAVs at `~/huske/audio/<session_id>/<chunk_seq:04d>_<HHmmss>_<source>.wav`. Populated by the chunker; the worker transcribes each independently and merges segments by start time. |
 | `transcript_path` | `Path \| None` | Set when transcription completes. |
 | `state` | `Literal["capturing","finalized","queued","transcribing","transcribed","failed","incomplete"]` | See state diagram. |
 | `failure_reason` | `str \| None` | Populated on `failed` / `incomplete`. |

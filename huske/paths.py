@@ -94,14 +94,33 @@ def audio_chunk_path(
     session_id: str,
     chunk_seq: int,
     start_time: datetime,
+    source: str | None = None,
 ) -> Path:
     folder = audio_root(cfg, session_id)
-    name = f"{chunk_seq:04d}_{start_time.strftime('%H%M%S')}.wav"
-    return folder / name
+    base = f"{chunk_seq:04d}_{start_time.strftime('%H%M%S')}"
+    if source:
+        base = f"{base}_{source}"
+    return folder / f"{base}.wav"
 
 
 def incomplete_root(cfg: "RuntimeConfig") -> Path:
     return cfg.audio_root / "incomplete"
+
+
+def screenshots_session_dir(
+    cfg: "RuntimeConfig", session_id: str, when: datetime
+) -> Path:
+    """Per-day, per-session screenshot directory.
+
+    ``~/huske/screenshots/YYYY-MM-DD/<session_id>/`` so downstream LLMs can
+    correlate screenshots with that day's transcripts by timestamp.
+    """
+    return cfg.screenshots_root / when.date().isoformat() / session_id
+
+
+def screenshot_filename(when: datetime, display_index: int) -> str:
+    """``HHMMSS_dN.jpg`` per the layout in the spec."""
+    return f"{when.strftime('%H%M%S')}_d{display_index}.jpg"
 
 
 def ensure_dirs(cfg: "RuntimeConfig", session_id: str) -> None:

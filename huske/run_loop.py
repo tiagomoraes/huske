@@ -23,6 +23,7 @@ from huske.recovery.scanner import (
     move_to_incomplete,
     scan_orphans,
 )
+from huske.screenshots import ScreenshotCapturer
 from huske.session import RecordingSession
 from huske.transcribe.worker import TranscriptionWorker, chunk_to_job
 from huske.ui.live import LiveUI
@@ -80,9 +81,20 @@ def run_session(
     # We always mix down to mono — Whisper is mono and downmixing avoids extra work.
     cfg = cfg.model_copy(update={"channels": 1})
 
-    # Worker.
+    # Worker. Block until the subprocess has eagerly initialized Metal —
+    # if Core Audio capture starts first the worker dies silently on its
+    # first Metal allocation. The cold-start cost is one-off per session
+    # (~30 s on M-series) and replaces the same wait we would otherwise
+    # see at the first chunk.
     worker = TranscriptionWorker()
     worker.start()
+    _print("[huske] warming up transcription engine (mlx Metal)…")
+    if not worker.wait_ready(timeout=90.0):
+        _print(
+            "[error] transcription worker did not initialize within 90s — aborting"
+        )
+        worker.stop(drain_timeout=2.0)
+        return 4
 
     # Render state.
     state = RenderState(
@@ -162,6 +174,18 @@ def run_session(
     rotator.set_default_audio_sources(list(actual_sources))
     state.update(recording=True)
 
+    screenshotter: ScreenshotCapturer | None = None
+    if cfg.screenshots_enabled:
+        cfg.screenshots_root.mkdir(parents=True, exist_ok=True)
+        screenshotter = ScreenshotCapturer(
+            cfg=cfg, session_id=session.session_id, on_event=on_event
+        )
+        screenshotter.start()
+        on_event(
+            "info",
+            f"screenshots every {cfg.screenshots_interval_seconds:g}s → {cfg.screenshots_root}",
+        )
+
     exit_code = 0
 
     def _session_loop(ui: LiveUI | None) -> None:
@@ -178,6 +202,9 @@ def run_session(
 
         on_event("info", "stopping capture…")
         capture.stop()
+        if screenshotter is not None:
+            screenshotter.stop()
+            on_event("info", f"screenshots saved: {screenshotter.captures}")
         rotator.finalize_current()
         if ui is not None:
             ui.update()
@@ -240,6 +267,8 @@ def run_session(
         log.error("run_failed", error=str(exc))
         exit_code = 1
     finally:
+        if screenshotter is not None and screenshotter.alive:
+            screenshotter.stop(timeout=1.0)
         worker.stop(drain_timeout=5.0)
         session.release_lock()
         cleanup_session_dir(session.audio_root)
@@ -291,7 +320,6 @@ def _main_loop(
 
         # UI render-state refresh.
         peaks = capture.peak_levels_db()
-        chunk = rotator.current_chunk
         state.update(
             peak_levels=peaks,
             current_chunk_seq=rotator.current_chunk_seq,
@@ -368,9 +396,16 @@ def _do_recovery(
     for sess in orphans:
         log.info("orphan_session", session_id=sess.session_id, chunks=len(sess.chunks))
         for chunk in sess.chunks:
+            # Move any sibling WAVs that failed validity (truncated/empty) to
+            # incomplete/, regardless of whether the chunk overall is valid.
+            for bad in chunk.invalid_paths:
+                target = move_to_incomplete(cfg, sess.session_id, bad)
+                report.moved_to_incomplete.append(target)
+                report.chunks_incomplete += 1
+
             if chunk.valid:
-                # Build a synthetic AudioChunk for the worker job.
                 end_time = chunk.start_time + timedelta(seconds=chunk.duration_seconds)
+                primary = next(iter(chunk.audio_paths.values()))
                 ac = AudioChunk(
                     chunk_seq=chunk.chunk_seq,
                     session_id=sess.session_id,
@@ -378,16 +413,12 @@ def _do_recovery(
                     end_time=end_time,
                     expected_duration_seconds=cfg.chunk_seconds,
                     actual_duration_seconds=chunk.duration_seconds,
-                    audio_path=chunk.audio_path,
+                    audio_path=primary,
+                    audio_paths=dict(chunk.audio_paths),  # type: ignore[arg-type]
+                    audio_sources=list(chunk.audio_paths.keys()),  # type: ignore[arg-type]
                 )
-                # Mark as incomplete (recovered).
-                ac.audio_sources = ["microphone"]  # unknown; safe default
                 worker.submit(chunk_to_job(ac, cfg) | {"incomplete": True})
                 report.chunks_valid += 1
-            else:
-                target = move_to_incomplete(cfg, sess.session_id, chunk.audio_path)
-                report.moved_to_incomplete.append(target)
-                report.chunks_incomplete += 1
         # Lock cleanup + dir cleanup attempted lazily; actual removal happens after
         # successful transcription (worker deletes WAV unless --keep-audio, then dir
         # becomes empty and `cleanup_session_dir` removes it on next opportunity).

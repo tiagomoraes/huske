@@ -7,9 +7,9 @@
 
 A terminal app that runs in the background, continuously records your microphone
 plus your computer's system audio, and transcribes the audio locally with
-[faster-whisper](https://github.com/SYSTRAN/faster-whisper) — producing a
-day-organized, LLM-friendly knowledge base of everything that was said on your
-machine throughout the day.
+[mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) —
+producing a day-organized, LLM-friendly knowledge base of everything that was
+said on your machine throughout the day.
 
 Point Claude Code (or any other LLM agent) at `~/huske/transcripts/` and ask
 it about your day.
@@ -29,8 +29,8 @@ it about your day.
   mixed in software, no gaps at chunk boundaries.
 - **No drivers, no Audio MIDI Setup** — system audio comes through Apple's
   modern ScreenCaptureKit framework. Just grant Screen Recording permission once.
-- **Local transcription** — `faster-whisper`, default `base` model. Audio never
-  leaves your machine.
+- **Local transcription** — `mlx-whisper`, default `base` model, runs on the
+  Apple Silicon GPU via MLX. Audio never leaves your machine.
 - **Configurable chunk size** — default 15 minutes, anything from 6 s to 60 min.
 - **Resilient** — graceful stop finalizes the partial chunk; SIGKILL + restart
   auto-recovers orphaned audio.
@@ -39,6 +39,10 @@ it about your day.
 - **LLM-ready output** — every transcript is a single Markdown file with full
   YAML frontmatter; the directory layout is documented in
   `~/huske/transcripts/README.md` (auto-generated).
+- **Optional periodic screenshots** — opt in with `--screenshots` to also
+  capture a JPEG of every attached display every 10 s, stored under
+  `~/huske/screenshots/YYYY-MM-DD/<session>/HHMMSS_dN.jpg` for downstream
+  multimodal LLM use. Off by default; see [Periodic screenshots](#periodic-screenshots-opt-in).
 
 ## Requirements
 
@@ -96,6 +100,39 @@ network errors, on non-TTY stderr, and for editable installs. Disable it with:
 export HUSKE_NO_UPDATE_CHECK=1
 ```
 
+### Periodic screenshots (opt-in)
+
+`huske run --screenshots` enables a background thread that captures a JPEG of
+every attached display every 10 seconds (configurable). Screenshots are
+written to:
+
+```text
+~/huske/screenshots/YYYY-MM-DD/<session_id>/HHMMSS_dN.jpg
+```
+
+…where `dN` is the display index (`d1` is the main display). Filenames are
+timestamped so a downstream multimodal LLM can correlate each screenshot
+with that day's transcripts.
+
+Capture uses macOS's built-in `screencapture`, so no extra dependency is
+needed and the same Screen Recording permission you've already granted for
+system audio is reused.
+
+Flags:
+
+```bash
+huske run --screenshots                       # opt in
+huske run --screenshots --screenshot-interval 30
+huske run --screenshots --screenshots-root ~/another/path
+```
+
+> **Privacy.** Screenshots can capture passwords, private chats, financial
+> details, and anything else on screen. They're stored unencrypted on disk
+> and read-accessible to any process running as your user. Treat
+> `~/huske/screenshots/` exactly like the audio and transcript directories:
+> never commit it, share with care, and review the
+> [Privacy and consent](#privacy-and-consent) section before enabling.
+
 ## Privacy and consent
 
 huske is local-first: audio capture and transcription run on your machine, and
@@ -106,6 +143,10 @@ metadata can contain private or legally sensitive information.
 - Get consent before recording other people or regulated conversations.
 - Do not commit generated audio, transcripts, logs, local configs, model caches,
   or screenshots containing private content.
+- The `--screenshots` flag captures everything visible on every attached
+  display every 10 s — including any password manager popovers, banking
+  tabs, or private DMs that happen to be open. Leave it off unless you've
+  consciously decided you want this in the on-disk record.
 - Redact `huske doctor` output before sharing it publicly.
 - Report security or privacy vulnerabilities privately through
   [SECURITY.md](SECURITY.md).

@@ -14,16 +14,23 @@ from huske.config import RuntimeConfig
 from huske.session import is_lock_alive
 
 
-_FNAME_RE = re.compile(r"^(?P<seq>\d{4})_(?P<hhmmss>\d{6})\.wav$")
+# Per-source filename: ``<seq>_<HHMMSS>_<source>.wav``. The unsuffixed legacy
+# form (``<seq>_<HHMMSS>.wav``) is still accepted so sessions captured before
+# the source-split change can be recovered.
+_FNAME_RE = re.compile(
+    r"^(?P<seq>\d{4})_(?P<hhmmss>\d{6})(?:_(?P<source>microphone|system))?\.wav$"
+)
 
 
 @dataclass
 class OrphanChunk:
-    audio_path: Path
+    audio_path: Path  # primary (first valid) path; mirrors the AudioChunk field
+    audio_paths: dict[str, Path]  # source -> path (valid sources only)
     chunk_seq: int
     start_time: datetime  # reconstructed from filename + session_id
     duration_seconds: float
     valid: bool
+    invalid_paths: list[Path] = field(default_factory=list)
 
 
 @dataclass
@@ -78,8 +85,9 @@ def _transcript_already_exists(
 def scan_orphans(cfg: RuntimeConfig) -> list[OrphanSession]:
     """Identify session directories under ``cfg.audio_root`` that have no live lock.
 
-    Orphan chunks whose transcript already exists on disk are dropped from the
-    returned list — their WAV is treated as already-handled (caller may delete it).
+    Per-source WAVs of the same chunk are grouped into a single
+    ``OrphanChunk``. A chunk is considered valid if at least one of its WAVs
+    has > 0.5s of usable audio. Already-transcribed chunks are auto-cleaned.
     """
     if not cfg.audio_root.exists():
         return []
@@ -97,13 +105,20 @@ def scan_orphans(cfg: RuntimeConfig) -> list[OrphanSession]:
             continue
 
         session_start = _parse_session_start(entry.name)
-        chunks: list[OrphanChunk] = []
+
+        # Group per-source WAVs of the same chunk together.
+        groups: dict[tuple[int, str], list[tuple[str, Path]]] = {}
         for wav in sorted(entry.glob("*.wav")):
             m = _FNAME_RE.match(wav.name)
             if m is None:
                 continue
             seq = int(m.group("seq"))
             hhmmss = m.group("hhmmss")
+            source = m.group("source") or "microphone"
+            groups.setdefault((seq, hhmmss), []).append((source, wav))
+
+        chunks: list[OrphanChunk] = []
+        for (seq, hhmmss), files in sorted(groups.items()):
             if session_start is None:
                 start_time = datetime.now().astimezone()
             else:
@@ -112,22 +127,41 @@ def scan_orphans(cfg: RuntimeConfig) -> list[OrphanSession]:
                     minute=int(hhmmss[2:4]),
                     second=int(hhmmss[4:6]),
                 )
-            # Skip if already-transcribed (e.g., --keep-audio left the WAV behind).
             if _transcript_already_exists(cfg, entry.name, seq, start_time):
-                try:
-                    wav.unlink()
-                except OSError:
-                    pass
+                for _, wav in files:
+                    try:
+                        wav.unlink()
+                    except OSError:
+                        pass
                 continue
-            dur = _wav_duration_seconds(wav)
-            valid = dur is not None and dur > 0.5
+
+            valid_paths: dict[str, Path] = {}
+            invalid_paths: list[Path] = []
+            max_dur = 0.0
+            for source, wav in files:
+                dur = _wav_duration_seconds(wav)
+                if dur is not None and dur > 0.5:
+                    valid_paths[source] = wav
+                    if dur > max_dur:
+                        max_dur = dur
+                else:
+                    invalid_paths.append(wav)
+
+            valid = bool(valid_paths)
+            primary = (
+                next(iter(valid_paths.values()))
+                if valid
+                else files[0][1]
+            )
             chunks.append(
                 OrphanChunk(
-                    audio_path=wav,
+                    audio_path=primary,
+                    audio_paths=dict(valid_paths),
                     chunk_seq=seq,
                     start_time=start_time,
-                    duration_seconds=dur or 0.0,
-                    valid=bool(valid),
+                    duration_seconds=max_dur,
+                    valid=valid,
+                    invalid_paths=invalid_paths,
                 )
             )
         if chunks or lock.exists():

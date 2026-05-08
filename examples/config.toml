@@ -11,12 +11,16 @@ output_root = "~/huske/transcripts"
 audio_root = "~/huske/audio"
 
 # Whisper-class model size: tiny | base | small | medium | large-v3
+# Loaded on first use from the matching mlx-community/whisper-<size>-mlx repo.
 model = "base"
 
-# CTranslate2 compute type: int8 | int8_float16 | float16 | float32
+# Compute type — kept for back-compat; the mlx-whisper backend always uses
+# Metal. Setting "float32" disables fp16 inference (slower, more memory). Any
+# other value is treated as "use the fp16 default".
 compute_type = "int8"
 
-# Inference device: auto | cpu | cuda. Apple Silicon: keep "auto" or "cpu".
+# Inference device — kept for back-compat; mlx-whisper always runs on the
+# Apple Silicon GPU. "cuda" is rejected on macOS.
 device = "auto"
 
 # Optional language hint, ISO 639-1. Omit for auto-detect.
@@ -34,3 +38,12 @@ log_level = "INFO"
 
 # Run without the Rich live UI (plain log lines instead).
 no_ui = false
+
+# Periodic screenshots — disabled by default. Captures a JPEG of every
+# attached display every `screenshots_interval_seconds` seconds. Files go to
+# `screenshots_root/YYYY-MM-DD/<session_id>/HHMMSS_dN.jpg`. Read the privacy
+# notes in README.md before enabling.
+# screenshots_enabled = true
+# screenshots_interval_seconds = 10.0
+# screenshots_root = "~/huske/screenshots"
+# screenshots_max_displays = 4
