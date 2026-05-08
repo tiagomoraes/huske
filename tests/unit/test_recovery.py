@@ -130,3 +130,54 @@ def test_already_transcribed_chunks_are_skipped_and_wav_removed(cfg: RuntimeConf
     assert not wav.exists()
     assert len(orphans) == 1
     assert orphans[0].chunks == []
+
+
+def test_per_source_wavs_grouped_into_one_chunk(cfg: RuntimeConfig) -> None:
+    """A chunk's mic + system WAVs collapse into one OrphanChunk with both paths."""
+    sess_dir = cfg.audio_root / "20260507T091500_aaaa1111"
+    sess_dir.mkdir(parents=True)
+    (sess_dir / ".lock").write_text("99999999", encoding="utf-8")
+    mic = sess_dir / "0001_091500_microphone.wav"
+    sys_ = sess_dir / "0001_091500_system.wav"
+    _make_wav(mic, seconds=2.0)
+    _make_wav(sys_, seconds=2.0)
+
+    orphans = scan_orphans(cfg)
+    assert len(orphans) == 1
+    assert len(orphans[0].chunks) == 1
+    chunk = orphans[0].chunks[0]
+    assert chunk.valid
+    assert set(chunk.audio_paths.keys()) == {"microphone", "system"}
+    assert chunk.invalid_paths == []
+
+
+def test_per_source_invalid_sibling_separated(cfg: RuntimeConfig) -> None:
+    """If one source's WAV is truncated, the chunk stays valid via the other source."""
+    sess_dir = cfg.audio_root / "20260507T091500_bbbb2222"
+    sess_dir.mkdir(parents=True)
+    (sess_dir / ".lock").write_text("99999999", encoding="utf-8")
+    mic = sess_dir / "0001_091500_microphone.wav"
+    sys_ = sess_dir / "0001_091500_system.wav"
+    _make_wav(mic, seconds=2.0)
+    sys_.write_bytes(b"truncated")
+
+    orphans = scan_orphans(cfg)
+    chunk = orphans[0].chunks[0]
+    assert chunk.valid
+    assert list(chunk.audio_paths.keys()) == ["microphone"]
+    assert chunk.invalid_paths == [sys_]
+
+
+def test_legacy_unsuffixed_wav_recovers_as_microphone(cfg: RuntimeConfig) -> None:
+    """Sessions captured before the source-split change still recover."""
+    sess_dir = cfg.audio_root / "20260507T091500_cccc3333"
+    sess_dir.mkdir(parents=True)
+    (sess_dir / ".lock").write_text("99999999", encoding="utf-8")
+    wav = sess_dir / "0001_091500.wav"
+    _make_wav(wav, seconds=2.0)
+
+    orphans = scan_orphans(cfg)
+    chunk = orphans[0].chunks[0]
+    assert chunk.valid
+    assert list(chunk.audio_paths.keys()) == ["microphone"]
+    assert chunk.audio_paths["microphone"] == wav

@@ -25,7 +25,7 @@ _ctx = mp.get_context("spawn")
 class TranscribeJob:
     chunk_seq: int
     session_id: str
-    audio_path: str
+    audio_paths: dict[str, str]  # source -> WAV path
     start_time: str  # ISO 8601
     end_time: str
     expected_duration_seconds: float
@@ -107,7 +107,7 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
             # knob mlx-whisper exposes here.
             fp16 = job_data.get("config_compute_type") != "float32"
 
-            audio_path = job_data["audio_path"]
+            audio_paths: dict[str, str] = dict(job_data["audio_paths"])
             language = job_data["language"]
             transcribe_kwargs: dict[str, Any] = {
                 "path_or_hf_repo": hf_repo,
@@ -117,27 +117,49 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
             if language:
                 transcribe_kwargs["language"] = language
 
-            # mlx-whisper caches the loaded model across calls via ModelHolder,
-            # so the first job pays the load cost and subsequent jobs reuse it.
-            result = mlx_whisper.transcribe(audio_path, **transcribe_kwargs)
+            # Process sources in `audio_sources` order so the merged transcript
+            # has stable ordering across runs (concurrent segments break ties
+            # by source order, not dict iteration order).
+            ordered_sources: list[str] = []
+            for s in job_data.get("audio_sources") or []:
+                if s in audio_paths and s not in ordered_sources:
+                    ordered_sources.append(s)
+            for s in audio_paths:
+                if s not in ordered_sources:
+                    ordered_sources.append(s)
 
-            seg_list: list[dict] = []
-            text_parts: list[str] = []
-            for seg in result.get("segments") or []:
-                text = (seg.get("text") or "").strip()
-                seg_list.append(
-                    {
-                        "start": float(seg.get("start", 0.0)),
-                        "end": float(seg.get("end", 0.0)),
-                        "text": text,
-                    }
-                )
-                if text:
-                    text_parts.append(text)
-            body = "\n\n".join(text_parts)
+            merged_segments: list[dict] = []
+            detected_language: str | None = None
+            for source in ordered_sources:
+                src_path = audio_paths[source]
+                # mlx-whisper caches the loaded model across calls via
+                # ModelHolder, so subsequent calls in this loop reuse it.
+                src_result = mlx_whisper.transcribe(src_path, **transcribe_kwargs)
+                if detected_language is None:
+                    detected_language = src_result.get("language")
+                for seg in src_result.get("segments") or []:
+                    text = (seg.get("text") or "").strip()
+                    if not text:
+                        continue
+                    merged_segments.append(
+                        {
+                            "start": float(seg.get("start", 0.0)),
+                            "end": float(seg.get("end", 0.0)),
+                            "text": text,
+                            "source": source,
+                        }
+                    )
+
+            # Stable sort: ties (same start) preserve insertion order, which
+            # follows ordered_sources.
+            merged_segments.sort(key=lambda s: s["start"])
 
             start_time = _dt.fromisoformat(job_data["start_time"])
             end_time = _dt.fromisoformat(job_data["end_time"])
+
+            from huske.transcribe.writer import body_from_source_segments
+
+            body = body_from_source_segments(start_time, merged_segments)
 
             transcript = build_transcript_from_segments(
                 session_id=job_data["session_id"],
@@ -149,32 +171,34 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
                 gap_seconds=job_data["gap_seconds"],
                 audio_sources=job_data["audio_sources"],
                 model=f"mlx-whisper:{model_size}",
-                language=result.get("language") or language or "auto",
+                language=detected_language or language or "auto",
                 incomplete=job_data["incomplete"],
                 text=body,
-                segments=seg_list or None,
+                segments=merged_segments or None,
             )
 
             # Build target path.
             output_root = _Path(job_data["output_root"])
             day = output_root / start_time.date().isoformat()
             day.mkdir(parents=True, exist_ok=True)
+            primary_path = next(iter(audio_paths.values()))
             chunk_proxy = AudioChunk(
                 chunk_seq=transcript.chunk_seq,
                 session_id=transcript.session_id,
                 start_time=transcript.start_time,
                 expected_duration_seconds=transcript.duration_seconds,
-                audio_path=_Path(audio_path),
+                audio_path=_Path(primary_path),
             )
             target = day / transcript_filename(chunk_proxy).name
             written = write_transcript(transcript, target)
 
-            # Delete WAV if not keeping it.
+            # Delete per-source WAVs if not keeping audio.
             if not job_data.get("keep_audio", False):
-                try:
-                    _Path(audio_path).unlink(missing_ok=True)
-                except OSError:
-                    pass
+                for p in audio_paths.values():
+                    try:
+                        _Path(p).unlink(missing_ok=True)
+                    except OSError:
+                        pass
 
             out_q.put(
                 {
@@ -300,10 +324,19 @@ def chunk_to_job(
     chunk: Any,  # AudioChunk
     cfg: Any,  # RuntimeConfig
 ) -> dict[str, Any]:
+    if chunk.audio_paths:
+        audio_paths = {s: str(p) for s, p in chunk.audio_paths.items()}
+    else:
+        # Recovery path: only the legacy single audio_path is known. Tag it
+        # under the first source label so the worker can still process it.
+        primary = (
+            chunk.audio_sources[0] if chunk.audio_sources else "microphone"
+        )
+        audio_paths = {primary: str(chunk.audio_path)}
     return {
         "chunk_seq": chunk.chunk_seq,
         "session_id": chunk.session_id,
-        "audio_path": str(chunk.audio_path),
+        "audio_paths": audio_paths,
         "start_time": chunk.start_time.isoformat(),
         "end_time": (chunk.end_time or chunk.start_time).isoformat(),
         "expected_duration_seconds": float(chunk.expected_duration_seconds),

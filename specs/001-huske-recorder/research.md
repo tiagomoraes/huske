@@ -121,7 +121,7 @@ A `CaptureCoordinator` (`huske/capture/coordinator.py`) runs both sources concur
 - 0.5 s lead time is generous; actual handoff is sub-millisecond.
 
 **Filename convention** (per FR-014/15/17):
-- Chunk WAV (transient): `~/huske/audio/<sessionid>/<chunk_seq>_<HHMMSS>.wav` where `<chunk_seq>` is a zero-padded monotonic counter within the session.
+- Chunk WAV (transient): `~/huske/audio/<sessionid>/<chunk_seq>_<HHMMSS>_<source>.wav` where `<chunk_seq>` is a zero-padded monotonic counter within the session and `<source>` is `microphone` or `system`. One WAV per active source per chunk; the recovery scanner also accepts the legacy unsuffixed form (`<chunk_seq>_<HHMMSS>.wav`) for sessions captured before the source-split change.
 - Transcript: `~/huske/transcripts/YYYY-MM-DD/<HHMMSS>_<sessionid8>_<chunk_seq>.md`. Including the session-id-prefix and chunk sequence guarantees no two runs collide on filename even at sub-second restart.
 
 ---

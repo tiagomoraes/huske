@@ -94,10 +94,13 @@ def audio_chunk_path(
     session_id: str,
     chunk_seq: int,
     start_time: datetime,
+    source: str | None = None,
 ) -> Path:
     folder = audio_root(cfg, session_id)
-    name = f"{chunk_seq:04d}_{start_time.strftime('%H%M%S')}.wav"
-    return folder / name
+    base = f"{chunk_seq:04d}_{start_time.strftime('%H%M%S')}"
+    if source:
+        base = f"{base}_{source}"
+    return folder / f"{base}.wav"
 
 
 def incomplete_root(cfg: "RuntimeConfig") -> Path:
