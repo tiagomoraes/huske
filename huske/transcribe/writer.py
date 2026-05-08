@@ -101,6 +101,10 @@ def build_transcript_from_segments(
 
 _SOURCE_LABEL = {"microphone": "mic", "system": "system"}
 
+# Cap so long single-source monologues still get periodic timestamp anchors
+# rather than collapsing every interior segment behind one head timestamp.
+_MAX_RUN_DURATION_SECONDS = 90.0
+
 
 def _label_for(source: str) -> str:
     return _SOURCE_LABEL.get(source, source)
@@ -109,20 +113,52 @@ def _label_for(source: str) -> str:
 def body_from_source_segments(
     chunk_start: datetime, segments: list[dict]
 ) -> str:
-    """Render merged-by-source segments as paragraphs prefixed with ``[HH:MM:SS · source]``.
+    """Render source segments as paragraphs prefixed with ``[HH:MM:SS · source]``.
 
     ``segments`` is a list of dicts with at least ``start`` (seconds offset
     inside the chunk's WAV), ``text``, and ``source``. Empty/whitespace-only
-    text is skipped. Returns ``""`` if nothing remains — the caller (the
-    transcript renderer) substitutes the "no speech detected" placeholder.
+    text is skipped. Consecutive segments from the same source are grouped into
+    a single paragraph so Whisper's internal segment boundaries do not dominate
+    the rendered transcript; a run is also broken when it exceeds
+    ``_MAX_RUN_DURATION_SECONDS`` so long monologues keep periodic timestamp
+    anchors. Empty/missing ``source`` never merges with a neighboring run.
+    Returns ``""`` if nothing remains — the caller (the transcript renderer)
+    substitutes the "no speech detected" placeholder.
     """
-    lines: list[str] = []
+    blocks: list[str] = []
+    current_source: str | None = None
+    current_ts: str | None = None
+    current_run_start: float | None = None
+    current_parts: list[str] = []
+
+    def flush_current() -> None:
+        nonlocal current_source, current_ts, current_run_start, current_parts
+        if current_source is None or current_ts is None or not current_parts:
+            return
+        source = _label_for(current_source)
+        text = " ".join(current_parts)
+        blocks.append(f"[{current_ts} · {source}] {text}")
+        current_source = None
+        current_ts = None
+        current_run_start = None
+        current_parts = []
+
     for seg in segments:
         text = (seg.get("text") or "").strip()
         if not text:
             continue
         offset = float(seg.get("start", 0.0))
         ts = (chunk_start + timedelta(seconds=offset)).strftime("%H:%M:%S")
-        source = _label_for(str(seg.get("source", "")))
-        lines.append(f"[{ts} · {source}] {text}")
-    return "\n\n".join(lines)
+        source = str(seg.get("source", ""))
+        run_too_long = (
+            current_run_start is not None
+            and offset - current_run_start > _MAX_RUN_DURATION_SECONDS
+        )
+        if not source or current_source != source or run_too_long:
+            flush_current()
+            current_source = source
+            current_ts = ts
+            current_run_start = offset
+        current_parts.append(text)
+    flush_current()
+    return "\n\n".join(blocks)
