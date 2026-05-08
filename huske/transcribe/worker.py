@@ -51,13 +51,30 @@ class TranscribeResult:
 _SENTINEL = "__STOP__"
 
 
+_READY_MSG = "__READY__"
+
+
 def _worker_main(in_q: Any, out_q: Any) -> None:
     """Subprocess entry point. Loops on jobs until sentinel arrives."""
     # Defer heavy imports until inside the subprocess.
     from datetime import datetime as _dt
     from pathlib import Path as _Path
 
+    import mlx.core as mx
     import mlx_whisper
+
+    # Force the Metal context to initialize *before* the parent process can
+    # start the Core Audio tap. If the worker's first Metal allocation happens
+    # after the parent has loaded the Core Audio Tap framework, the spawned
+    # subprocess gets silently killed (SIGKILL with no Python traceback) the
+    # moment mlx-whisper tries to load model weights. The mechanism appears
+    # to be Mach-port / framework state inherited across spawn. Eagerly
+    # touching Metal here keeps the worker alive for the rest of the session.
+    # On a cold M-series chip, this can take 20–40 s as Metal compiles its
+    # kernels for the first time; the parent's ``wait_ready`` timeout has to
+    # be sized accordingly.
+    mx.eval(mx.zeros(1))
+    out_q.put(_READY_MSG)
 
     from huske.config import mlx_whisper_repo
     from huske.models import AudioChunk
@@ -185,9 +202,31 @@ class TranscriptionWorker:
         if self._proc is not None and self._proc.is_alive():
             return
         self._proc = _ctx.Process(
-            target=_worker_main, args=(self._in_q, self._out_q), name="huske-worker"
+            target=_worker_main,
+            args=(self._in_q, self._out_q),
+            name="huske-worker",
         )
         self._proc.start()
+
+    def wait_ready(self, timeout: float = 90.0) -> bool:
+        """Block until the worker has finished its eager Metal init.
+
+        Returns True on readiness, False on timeout or worker death. Capture
+        must not start until this returns True — see ``_worker_main`` for
+        the rationale.
+        """
+        import time
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                msg = self._out_q.get(timeout=0.5)
+                if msg == _READY_MSG:
+                    return True
+            except queue.Empty:
+                if self._proc is None or not self._proc.is_alive():
+                    return False
+        return False
 
     def submit(self, job: dict[str, Any]) -> None:
         self._in_q.put(job)

@@ -36,6 +36,8 @@ dependencies = [
     # System audio capture on macOS via ScreenCaptureKit (macOS 13+).
     "pyobjc-framework-ScreenCaptureKit>=10; sys_platform == 'darwin'",
     "pyobjc-framework-CoreMedia>=10; sys_platform == 'darwin'",
+    # System audio via Core Audio process tap (macOS 14.4+).
+    "pyobjc-framework-CoreAudio>=10; sys_platform == 'darwin'",
 ]
 
 [project.urls]
