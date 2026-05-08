@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import queue
+import signal
 import traceback
 from dataclasses import dataclass
 from typing import Any
@@ -54,8 +55,15 @@ _SENTINEL = "__STOP__"
 _READY_MSG = "__READY__"
 
 
+def _configure_worker_signal_handlers() -> None:
+    """Let the parent process own terminal Ctrl+C shutdown."""
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+
 def _worker_main(in_q: Any, out_q: Any) -> None:
     """Subprocess entry point. Loops on jobs until sentinel arrives."""
+    _configure_worker_signal_handlers()
+
     # Defer heavy imports until inside the subprocess.
     from datetime import datetime as _dt
     from pathlib import Path as _Path
