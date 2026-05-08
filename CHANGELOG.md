@@ -6,6 +6,8 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.3.0 - 2026-05-08
+
 ### Changed
 
 - Switched the transcription engine from `faster-whisper` (CTranslate2, CPU
