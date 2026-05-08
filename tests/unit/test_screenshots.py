@@ -26,7 +26,10 @@ def test_screenshots_defaults_off() -> None:
     assert cfg.screenshots_root.is_absolute()
 
 
-def test_screenshots_interval_must_be_positive() -> None:
+def test_screenshots_interval_must_be_at_least_one_second() -> None:
+    RuntimeConfig(screenshots_interval_seconds=1.0)
+    with pytest.raises(ValueError):
+        RuntimeConfig(screenshots_interval_seconds=0.5)
     with pytest.raises(ValueError):
         RuntimeConfig(screenshots_interval_seconds=0.0)
     with pytest.raises(ValueError):
@@ -80,7 +83,7 @@ def _cfg(tmp_path: Path, *, max_displays: int = 4) -> RuntimeConfig:
     return RuntimeConfig(
         screenshots_enabled=True,
         screenshots_root=tmp_path / "shots",
-        screenshots_interval_seconds=0.1,
+        screenshots_interval_seconds=1.0,
         screenshots_max_displays=max_displays,
     )
 

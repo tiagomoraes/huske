@@ -40,7 +40,8 @@ log_level = "INFO"
 no_ui = false
 
 # Periodic screenshots — disabled by default. Captures a JPEG of every
-# attached display every `screenshots_interval_seconds` seconds. Files go to
+# attached display every `screenshots_interval_seconds` seconds (minimum 1).
+# Files go to
 # `screenshots_root/YYYY-MM-DD/<session_id>/HHMMSS_dN.jpg`. Read the privacy
 # notes in README.md before enabling.
 # screenshots_enabled = true

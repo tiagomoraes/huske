@@ -26,8 +26,8 @@ from huske.recovery.scanner import (
 from huske.screenshots import ScreenshotCapturer
 from huske.session import RecordingSession
 from huske.transcribe.worker import TranscriptionWorker, chunk_to_job
+from huske.ui.input import TerminalKeyReader
 from huske.ui.live import LiveUI
-
 
 _HEARTBEAT_TIMEOUT_SECONDS = 5.0
 
@@ -101,6 +101,7 @@ def run_session(
         session_id=session.session_id,
         output_root=cfg.output_root,
         recording=False,
+        screenshots_enabled=False,
     )
 
     # Recovery before starting new capture.
@@ -181,22 +182,108 @@ def run_session(
             cfg=cfg, session_id=session.session_id, on_event=on_event
         )
         screenshotter.start()
-        on_event(
-            "info",
-            f"screenshots every {cfg.screenshots_interval_seconds:g}s → {cfg.screenshots_root}",
+        state.update(
+            screenshots_enabled=screenshotter.alive,
+            screenshots_count=screenshotter.captures,
+            last_screenshot_at=screenshotter.last_capture_at,
         )
+        if screenshotter.alive:
+            on_event(
+                "info",
+                f"screenshots every {cfg.screenshots_interval_seconds:g}s → {cfg.screenshots_root}",
+            )
 
     exit_code = 0
 
-    def _session_loop(ui: LiveUI | None) -> None:
+    def _screenshot_status() -> tuple[bool, int, datetime | None]:
+        if screenshotter is None:
+            return False, 0, None
+        return screenshotter.alive, screenshotter.captures, screenshotter.last_capture_at
+
+    def _sync_screenshot_state() -> None:
+        enabled, count, last = _screenshot_status()
+        state.update(
+            screenshots_enabled=enabled,
+            screenshots_count=count,
+            last_screenshot_at=last,
+        )
+
+    def _toggle_screenshots() -> None:
+        nonlocal screenshotter
+        if screenshotter is not None and screenshotter.alive:
+            screenshotter.stop()
+            _sync_screenshot_state()
+            on_event("info", f"screenshots disabled ({screenshotter.captures} saved)")
+            return
+
+        cfg.screenshots_root.mkdir(parents=True, exist_ok=True)
+        if screenshotter is None:
+            screenshotter = ScreenshotCapturer(
+                cfg=cfg, session_id=session.session_id, on_event=on_event
+            )
+        screenshotter.start()
+        _sync_screenshot_state()
+        if screenshotter.alive:
+            on_event(
+                "info",
+                f"screenshots enabled every {cfg.screenshots_interval_seconds:g}s",
+            )
+
+    def _toggle_pause() -> None:
+        if state.paused:
+            capture.resume()
+            state.clear_warning("heartbeat")
+            state.update(recording=True, paused=False)
+            on_event("info", "recording resumed")
+            return
+
+        capture.pause()
+        finalized = rotator.pause_current()
+        state.clear_warning("heartbeat")
+        state.update(recording=False, paused=True, peak_levels=(-120.0, -120.0))
+        msg = "recording paused"
+        if finalized:
+            msg += " — current chunk queued"
+        on_event("info", msg)
+
+    def _handle_key(key: str) -> None:
+        if stop_flag.is_set():
+            return
+        normalized = key.lower()
+        if normalized == "\x03":
+            on_event("info", "stop requested — finalizing current chunk…")
+            stop_flag.set()
+            return
+        if normalized == "?":
+            state.update(help_visible=not state.help_visible)
+            return
+        if not state.help_visible:
+            return
+        if normalized == "\x1b":
+            state.update(help_visible=False)
+        elif normalized == "q":
+            on_event("info", "stop requested — finalizing current chunk…")
+            stop_flag.set()
+        elif normalized == "p":
+            _toggle_pause()
+            state.update(help_visible=False)
+        elif normalized == "s":
+            _toggle_screenshots()
+            state.update(help_visible=False)
+
+    def _session_loop(
+        ui: LiveUI | None,
+        read_key: Callable[[], str | None] | None = None,
+    ) -> None:
         # Phase 1: normal recording — runs until Ctrl+C / SIGTERM sets stop_flag.
         _main_loop(
             cfg, state, rotator, capture, worker, stop_flag, log,
-            on_result, ui=ui,
+            on_result, ui=ui, read_key=read_key, on_key=_handle_key,
+            screenshot_status=_screenshot_status,
         )
 
         # Phase 2: stopping. Keep the UI alive while we drain.
-        state.update(recording=False, stopping=True)
+        state.update(recording=False, paused=False, stopping=True, help_visible=False)
         if ui is not None:
             ui.update()
 
@@ -204,6 +291,7 @@ def run_session(
         capture.stop()
         if screenshotter is not None:
             screenshotter.stop()
+            _sync_screenshot_state()
             on_event("info", f"screenshots saved: {screenshotter.captures}")
         rotator.finalize_current()
         if ui is not None:
@@ -261,9 +349,9 @@ def run_session(
             _print(f"[huske] recording — Ctrl+C to stop. transcripts → {cfg.output_root}")
             _session_loop(ui=None)
         else:
-            with LiveUI(state) as live:
-                _session_loop(ui=live)
-    except Exception as exc:  # noqa: BLE001
+            with LiveUI(state) as live, TerminalKeyReader() as keys:
+                _session_loop(ui=live, read_key=keys.read_key)
+    except Exception as exc:
         log.error("run_failed", error=str(exc))
         exit_code = 1
     finally:
@@ -286,14 +374,28 @@ def _main_loop(
     worker: TranscriptionWorker,
     stop_flag: threading.Event,
     log: Any,
-    on_result: "Callable[[int], None]",
+    on_result: Callable[[int], None],
     ui: LiveUI | None,
+    read_key: Callable[[], str | None] | None = None,
+    on_key: Callable[[str], None] | None = None,
+    screenshot_status: Callable[[], tuple[bool, int, datetime | None]] | None = None,
 ) -> None:
     """Run the asyncio-free main loop. Updates UI, polls worker results, watches heartbeat."""
     while not stop_flag.is_set():
+        if read_key is not None and on_key is not None:
+            while True:
+                key = read_key()
+                if key is None:
+                    break
+                on_key(key)
+                if stop_flag.is_set():
+                    break
+            if stop_flag.is_set():
+                break
+
         # Heartbeat / sleep-wake monitor.
         last = capture.last_callback_at
-        if last is not None:
+        if not state.paused and last is not None:
             stale = (datetime.now().astimezone() - last).total_seconds()
             if stale > _HEARTBEAT_TIMEOUT_SECONDS:
                 state.set_warning(
@@ -320,12 +422,21 @@ def _main_loop(
 
         # UI render-state refresh.
         peaks = capture.peak_levels_db()
+        screenshot_fields: dict[str, object] = {}
+        if screenshot_status is not None:
+            screenshots_enabled, screenshots_count, last_screenshot_at = screenshot_status()
+            screenshot_fields = {
+                "screenshots_enabled": screenshots_enabled,
+                "screenshots_count": screenshots_count,
+                "last_screenshot_at": last_screenshot_at,
+            }
         state.update(
             peak_levels=peaks,
             current_chunk_seq=rotator.current_chunk_seq,
             chunk_started_at=rotator.chunk_started_at,
             next_rotation_at=rotator.next_rotation_at,
             queue_depth=worker.queue_depth,
+            **screenshot_fields,
         )
 
         if ui is not None:
