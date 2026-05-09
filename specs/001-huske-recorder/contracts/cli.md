@@ -19,6 +19,7 @@ Installed as `huske` via `pyproject.toml` `[project.scripts]`. Also accessible a
 huske run [OPTIONS]          Start a recording session (default if no subcommand).
 huske recover [OPTIONS]      Process orphaned audio from prior runs without recording.
 huske doctor [OPTIONS]       Diagnose audio device + model setup; exit non-zero on failure.
+huske autostart <verb>       Manage the macOS LaunchAgent that runs huske on login.
 huske --version              Print version and exit.
 huske --help                 Print help.
 ```
@@ -143,6 +144,51 @@ If a check fails, the line shows an actionable hint (e.g., for missing Screen Re
 | `--json` | bool | `false` | Emit machine-readable output instead. |
 
 **Exit codes**: `0` all pass, `3` device problem, `5` model unavailable, `2` config error.
+
+---
+
+## `huske autostart`
+
+**Purpose**: Manage a per-user macOS [LaunchAgent](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html)
+(`~/Library/LaunchAgents/me.huske.plist`, label `me.huske`) that runs
+`huske run --no-ui` automatically every time the user logs in. macOS-only;
+exits with code `2` and a friendly error on other platforms.
+
+**Verbs**:
+
+```text
+huske autostart install [OPTIONS]   Write the plist and load it via launchctl bootstrap.
+huske autostart uninstall           Bootout and remove the plist.
+huske autostart status              Print install/load/pid state. Exit 0 if loaded, 1 otherwise.
+huske autostart start               launchctl kickstart (no-op if already running).
+huske autostart stop                launchctl kill TERM (graceful exit).
+```
+
+**`install` options**:
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--config` | path | (none) | Path to a `config.toml` passed through to `huske run`. |
+| `--log-level` | choice | `INFO` | Log level for the agent process. |
+| `--keep-alive` / `--no-keep-alive` | bool | `--keep-alive` | When on, launchd restarts huske only on a non-zero exit (`KeepAlive={SuccessfulExit:false}`). |
+| `--force` | bool | `false` | Overwrite an existing plist. |
+
+**Logs**: the agent has no TUI; stdout/stderr are appended to
+`~/Library/Logs/huske/agent.{out,err}.log`.
+
+**Permissions**: the first time the agent records, macOS will prompt for
+Microphone and Screen Recording permission for the resolved `huske` binary
+(or its Python interpreter). If the prompts don't appear after login, run
+`huske autostart start` once from the terminal to fire them while a user
+session is attached.
+
+**Exit codes**:
+
+| Code | Meaning |
+|---|---|
+| `0` | Command succeeded. `status` returns 0 only when the agent is installed AND loaded. |
+| `1` | `launchctl` returned non-zero, plist already exists (without `--force`), or `status` reports not-installed/not-loaded. |
+| `2` | Not running on macOS. |
 
 ---
 

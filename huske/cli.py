@@ -140,5 +140,153 @@ def doctor(
     raise typer.Exit(run_doctor(config_path=config_path, cli_overrides=cli_overrides, json_output=json_output))
 
 
+# ---------------------------------------------------------------------------
+# Autostart (macOS LaunchAgent)
+# ---------------------------------------------------------------------------
+
+autostart_app = typer.Typer(
+    name="autostart",
+    help="Manage the macOS LaunchAgent that runs huske on login.",
+    no_args_is_help=True,
+    add_completion=False,
+)
+app.add_typer(autostart_app)
+
+
+def _autostart_guard() -> None:
+    """Print a friendly error and exit if not on macOS."""
+    from huske.agent import UnsupportedPlatformError
+
+    try:
+        from huske.agent import _ensure_macos
+
+        _ensure_macos()
+    except UnsupportedPlatformError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
+
+
+@autostart_app.command("install")
+def autostart_install(
+    config_path: Optional[Path] = typer.Option(
+        None, "--config", help="Path to a huske config.toml passed through to `huske run`."
+    ),
+    log_level: str = typer.Option("INFO", "--log-level"),
+    keep_alive: bool = typer.Option(
+        True,
+        "--keep-alive/--no-keep-alive",
+        help="Auto-restart on crash (clean exits stay stopped). Default: on.",
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Overwrite an existing plist."
+    ),
+) -> None:
+    """Install and load the LaunchAgent so huske starts at login."""
+    _autostart_guard()
+    from huske.agent import LOG_ERR, LOG_OUT, install_agent
+
+    try:
+        path = install_agent(
+            config_path=config_path,
+            log_level=log_level,
+            keep_alive=keep_alive,
+            force=force,
+        )
+    except FileExistsError as exc:
+        typer.secho(str(exc), fg=typer.colors.YELLOW, err=True)
+        raise typer.Exit(1) from exc
+    except RuntimeError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from exc
+
+    typer.secho(f"✓ Wrote {path}", fg=typer.colors.GREEN)
+    typer.secho("✓ Loaded into launchd (will start at next login)", fg=typer.colors.GREEN)
+    typer.echo("")
+    typer.echo("Logs:")
+    typer.echo(f"  stdout → {LOG_OUT}")
+    typer.echo(f"  stderr → {LOG_ERR}")
+    typer.echo("")
+    typer.echo("Next steps:")
+    typer.echo(
+        "  1. macOS will prompt for Microphone and Screen Recording access the"
+    )
+    typer.echo(
+        "     first time the agent records. Approve both in System Settings"
+    )
+    typer.echo("     → Privacy & Security.")
+    typer.echo("  2. Run `huske autostart status` to confirm it's running.")
+    typer.echo("  3. The agent now starts automatically at every login.")
+
+
+@autostart_app.command("uninstall")
+def autostart_uninstall() -> None:
+    """Bootout the LaunchAgent and remove the plist."""
+    _autostart_guard()
+    from huske.agent import uninstall_agent
+
+    try:
+        removed = uninstall_agent()
+    except RuntimeError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from exc
+
+    if removed:
+        typer.secho("✓ Removed LaunchAgent.", fg=typer.colors.GREEN)
+    else:
+        typer.echo("Nothing to remove (was not installed).")
+
+
+@autostart_app.command("status")
+def autostart_status() -> None:
+    """Show whether the LaunchAgent is installed and running."""
+    _autostart_guard()
+    from huske.agent import agent_status
+
+    status = agent_status()
+
+    def _yes_no(value: bool) -> str:
+        return "yes" if value else "no"
+
+    typer.echo("huske autostart")
+    typer.echo(f"  installed:  {_yes_no(status.installed)}  ({status.plist_path})")
+    typer.echo(f"  loaded:     {_yes_no(status.loaded)}")
+    if status.pid is not None:
+        typer.echo(f"  pid:        {status.pid}")
+    if status.last_exit_code is not None:
+        typer.echo(f"  last exit:  {status.last_exit_code}")
+    typer.echo(f"  stdout log: {status.log_out}")
+    typer.echo(f"  stderr log: {status.log_err}")
+
+    raise typer.Exit(0 if status.installed and status.loaded else 1)
+
+
+@autostart_app.command("start")
+def autostart_start() -> None:
+    """Kickstart the agent now (no-op if already running)."""
+    _autostart_guard()
+    from huske.agent import LAUNCHD_LABEL, start_agent
+
+    try:
+        start_agent()
+    except RuntimeError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from exc
+    typer.secho(f"✓ Kickstarted {LAUNCHD_LABEL}.", fg=typer.colors.GREEN)
+
+
+@autostart_app.command("stop")
+def autostart_stop() -> None:
+    """Stop the agent (sends SIGTERM)."""
+    _autostart_guard()
+    from huske.agent import LAUNCHD_LABEL, stop_agent
+
+    try:
+        stop_agent()
+    except RuntimeError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from exc
+    typer.secho(f"✓ Sent SIGTERM to {LAUNCHD_LABEL}.", fg=typer.colors.GREEN)
+
+
 def _collect_overrides(**kwargs: object) -> dict[str, object]:
     return {k: v for k, v in kwargs.items() if v is not None}
