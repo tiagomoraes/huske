@@ -16,7 +16,6 @@ import traceback
 from dataclasses import dataclass
 from typing import Any
 
-
 # Use spawn on macOS to keep PortAudio out of the child.
 _ctx = mp.get_context("spawn")
 
@@ -55,6 +54,119 @@ _SENTINEL = "__STOP__"
 _READY_MSG = "__READY__"
 
 
+# Whisper can hallucinate short repeated phrases on quiet microphone noise. Keep
+# this gate conservative: fail open on read errors, and only drop a segment when
+# the corresponding audio window is close to the source noise floor.
+_ENERGY_BLOCK_SECONDS = 0.10
+_SEGMENT_CONTEXT_SECONDS = 0.20
+_MIN_ENERGY_WINDOW_SECONDS = 0.35
+_ABSOLUTE_RMS_FLOOR = 10 ** (-55.0 / 20.0)
+_ABSOLUTE_PEAK_FLOOR = 10 ** (-42.0 / 20.0)
+_MAX_RMS_FLOOR = 10 ** (-42.0 / 20.0)
+_MAX_PEAK_FLOOR = 10 ** (-30.0 / 20.0)
+_NOISE_RMS_PERCENTILE = 20.0
+_RMS_NOISE_MULTIPLIER = 3.0
+_PEAK_NOISE_MULTIPLIER = 8.0
+
+
+@dataclass(frozen=True)
+class _AudioEnergyGate:
+    path: str
+    sample_rate: int
+    frames: int
+    rms_floor: float
+    peak_floor: float
+
+    @classmethod
+    def from_path(cls, path: str) -> _AudioEnergyGate:
+        import numpy as np
+        import soundfile as sf
+
+        block_rms: list[float] = []
+        with sf.SoundFile(path) as audio:
+            sample_rate = int(audio.samplerate)
+            frames = len(audio)
+            block_frames = max(1, round(sample_rate * _ENERGY_BLOCK_SECONDS))
+
+            while True:
+                data = audio.read(
+                    frames=block_frames,
+                    dtype="float32",
+                    always_2d=False,
+                )
+                if data.size == 0:
+                    break
+                mono = _mono_float32(data)
+                block_rms.append(_rms(mono))
+
+        noise_rms = (
+            float(np.percentile(block_rms, _NOISE_RMS_PERCENTILE))
+            if block_rms
+            else 0.0
+        )
+        return cls(
+            path=path,
+            sample_rate=sample_rate,
+            frames=frames,
+            rms_floor=max(
+                _ABSOLUTE_RMS_FLOOR,
+                min(_MAX_RMS_FLOOR, noise_rms * _RMS_NOISE_MULTIPLIER),
+            ),
+            peak_floor=max(
+                _ABSOLUTE_PEAK_FLOOR,
+                min(_MAX_PEAK_FLOOR, noise_rms * _PEAK_NOISE_MULTIPLIER),
+            ),
+        )
+
+    def has_signal(self, start_seconds: float, end_seconds: float) -> bool:
+        import soundfile as sf
+
+        if self.frames <= 0:
+            return False
+
+        start = max(0.0, start_seconds - _SEGMENT_CONTEXT_SECONDS)
+        end = max(
+            end_seconds + _SEGMENT_CONTEXT_SECONDS,
+            start + _MIN_ENERGY_WINDOW_SECONDS,
+        )
+        start_frame = min(self.frames, max(0, int(start * self.sample_rate)))
+        end_frame = min(self.frames, max(start_frame + 1, int(end * self.sample_rate)))
+        if end_frame <= start_frame:
+            return False
+
+        try:
+            with sf.SoundFile(self.path) as audio:
+                audio.seek(start_frame)
+                data = audio.read(
+                    frames=end_frame - start_frame,
+                    dtype="float32",
+                    always_2d=False,
+                )
+
+            if data.size == 0:
+                return False
+            mono = _mono_float32(data)
+            return _rms(mono) >= self.rms_floor or float(abs(mono).max()) >= self.peak_floor
+        except Exception:
+            return True
+
+
+def _mono_float32(data: Any) -> Any:
+    if getattr(data, "ndim", 1) == 1:
+        return data
+    if data.shape[1] == 1:
+        return data[:, 0]
+    return data.mean(axis=1)
+
+
+def _rms(data: Any) -> float:
+    import numpy as np
+
+    if data.size == 0:
+        return 0.0
+    return float(np.sqrt(np.mean(np.square(data, dtype=np.float64))))
+
+
 def _configure_worker_signal_handlers() -> None:
     """Let the parent process own terminal Ctrl+C shutdown."""
     signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -78,7 +190,7 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
     # moment mlx-whisper tries to load model weights. The mechanism appears
     # to be Mach-port / framework state inherited across spawn. Eagerly
     # touching Metal here keeps the worker alive for the rest of the session.
-    # On a cold M-series chip, this can take 20–40 s as Metal compiles its
+    # On a cold M-series chip, this can take 20-40 s as Metal compiles its
     # kernels for the first time; the parent's ``wait_ready`` timeout has to
     # be sized accordingly.
     mx.eval(mx.zeros(1))
@@ -128,23 +240,39 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
                 if s not in ordered_sources:
                     ordered_sources.append(s)
 
-            merged_segments: list[dict] = []
+            merged_segments: list[dict[str, Any]] = []
             detected_language: str | None = None
             for source in ordered_sources:
                 src_path = audio_paths[source]
+                try:
+                    energy_gate = _AudioEnergyGate.from_path(src_path)
+                except Exception:
+                    energy_gate = None
+
                 # mlx-whisper caches the loaded model across calls via
                 # ModelHolder, so subsequent calls in this loop reuse it.
-                src_result = mlx_whisper.transcribe(src_path, **transcribe_kwargs)
-                if detected_language is None:
-                    detected_language = src_result.get("language")
+                src_result = mlx_whisper.transcribe(
+                    src_path,
+                    condition_on_previous_text=False,
+                    **transcribe_kwargs,
+                )
+                source_language = src_result.get("language")
                 for seg in src_result.get("segments") or []:
                     text = (seg.get("text") or "").strip()
                     if not text:
                         continue
+                    seg_start = float(seg.get("start", 0.0))
+                    seg_end = float(seg.get("end", seg_start))
+                    if energy_gate is not None and not energy_gate.has_signal(
+                        seg_start, seg_end
+                    ):
+                        continue
+                    if detected_language is None:
+                        detected_language = source_language
                     merged_segments.append(
                         {
-                            "start": float(seg.get("start", 0.0)),
-                            "end": float(seg.get("end", 0.0)),
+                            "start": seg_start,
+                            "end": seg_end,
                             "text": text,
                             "source": source,
                         }
@@ -208,7 +336,7 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
                     "error": None,
                 }
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             tb = traceback.format_exc()
             out_q.put(
                 {
@@ -265,9 +393,12 @@ class TranscriptionWorker:
 
     def poll_result(self, timeout: float = 0.0) -> dict[str, Any] | None:
         try:
-            return self._out_q.get(timeout=timeout)
+            msg = self._out_q.get(timeout=timeout)
         except queue.Empty:
             return None
+        if isinstance(msg, dict):
+            return msg
+        return None
 
     def stop(self, drain_timeout: float = 60.0) -> None:
         if self._proc is None:

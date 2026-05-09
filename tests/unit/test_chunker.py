@@ -177,3 +177,38 @@ def test_single_active_source_writes_only_one_wav(cfg: RuntimeConfig) -> None:
     chunk = finalized[0]
     assert list(chunk.audio_paths.keys()) == ["microphone"]
     assert chunk.audio_sources == ["microphone"]
+
+
+def test_pause_current_finalizes_but_allows_resume(cfg: RuntimeConfig) -> None:
+    finalized: list[AudioChunk] = []
+    rot = ChunkRotator(
+        cfg=cfg,
+        session_id="20260507T091500_aaaa1111",
+        on_finalized=finalized.append,
+    )
+    start = datetime(2026, 5, 7, 9, 0, 0).astimezone()
+
+    rot.write_block(_block(cfg.block_size, cfg.channels), now=start)
+    assert rot.pause_current(now=start + timedelta(seconds=0.1)) is True
+    assert not rot.closed
+
+    resumed_at = start + timedelta(seconds=10)
+    rot.write_block(_block(cfg.block_size, cfg.channels), now=resumed_at)
+    rot.finalize_current(now=resumed_at + timedelta(seconds=0.1))
+
+    assert [chunk.chunk_seq for chunk in finalized] == [1, 2]
+    assert all(chunk.audio_path.exists() for chunk in finalized)
+    assert rot.closed
+
+
+def test_pause_current_without_open_chunk_is_noop(cfg: RuntimeConfig) -> None:
+    finalized: list[AudioChunk] = []
+    rot = ChunkRotator(
+        cfg=cfg,
+        session_id="20260507T091500_aaaa1111",
+        on_finalized=finalized.append,
+    )
+
+    assert rot.pause_current() is False
+    assert finalized == []
+    assert not rot.closed

@@ -100,13 +100,18 @@ huske_version: 0.1.0
 ```
 
 - The H1 line is human-readable and may be reformatted; tooling should rely on the frontmatter, not the heading.
-- Each segment is one paragraph prefixed with `[HH:MM:SS · <source>]`, where:
-  - `HH:MM:SS` is the segment's local-time start (chunk `start_time` plus the segment offset within its WAV).
+- Each contiguous run of same-source segments is one paragraph prefixed with `[HH:MM:SS · <source>]`, where:
+  - `HH:MM:SS` is the local-time start of the run's first segment (chunk `start_time` plus the segment offset within its WAV) — it is the run's head, not periodic.
   - `<source>` is `mic` for microphone or `system` for system audio.
-- Segments are sorted ascending by start time. Concurrent segments from
+- Runs are formed from segments sorted ascending by start time; consecutive
+  same-source segments are merged into one run. Concurrent segments from
   different sources appear back-to-back in source order, making overlapping
   speech (e.g., you and a remote participant talking at once) visible to the
   reader.
+- A run is also broken when it would otherwise exceed an internal cap
+  (~90 s of segment span) so long single-source monologues keep periodic
+  timestamp anchors instead of collapsing every interior segment behind one
+  head timestamp.
 - A chunk with no detected speech writes the body as: `_(no speech detected)_`.
 
 ---
