@@ -6,6 +6,36 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.4.0 - 2026-05-09
+
+### Added
+
+- Live UI controls panel. Press `?` in the live UI to open an overlay; inside,
+  `p` toggles pause/resume of audio recording, `s` toggles periodic
+  screenshots, `q` triggers a graceful stop, and `Esc` closes the overlay.
+  Pausing finalizes the current partial chunk and stops writing audio until
+  you resume. Toggling screenshots takes effect immediately, using the
+  configured screenshots directory and interval. The screenshot interval
+  must now be at least 1 second.
+
+### Changed
+
+- Group adjacent transcript segments from the same source under a single
+  timestamp range. Long same-source runs are broken up after roughly 90 s so
+  monologues do not collapse every interior timestamp, and empty or missing
+  source segments are left ungrouped instead of silently merging with
+  neighbors.
+
+### Fixed
+
+- Suppress whisper hallucinations on quiet input. Compute a per-source noise
+  floor from each chunk's WAV at ingest and drop any segment whose audio
+  window sits below an RMS/peak gate calibrated to that floor (with
+  conservative absolute lower bounds). Also pass
+  `condition_on_previous_text=False` to mlx-whisper so a hallucinated segment
+  can no longer anchor the next chunk's decoding. Fails open on WAV read
+  errors so a broken file never silently swallows a real transcript.
+
 ## 0.3.1 - 2026-05-08
 
 ### Fixed
