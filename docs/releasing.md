@@ -175,14 +175,21 @@ gh pr create --repo tiagomoraes/huske \
 
 After the hotfix PR merges to `main`, tag and publish it using the same
 `main`-tagged GitHub release flow below. Then bring the fix back to `develop`
-immediately:
+immediately — same pattern as
+[Sync `main` Back to `develop`](#sync-main-back-to-develop) after a normal
+release, with a hotfix-specific branch and title:
 
 ```bash
+git fetch origin --prune --tags
+git switch -c chore/sync-main-hotfix-after-v$VERSION origin/develop
+git merge origin/main --no-ff \
+  -m "chore: sync main hotfix back into develop"
+git push -u origin chore/sync-main-hotfix-after-v$VERSION
 gh pr create --repo tiagomoraes/huske \
   --base develop \
-  --head main \
+  --head chore/sync-main-hotfix-after-v$VERSION \
   --title "chore: sync main hotfix back to develop" \
-  --body "Brings the released hotfix back into develop."
+  --body "Brings the released hotfix into develop. MERGE WITH 'Create a merge commit' — squash drops the second parent."
 ```
 
 If `main` contains release-only metadata that should not be merged wholesale,
@@ -211,6 +218,47 @@ gh pr checks --repo tiagomoraes/huske <PR_NUMBER>
 
 Merge the promotion PR only after approval and green CI. Prefer a regular merge
 commit for the promotion PR so `main` clearly records the release promotion.
+
+## Sync `main` Back to `develop`
+
+Immediately after the promotion PR merges, back-merge `main` into `develop`
+so `main`'s new merge commit (and the soon-to-be tag) are reachable from
+`develop`. Without this step, every subsequent `develop -> main` PR will be
+flagged "out of date with the base branch" and the new release tag will not
+be reachable from `develop`.
+
+There are two non-obvious traps; the recipe below sidesteps both:
+
+1. **Do not use `head=main` for the PR.** This repo has
+   `delete_branch_on_merge: true`, so a PR with `head=main` causes GitHub to
+   auto-delete `main` after merge. Create a throwaway branch from `develop`
+   and merge `main` into it locally instead.
+2. **Do not "Squash and merge" this PR.** Squashing copies the content but
+   drops `main`'s tip as a second parent — `main`'s history never lands in
+   `develop`'s ancestry, so the "out of date" warning persists on every
+   subsequent `develop -> main` PR. Use **"Create a merge commit"** for
+   this PR specifically.
+
+```bash
+VERSION=0.2.0
+git fetch origin --prune --tags
+git switch -c chore/sync-main-after-v$VERSION origin/develop
+git merge origin/main --no-ff \
+  -m "chore: sync main back into develop after v$VERSION"
+git push -u origin chore/sync-main-after-v$VERSION
+gh pr create --repo tiagomoraes/huske \
+  --base develop \
+  --head chore/sync-main-after-v$VERSION \
+  --title "chore: sync main back into develop after v$VERSION" \
+  --body "Brings the v$VERSION promotion merge commit and tag into develop. MERGE WITH 'Create a merge commit' — squash drops the second parent."
+```
+
+The file diff against `develop` is empty — the promotion PR put exactly this
+content on `main`. This PR only adds ancestry. Merge it (with **Create a
+merge commit**) before opening any new `develop -> main` PR.
+
+The same pattern applies after a hotfix lands on `main`; see
+[Hotfix Releases](#hotfix-releases) for the hotfix-specific PR title.
 
 ## Tag the Released `main` Commit
 
@@ -365,7 +413,8 @@ git push
 
 1. Confirm the GitHub release points at the `vX.Y.Z` tag.
 2. Confirm the tag commit is contained in `origin/main`.
-3. Confirm `develop` contains the release commit.
+3. Confirm `develop` contains the release commit and the new tag is reachable
+   from `develop` (the back-merge PR has landed).
 4. Confirm the release workflow succeeded or record the failed publishing step.
 5. Confirm the PyPI project page is live and `huske==$VERSION` installs.
 6. Confirm the Homebrew tap points at the released version and passes
