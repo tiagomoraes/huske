@@ -111,20 +111,30 @@ Use the Gitflow naming rules in [AGENTS.md](AGENTS.md):
 
 ## Release Notes
 
-The canonical release process is [docs/releasing.md](docs/releasing.md); the
-shared agent summary is in [AGENTS.md](AGENTS.md).
+The operational checklist is [docs/RELEASE_PLAYBOOK.md](docs/RELEASE_PLAYBOOK.md).
+The deep reference is [docs/releasing.md](docs/releasing.md); the shared
+agent summary is in [AGENTS.md](AGENTS.md).
 
 Claude must not perform release operations unless the user explicitly asks for
-release or release-prep work. When asked:
+release or release-prep work. When asked, prefer the scripts:
 
-- Start release-prep work from an up-to-date `develop`.
-- Open release-prep PRs back to `develop`.
-- Promote releases through a PR from `develop` to `main`.
-- As part of release-prep, update the website changelog: add a new entry to
-  the `RELEASES` array in `website/components-sections.jsx` (mirroring the
-  new `CHANGELOG.md` section and moving `tag: "latest"` to the new entry),
-  and bump the hardcoded version string in `website/components-shell.jsx`
-  in both the Nav and Footer.
+```bash
+python scripts/release.py X.Y.Z              # opens release-prep PR -> develop
+# (human merges)
+python scripts/release-finalize.py X.Y.Z     # tag, GitHub release, back-merge PR
+# (human merges back-merge)
+python scripts/update-homebrew-tap.py X.Y.Z  # refreshes the brew tap formula
+# (human runs `brew install --build-from-source && brew test && git push`)
+```
+
+The scripts handle the version bump, CHANGELOG move, website updates
+(`components-shell.jsx` Nav/Footer + `components-sections.jsx` RELEASES
+with `tag: "latest"` rotation), and PR creation. `huske/__init__.py`
+reads the version from `pyproject.toml` so there is only one source of
+truth — do not hardcode version strings.
+
+When the playbook does not fit (manual debugging, partial release, etc.),
+fall back to the steps in [docs/releasing.md](docs/releasing.md).
 - Right after the promotion PR merges to `main`, back-merge `main` into
   `develop` so the new merge commit and tag are reachable from `develop`.
   Use a temp branch (`chore/sync-main-after-vX.Y.Z` from `develop`, with

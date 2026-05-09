@@ -1,5 +1,11 @@
 # Releasing
 
+> **For the operational checklist** (what to actually run in what order),
+> see [`docs/RELEASE_PLAYBOOK.md`](RELEASE_PLAYBOOK.md). It wraps the steps
+> below in three scripts: `scripts/release.py`, `scripts/release-finalize.py`,
+> and `scripts/update-homebrew-tap.py`. This file is the deep reference for
+> what those scripts do and why.
+
 This document is the maintainer release playbook for huske. Releases are manual
 for now: changes land on `develop`, stable release snapshots are promoted to
 `main`, and GitHub releases are created from annotated version tags on `main`.
