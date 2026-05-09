@@ -125,6 +125,14 @@ release or release-prep work. When asked:
   new `CHANGELOG.md` section and moving `tag: "latest"` to the new entry),
   and bump the hardcoded version string in `website/components-shell.jsx`
   in both the Nav and Footer.
+- Right after the promotion PR merges to `main`, back-merge `main` into
+  `develop` so the new merge commit and tag are reachable from `develop`.
+  Use a temp branch (`chore/sync-main-after-vX.Y.Z` from `develop`, with
+  `git merge origin/main --no-ff` applied locally), never `head=main` —
+  otherwise `delete_branch_on_merge: true` auto-deletes `main`. Merge the
+  resulting PR with **"Create a merge commit"**, not "Squash and merge",
+  or `main`'s tip is not added to `develop`'s ancestry and the "out of
+  date" warning persists. The same applies after a hotfix.
 - Tag only the merged `main` commit with `vX.Y.Z`.
 - Create GitHub releases only from existing tags, using `gh release create`
   with `--verify-tag`.

@@ -107,6 +107,54 @@ uv tool install "git+https://github.com/tiagomoraes/huske.git@v0.1.0"
 
 See [quickstart.md](specs/001-huske-recorder/quickstart.md) for the full setup.
 
+### Run on login (macOS)
+
+`huske autostart install` registers a per-user
+[LaunchAgent](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html)
+that runs `huske run --no-ui` automatically every time you log in.
+
+```bash
+# Install — writes ~/Library/LaunchAgents/me.huske.plist and loads it now.
+huske autostart install
+
+# Optional: pass a config file or non-default log level.
+huske autostart install --config ~/.config/huske/config.toml --log-level DEBUG
+
+# Show current state (installed, loaded, pid, last exit code).
+huske autostart status
+
+# Manually start/stop without uninstalling.
+huske autostart start
+huske autostart stop
+
+# Remove entirely.
+huske autostart uninstall
+```
+
+Restart policy is "restart on crash only" by default
+(`KeepAlive={SuccessfulExit:false}`): if you `huske autostart stop` or huske
+exits cleanly, it stays stopped until next login. Pass `--no-keep-alive` to
+disable auto-restart on crash too.
+
+**Permissions.** The first time the agent records, macOS will prompt for
+**Microphone** and **Screen Recording** permissions for the resolved `huske`
+binary (or its Python interpreter). Approve both in System Settings →
+Privacy & Security. If the prompts don't appear after login, run
+`huske autostart start` once from the terminal so they fire while you're
+present.
+
+**Logs.** The agent has no TUI; stdout and stderr are appended to:
+
+```text
+~/Library/Logs/huske/agent.out.log
+~/Library/Logs/huske/agent.err.log
+```
+
+Tail those if you suspect the agent isn't recording.
+
+`huske autostart` is macOS-only (it uses `launchd`); the commands exit with
+a friendly error on other systems.
+
 ### Update notifications
 
 On startup, huske checks PyPI at most once every 24 hours and prints an

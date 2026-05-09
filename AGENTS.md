@@ -132,12 +132,28 @@ Agent-safe release workflow:
 4. Run the CI baseline and any relevant manual checks.
 5. Open a release-prep PR back to `develop`.
 6. After that PR merges, create a promotion PR from `develop` to `main`.
-7. After the promotion PR merges, tag the resulting `main` commit.
-8. Create the GitHub release from the existing tag using `--verify-tag`.
-9. Let `.github/workflows/release.yml` publish GitHub assets and PyPI through
-   trusted publishing. Pushing the release commit to `main` also redeploys
-   the website via `.github/workflows/pages.yml` when `website/` changes.
-10. Update the Homebrew tap at `tiagomoraes/homebrew-huske` after PyPI is live.
+7. After the promotion PR merges, back-merge `main` into `develop` so the
+   new merge commit and the soon-to-be tag are reachable from `develop`. Two
+   non-obvious traps to avoid:
+   - **Do not use `head=main` for the PR.** This repo has
+     `delete_branch_on_merge: true`, so GitHub will auto-delete `main` after
+     merge. Create a temp branch like `chore/sync-main-after-vX.Y.Z` from
+     `develop` and merge `origin/main` into it locally with
+     `git merge origin/main --no-ff` before pushing.
+   - **Do not "Squash and merge" the PR.** Squashing drops `main`'s tip as a
+     second parent, leaving `main` unreachable from `develop`'s ancestry —
+     the "out of date" warning persists on every subsequent
+     `develop -> main` PR. Use **"Create a merge commit"**.
+
+   The same recipe applies after a hotfix lands on `main`. See
+   [docs/releasing.md](docs/releasing.md#sync-main-back-to-develop) for the
+   exact commands.
+8. After the promotion PR merges, tag the resulting `main` commit.
+9. Create the GitHub release from the existing tag using `--verify-tag`.
+10. Let `.github/workflows/release.yml` publish GitHub assets and PyPI through
+    trusted publishing. Pushing the release commit to `main` also redeploys
+    the website via `.github/workflows/pages.yml` when `website/` changes.
+11. Update the Homebrew tap at `tiagomoraes/homebrew-huske` after PyPI is live.
 
 Important guardrails:
 

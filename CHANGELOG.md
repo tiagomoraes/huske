@@ -6,6 +6,18 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.5.0 - 2026-05-09
+
+### Added
+
+- `huske autostart` subcommand group to manage a macOS LaunchAgent that runs
+  `huske run --no-ui` at every login. Verbs: `install`, `uninstall`, `status`,
+  `start`, `stop`. The plist lives at `~/Library/LaunchAgents/me.huske.plist`
+  and stdout/stderr are appended to `~/Library/Logs/huske/agent.{out,err}.log`.
+  Default restart policy is "restart on crash only"
+  (`KeepAlive={SuccessfulExit:false}`). macOS-only; commands exit with a
+  friendly error on other platforms.
+
 ## 0.4.0 - 2026-05-09
 
 ### Added
