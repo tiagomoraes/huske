@@ -123,14 +123,21 @@ Agent-safe release workflow:
 
 1. Prepare a release branch from an up-to-date `develop`.
 2. Update `pyproject.toml` version and `CHANGELOG.md`.
-3. Run the CI baseline and any relevant manual checks.
-4. Open a release-prep PR back to `develop`.
-5. After that PR merges, create a promotion PR from `develop` to `main`.
-6. After the promotion PR merges, tag the resulting `main` commit.
-7. Create the GitHub release from the existing tag using `--verify-tag`.
-8. Let `.github/workflows/release.yml` publish GitHub assets and PyPI through
-   trusted publishing.
-9. Update the Homebrew tap at `tiagomoraes/homebrew-huske` after PyPI is live.
+3. Update the website release timeline and version strings: add a new entry
+   to the `RELEASES` array in `website/components-sections.jsx` (move the
+   `tag: "latest"` to the new entry), and bump the hardcoded version string
+   in `website/components-shell.jsx` (both the Nav `<span className="ver">`
+   and the Footer `huske vX.Y.Z` line). Mirror the `CHANGELOG.md` entry
+   content as JSX `items` on the new release.
+4. Run the CI baseline and any relevant manual checks.
+5. Open a release-prep PR back to `develop`.
+6. After that PR merges, create a promotion PR from `develop` to `main`.
+7. After the promotion PR merges, tag the resulting `main` commit.
+8. Create the GitHub release from the existing tag using `--verify-tag`.
+9. Let `.github/workflows/release.yml` publish GitHub assets and PyPI through
+   trusted publishing. Pushing the release commit to `main` also redeploys
+   the website via `.github/workflows/pages.yml` when `website/` changes.
+10. Update the Homebrew tap at `tiagomoraes/homebrew-huske` after PyPI is live.
 
 Important guardrails:
 
