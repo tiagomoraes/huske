@@ -6,6 +6,25 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+### Changed
+
+- Release process collapses into three scripts under `scripts/`:
+  `release.py`, `release-finalize.py`, and `update-homebrew-tap.py`. The
+  short operational checklist is `docs/RELEASE_PLAYBOOK.md`;
+  `docs/releasing.md` remains as the deep reference.
+- `huske/__init__.py` now reads the version from `pyproject.toml` when
+  the package source is adjacent (dev checkout / editable install) and
+  falls back to `importlib.metadata` for installed wheels. The two
+  hardcoded versions could no longer drift the way `0.3.1` had to be
+  hotfixed for.
+
+### Added
+
+- `.github/workflows/back-merge.yml` automatically opens the
+  `chore/sync-main-after-vX.Y.Z` (or `chore/sync-main-hotfix-…`) PR when
+  a `release: v*` / `hotfix:*` PR merges into `main`, so the back-merge
+  step no longer relies on the maintainer remembering to open it.
+
 ## 0.5.0 - 2026-05-09
 
 ### Added
