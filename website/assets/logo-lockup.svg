@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 80" fill="none">
+  
+  <g transform="translate(8 8)">
+    <rect x="14" y="10" width="6" height="44" rx="1.2" fill="currentColor"></rect>
+    <rect x="24" y="24" width="26" height="5" rx="1.2" fill="currentColor"></rect>
+    <rect x="24" y="34" width="20" height="5" rx="1.2" fill="currentColor"></rect>
+    <rect x="24" y="44" width="14" height="5" rx="1.2" fill="currentColor"></rect>
+  </g>
+  <text x="92" y="52" font-family="&#39;IBM Plex Sans&#39;, -apple-system, system-ui, sans-serif" font-size="40" font-weight="600" letter-spacing="-1.6" fill="currentColor">huske</text>
+</svg>

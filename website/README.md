@@ -1,0 +1,50 @@
+# huske website
+
+Public landing page for huske, deployed to GitHub Pages from this directory.
+
+## Local preview
+
+The site is plain static files — no build step. Serve with any static server:
+
+```bash
+python -m http.server 8000 --directory website
+# then open http://localhost:8000
+```
+
+## Stack
+
+- Plain HTML + CSS in `index.html`, `site.css`, `colors_and_type.css`
+- React 18 (UMD) + Babel Standalone via unpkg, JSX compiled in the browser
+- IBM Plex (Sans / Mono / Serif) bundled under `fonts/`
+- Logo assets under `assets/`
+- Theme toggle persists in `localStorage` (`huske-theme`)
+
+The Babel-in-browser approach keeps the site dependency-free (no `npm`, no
+toolchain) at the cost of a one-time ~1 MB compiler download. Acceptable for a
+single-page landing; revisit if the site grows.
+
+## Deploy
+
+`.github/workflows/pages.yml` publishes this directory to GitHub Pages on
+every push to `main` that touches `website/`. Manual runs via
+`workflow_dispatch`.
+
+To enable: in the repo settings under **Pages**, set the source to **GitHub
+Actions** (one-time setup).
+
+## Editing
+
+The page is composed from three component files loaded via
+`<script type="text/babel">`:
+
+- `components-shell.jsx` — `Mark` logo, `Nav`, `Footer`, theme controller
+- `components-hero.jsx` — `Hero`, `InstallTabs`, `LiveDemo` (animated TUI)
+- `components-sections.jsx` — `Pillars`, `HowItWorks`, `OutputPreview`,
+  `Privacy`, `Releases`, `Community`, `FAQ`
+
+Hardcoded copy that's worth keeping in sync with the rest of the repo:
+
+- Version string (`v0.4.0`) appears in `Nav` and `Footer` — update on each
+  release (see `pyproject.toml` `version`)
+- Release timeline data lives in `RELEASES` in `components-sections.jsx`
+- GitHub star count in `Nav` (`gh-pill .num`) is a static placeholder

@@ -120,6 +120,11 @@ release or release-prep work. When asked:
 - Start release-prep work from an up-to-date `develop`.
 - Open release-prep PRs back to `develop`.
 - Promote releases through a PR from `develop` to `main`.
+- As part of release-prep, update the website changelog: add a new entry to
+  the `RELEASES` array in `website/components-sections.jsx` (mirroring the
+  new `CHANGELOG.md` section and moving `tag: "latest"` to the new entry),
+  and bump the hardcoded version string in `website/components-shell.jsx`
+  in both the Nav and Footer.
 - Tag only the merged `main` commit with `vX.Y.Z`.
 - Create GitHub releases only from existing tags, using `gh release create`
   with `--verify-tag`.

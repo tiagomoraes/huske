@@ -1,0 +1,344 @@
+/* ============================================================
+   huske — colors & type tokens
+   Local-first audio recall. Terminal-native. Scandinavian-calm.
+   ============================================================ */
+
+/* IBM Plex — bundled locally from fonts/. Variable for the sans, static for mono + serif italic accent. */
+@font-face { font-family: "IBM Plex Sans"; font-style: normal; font-weight: 100 700; font-display: swap;
+  src: url("fonts/IBMPlexSans-Variable.ttf") format("truetype-variations"); }
+@font-face { font-family: "IBM Plex Sans"; font-style: italic; font-weight: 100 700; font-display: swap;
+  src: url("fonts/IBMPlexSans-Italic-Variable.ttf") format("truetype-variations"); }
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url("fonts/IBMPlexMono-Regular.ttf") format("truetype"); }
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 500; font-display: swap;
+  src: url("fonts/IBMPlexMono-Medium.ttf") format("truetype"); }
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 600; font-display: swap;
+  src: url("fonts/IBMPlexMono-SemiBold.ttf") format("truetype"); }
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 700; font-display: swap;
+  src: url("fonts/IBMPlexMono-Bold.ttf") format("truetype"); }
+@font-face { font-family: "IBM Plex Serif"; font-style: italic; font-weight: 400; font-display: swap;
+  src: url("fonts/IBMPlexSerif-Italic.ttf") format("truetype"); }
+@font-face { font-family: "IBM Plex Serif"; font-style: italic; font-weight: 500; font-display: swap;
+  src: url("fonts/IBMPlexSerif-MediumItalic.ttf") format("truetype"); }
+
+:root {
+  /* ---------- Brand palette ----------
+     Warm-paper × ink, with a single saffron-amber signal.
+     Amber = "lantern" — saved, marked, recalled.
+     Spruce = quiet trust — local, private, archival.
+  */
+  --brand-amber:    #D88A3A;   /* primary signal (recording, focus, links) */
+  --brand-amber-700:#B66E22;   /* hover / pressed amber */
+  --brand-amber-200:#F2D9B3;   /* amber wash, badges */
+  --brand-spruce:   #2E4A3F;   /* deep secondary, ok-state, calm */
+  --brand-spruce-200:#C8D6CC;  /* spruce wash */
+
+  /* ---------- Surface neutrals ---------- */
+  --ink-900:   #0E1116;        /* terminal-black, primary dark surface */
+  --ink-800:   #161A20;        /* card on dark */
+  --ink-700:   #20252D;        /* divider on dark, hover row */
+  --ink-600:   #2A2F38;        /* border on dark */
+
+  --paper-50:  #FBF8F1;        /* default light surface (warm paper) */
+  --paper-100: #F4EFE3;        /* secondary surface, header */
+  --paper-200: #E8E1CF;        /* divider on light */
+  --paper-300: #D6CDB6;        /* border on light */
+
+  --stone-100: #ECE9E2;
+  --stone-300: #B8B5AC;
+  --stone-500: #75767A;
+  --stone-700: #3E4046;
+  --stone-900: #1A1D22;
+
+  /* ---------- Semantic state (sober, terminal-aligned) ----------
+     Aligned with the Rich TUI: green=ok, yellow=warn, red=err. */
+  --ok:        #5E8B6E;
+  --ok-bg:     #DCE6DC;
+  --warn:      #C99A4A;
+  --warn-bg:   #F4E6C8;
+  --err:       #B8543D;
+  --err-bg:    #F0D6CB;
+  --info:      #5A7A95;
+  --info-bg:   #D6E0E8;
+
+  /* ---------- Recording-specific signal colors ---------- */
+  --rec-on:    #C84A3A;        /* active red dot (●) */
+  --rec-paused:#C99A4A;
+  --rec-idle:  var(--stone-500);
+
+  /* ============================================================
+     Semantic surface tokens — DEFAULT (light / paper)
+     ============================================================ */
+  --bg:           var(--paper-50);
+  --bg-elev:      #FFFFFF;
+  --bg-subtle:    var(--paper-100);
+  --bg-sunken:    var(--paper-200);
+  --fg:           var(--ink-900);
+  --fg-muted:     var(--stone-500);
+  --fg-faint:     var(--stone-300);
+  --fg-on-amber:  var(--ink-900);
+  --border:       var(--paper-300);
+  --border-soft:  var(--paper-200);
+  --accent:       var(--brand-amber);
+  --accent-fg:    var(--ink-900);
+  --link:         var(--brand-amber-700);
+  --selection:    var(--brand-amber-200);
+  --terminal-bg:  var(--ink-900);
+  --terminal-fg:  var(--paper-100);
+
+  /* ---------- Type system ---------- */
+  --font-sans: "IBM Plex Sans", -apple-system, "SF Pro Display", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+  --font-serif: "IBM Plex Serif", Charter, "Source Serif Pro", Georgia, serif; /* italic accent only */
+
+  /* Display + heading scale (modular, ~1.2 ratio at the top, tighter mid) */
+  --type-display:   clamp(48px, 6.4vw, 88px);  /* hero */
+  --type-h1:        clamp(36px, 4.0vw, 56px);
+  --type-h2:        clamp(28px, 3.0vw, 40px);
+  --type-h3:        24px;
+  --type-h4:        18px;
+  --type-body:      16px;
+  --type-body-sm:   14px;
+  --type-caption:   13px;
+  --type-mono:      14px;
+  --type-mono-sm:   12px;
+  --type-eyebrow:   12px;
+
+  /* Line heights */
+  --lh-tight: 1.05;
+  --lh-snug:  1.2;
+  --lh-body:  1.55;
+  --lh-loose: 1.7;
+
+  /* Letter spacing */
+  --ls-display: -0.025em;
+  --ls-heading: -0.015em;
+  --ls-body:    -0.005em;
+  --ls-eyebrow:  0.12em;
+  --ls-mono:    -0.01em;
+
+  /* Font weights — IBM Plex Sans supports 100–700 */
+  --fw-light:    300;
+  --fw-regular:  400;
+  --fw-medium:   500;
+  --fw-semibold: 600;
+  --fw-bold:     700;
+
+  /* ---------- Geometry ---------- */
+  --radius-xs: 2px;
+  --radius-sm: 4px;     /* default — terminal-precise */
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;    /* app icon, large cards */
+  --radius-pill: 999px;
+
+  /* ---------- Borders ---------- */
+  --border-width: 1px;
+  --border-thick: 1.5px;
+
+  /* ---------- Spacing (4-px base) ---------- */
+  --sp-1:  4px;
+  --sp-2:  8px;
+  --sp-3:  12px;
+  --sp-4:  16px;
+  --sp-5:  20px;
+  --sp-6:  24px;
+  --sp-8:  32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+  --sp-16: 64px;
+  --sp-20: 80px;
+
+  /* ---------- Elevation (low-contrast, paper feel) ---------- */
+  --shadow-xs: 0 1px 0 rgba(14,17,22,0.04);
+  --shadow-sm: 0 1px 2px rgba(14,17,22,0.06), 0 1px 1px rgba(14,17,22,0.04);
+  --shadow-md: 0 4px 12px rgba(14,17,22,0.08), 0 1px 2px rgba(14,17,22,0.04);
+  --shadow-lg: 0 16px 40px rgba(14,17,22,0.10), 0 2px 6px rgba(14,17,22,0.06);
+  --shadow-inset: inset 0 1px 0 rgba(255,255,255,0.4);
+  --ring-focus: 0 0 0 3px color-mix(in oklab, var(--brand-amber) 35%, transparent);
+
+  /* ---------- Motion ---------- */
+  --ease-standard: cubic-bezier(.2,.7,.2,1);
+  --ease-emph:     cubic-bezier(.2,.9,.1,1);
+  --dur-1: 120ms;
+  --dur-2: 200ms;
+  --dur-3: 320ms;
+}
+
+/* ============================================================
+   Dark surface tokens — apply with .theme-dark or [data-theme="dark"]
+   Default is LIGHT. Dark is the "terminal" surface.
+   ============================================================ */
+.theme-dark,
+[data-theme="dark"] {
+  --bg:          var(--ink-900);
+  --bg-elev:     var(--ink-800);
+  --bg-subtle:   var(--ink-800);
+  --bg-sunken:   #0A0D11;
+  --fg:          var(--paper-100);
+  --fg-muted:    #9CA0A8;
+  --fg-faint:    #5C6068;
+  --border:      var(--ink-600);
+  --border-soft: var(--ink-700);
+  --link:        var(--brand-amber);
+  --selection:   color-mix(in oklab, var(--brand-amber) 30%, transparent);
+  --shadow-xs: 0 1px 0 rgba(0,0,0,0.4);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.5), 0 1px 1px rgba(0,0,0,0.3);
+  --shadow-md: 0 6px 16px rgba(0,0,0,0.55), 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-lg: 0 24px 48px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4);
+  --ok-bg:    #1B2A22;
+  --warn-bg:  #2C2418;
+  --err-bg:   #2C1A14;
+  --info-bg:  #1A2530;
+}
+
+/* ============================================================
+   Element-level semantic styles.
+   Components import these; do not duplicate magic numbers.
+   ============================================================ */
+html, body {
+  font-family: var(--font-sans);
+  font-size: var(--type-body);
+  line-height: var(--lh-body);
+  color: var(--fg);
+  background: var(--bg);
+  letter-spacing: var(--ls-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection { background: var(--selection); }
+
+h1, .h1 {
+  font-family: var(--font-sans);
+  font-size: var(--type-h1);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--ls-display);
+  color: var(--fg);
+  text-wrap: balance;
+}
+h2, .h2 {
+  font-family: var(--font-sans);
+  font-size: var(--type-h2);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-snug);
+  letter-spacing: var(--ls-heading);
+  color: var(--fg);
+  text-wrap: balance;
+}
+h3, .h3 {
+  font-family: var(--font-sans);
+  font-size: var(--type-h3);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-snug);
+  letter-spacing: var(--ls-heading);
+  color: var(--fg);
+}
+h4, .h4 {
+  font-family: var(--font-sans);
+  font-size: var(--type-h4);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-snug);
+  letter-spacing: var(--ls-heading);
+  color: var(--fg);
+}
+.display {
+  font-family: var(--font-sans);
+  font-size: var(--type-display);
+  font-weight: var(--fw-semibold);
+  line-height: 0.98;
+  letter-spacing: -0.035em;
+  color: var(--fg);
+  text-wrap: balance;
+}
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--type-eyebrow);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.norwegian {
+  /* Reserved italic serif for the literal Norwegian word "huske" in copy.
+     One italic-serif accent is the only soft moment in an otherwise sans system. */
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+p, .p {
+  font-size: var(--type-body);
+  line-height: var(--lh-body);
+  color: var(--fg);
+  text-wrap: pretty;
+}
+.lede {
+  font-size: 20px;
+  line-height: 1.45;
+  color: var(--fg);
+  letter-spacing: -0.01em;
+}
+small, .small, .caption {
+  font-size: var(--type-caption);
+  color: var(--fg-muted);
+}
+
+code, kbd, samp, pre, .mono {
+  font-family: var(--font-mono);
+  font-size: var(--type-mono);
+  letter-spacing: var(--ls-mono);
+  font-feature-settings: "ss01" on, "calt" on;
+}
+code {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-soft);
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  font-size: 0.92em;
+}
+pre {
+  background: var(--terminal-bg);
+  color: var(--terminal-fg);
+  border-radius: var(--radius-md);
+  padding: var(--sp-4) var(--sp-5);
+  overflow-x: auto;
+  line-height: 1.5;
+}
+pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: inherit;
+}
+
+a {
+  color: var(--link);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in oklab, var(--link) 40%, transparent);
+  transition: color var(--dur-1) var(--ease-standard),
+              text-decoration-color var(--dur-1) var(--ease-standard);
+}
+a:hover { text-decoration-color: var(--link); }
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--border-soft);
+  margin: var(--sp-8) 0;
+}
+
+kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-elev);
+  color: var(--fg);
+  font-size: 12px;
+  line-height: 1.4;
+}
