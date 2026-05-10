@@ -18,6 +18,8 @@ from huske.capture.devices import resolve_input_device, validate_device
 from huske.chunker.rotator import ChunkRotator
 from huske.config import RuntimeConfig, load_config
 from huske.control import Command, CommandChannel
+from huske.ipc import ControlServer
+from huske.ipc.protocol import ControlSnapshot
 from huske.models import AudioChunk, AudioSource, RenderState, SessionState
 from huske.output_readme import ensure_output_readme
 from huske.recovery.scanner import (
@@ -290,6 +292,58 @@ def run_session(
             if handler is not None:
                 handler()
 
+    server: ControlServer | None = None
+    helper_proc: subprocess.Popen[bytes] | None = None
+    if sys.platform == "darwin":
+        socket_dir = Path.home() / "Library" / "Application Support" / "huske"
+        socket_path = socket_dir / f"control-{paths.session_id_short(session.session_id)}.sock"
+        server = ControlServer(socket_path, commands, log)
+        try:
+            server.start()
+            log.info("ipc_server_started", socket=str(socket_path))
+        except OSError as exc:
+            log.warning("ipc_server_failed", error=str(exc))
+            server = None
+
+        if server is not None and cfg.menu_bar_enabled:
+            from huske.agent import resolve_huske_binary
+
+            argv = [*resolve_huske_binary(), "menubar", "--attach", str(server.socket_path)]
+            helper_log = cfg.logs_root / f"menubar_{session.session_id}.log"
+            helper_log.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                helper_proc = subprocess.Popen(  # noqa: S603
+                    argv,
+                    stdout=subprocess.DEVNULL,
+                    stderr=open(helper_log, "ab"),  # noqa: SIM115
+                    start_new_session=True,
+                )
+                log.info("menubar_helper_started", pid=helper_proc.pid)
+            except OSError as exc:
+                log.warning("menubar_helper_failed", error=str(exc))
+                helper_proc = None
+
+    last_snap: ControlSnapshot | None = None
+
+    def _publish_state() -> None:
+        nonlocal last_snap
+        if server is None:
+            return
+        snap = ControlSnapshot(
+            session_id=session.session_id,
+            recording=state.recording,
+            paused=state.paused,
+            stopping=state.stopping,
+            current_chunk_seq=state.current_chunk_seq,
+            queue_depth=state.queue_depth,
+            screenshots_enabled=state.screenshots_enabled,
+            last_saved_name=state.last_saved.name if state.last_saved else None,
+        )
+        if snap == last_snap:
+            return
+        last_snap = snap
+        server.broadcast_state(snap)
+
     def _handle_key(key: str) -> None:
         if stop_flag.is_set():
             return
@@ -325,10 +379,12 @@ def run_session(
             on_result, ui=ui, read_key=read_key, on_key=_handle_key,
             screenshot_status=_screenshot_status,
             pump_commands=_pump_commands,
+            publish_state=_publish_state,
         )
 
         # Phase 2: stopping. Keep the UI alive while we drain.
         state.update(recording=False, paused=False, stopping=True, help_visible=False)
+        _publish_state()
         if ui is not None:
             ui.update()
 
@@ -380,12 +436,14 @@ def run_session(
             now = time.monotonic()
             if now - last_ui_update >= 0.25:
                 state.update(queue_depth=worker.queue_depth)
+                _publish_state()
                 if ui is not None:
                     ui.update()
                 last_ui_update = now
 
         # Final UI update so the user sees "0 pending" before we tear down.
         state.update(queue_depth=0)
+        _publish_state()
         if ui is not None:
             ui.update()
 
@@ -400,6 +458,14 @@ def run_session(
         log.error("run_failed", error=str(exc))
         exit_code = 1
     finally:
+        if server is not None:
+            server.stop(timeout=1.0)
+        if helper_proc is not None and helper_proc.poll() is None:
+            try:
+                helper_proc.terminate()
+                helper_proc.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                helper_proc.kill()
         if screenshotter is not None and screenshotter.alive:
             screenshotter.stop(timeout=1.0)
         worker.stop(drain_timeout=5.0)
@@ -425,6 +491,7 @@ def _main_loop(
     on_key: Callable[[str], None] | None = None,
     screenshot_status: Callable[[], tuple[bool, int, datetime | None]] | None = None,
     pump_commands: Callable[[], None] | None = None,
+    publish_state: Callable[[], None] | None = None,
 ) -> None:
     """Run the asyncio-free main loop. Updates UI, polls worker results, watches heartbeat."""
     while not stop_flag.is_set():
@@ -489,6 +556,9 @@ def _main_loop(
             queue_depth=worker.queue_depth,
             **screenshot_fields,
         )
+
+        if publish_state is not None:
+            publish_state()
 
         if ui is not None:
             ui.update()

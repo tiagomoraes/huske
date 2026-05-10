@@ -72,6 +72,11 @@ def run(
     config_path: Optional[Path] = typer.Option(None, "--config"),
     log_level: str = typer.Option("INFO", "--log-level"),
     no_ui: bool = typer.Option(False, "--no-ui"),
+    menu_bar: bool = typer.Option(
+        True,
+        "--menu-bar/--no-menu-bar",
+        help="Show a macOS menu bar icon while recording (macOS only).",
+    ),
     system_audio_backend: Optional[str] = typer.Option(
         None,
         "--system-audio-backend",
@@ -96,9 +101,20 @@ def run(
         screenshots_root=screenshots_root,
         log_level=log_level,
         no_ui=no_ui,
+        menu_bar_enabled=menu_bar,
         system_audio_backend=system_audio_backend,
     )
     raise typer.Exit(run_session(config_path=config_path, cli_overrides=cli_overrides))
+
+
+@app.command()
+def menubar(
+    attach: Path = typer.Option(..., "--attach", help="Path to a huske control socket."),
+) -> None:
+    """Render the menu bar helper attached to a running huske session (macOS only)."""
+    from huske.menubar import run_helper
+
+    raise typer.Exit(run_helper(attach))
 
 
 @app.command()
