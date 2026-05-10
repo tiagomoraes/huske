@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from huske.output_readme import ensure_output_readme, render_readme
+from huske.output_readme import ensure_output_readme
 
 
 def test_creates_when_missing(tmp_path: Path) -> None:

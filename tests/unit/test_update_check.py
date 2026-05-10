@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from huske import update_check
-
 
 # ---------------------------------------------------------------------------
 # Version parsing / comparison
@@ -165,7 +164,7 @@ def test_load_cache_corrupted_returns_none(
         (
             {
                 "checked_at": (
-                    datetime.now(timezone.utc) - timedelta(hours=25)
+                    datetime.now(UTC) - timedelta(hours=25)
                 ).isoformat()
             },
             True,
@@ -173,7 +172,7 @@ def test_load_cache_corrupted_returns_none(
         (
             {
                 "checked_at": (
-                    datetime.now(timezone.utc) - timedelta(minutes=5)
+                    datetime.now(UTC) - timedelta(minutes=5)
                 ).isoformat()
             },
             False,

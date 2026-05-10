@@ -96,7 +96,7 @@ def run_helper(socket_path: Path, *, style: str = "text") -> int:
             self._status_label = None
             return self
 
-        @objc.python_method
+        @objc.python_method  # type: ignore[untyped-decorator]
         def buildMenu(self) -> None:
             status_bar = NSStatusBar.systemStatusBar()
             self._status_item = status_bar.statusItemWithLength_(NSVariableStatusItemLength)
@@ -118,15 +118,15 @@ def run_helper(socket_path: Path, *, style: str = "text") -> int:
             self._add_action(menu, "Stop recording", "stop:")
             self._status_item.setMenu_(menu)
 
-        @objc.python_method
+        @objc.python_method  # type: ignore[untyped-decorator]
         def _add_action(self, menu, title: str, selector: str) -> None:  # type: ignore[no-untyped-def]
             item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, selector, "")
             item.setTarget_(self)
             menu.addItem_(item)
 
-        @objc.python_method
+        @objc.python_method  # type: ignore[untyped-decorator]
         def _renderButton(self, badge) -> None:  # type: ignore[no-untyped-def]
-            button = self._status_item.button()
+            button = self._status_item.button()  # type: ignore[union-attr]
             if self._style == "icon":
                 # Logo on the left as the primary image; badge appears as a
                 # text-attachment inline glyph on its right.
@@ -148,7 +148,7 @@ def run_helper(socket_path: Path, *, style: str = "text") -> int:
                 else:
                     button.setImage_(None)
 
-        @objc.python_method
+        @objc.python_method  # type: ignore[untyped-decorator]
         def _badge_attributed(self, badge, *, leading_space: bool):  # type: ignore[no-untyped-def]
             attr = NSMutableAttributedString.alloc().init()
             if leading_space:
@@ -193,7 +193,9 @@ def run_helper(socket_path: Path, *, style: str = "text") -> int:
             )
             queue = f"queue {snap.queue_depth}"
             shots = "screenshots on" if snap.screenshots_enabled else "screenshots off"
-            self._status_label.setTitle_(f"{state_text} · {chunk} · {queue} · {shots}")
+            self._status_label.setTitle_(  # type: ignore[union-attr]
+                f"{state_text} · {chunk} · {queue} · {shots}"
+            )
 
         def terminateApp_(self, _):  # type: ignore[no-untyped-def]
             NSApplication.sharedApplication().terminate_(self)
@@ -216,7 +218,7 @@ def run_helper(socket_path: Path, *, style: str = "text") -> int:
             self._send(Command.STOP)
             # Helper exits when the orchestrator closes the socket.
 
-        @objc.python_method
+        @objc.python_method  # type: ignore[untyped-decorator]
         def _send(self, cmd: Command) -> None:
             try:
                 self._sock.sendall(encode_command(cmd))

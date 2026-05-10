@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import sys
-import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -17,7 +16,6 @@ from huske import __version__
 from huske.capture.devices import (
     list_input_devices,
     resolve_input_device,
-    validate_device,
 )
 from huske.config import load_config
 
@@ -78,7 +76,7 @@ def run_doctor(
 
         version = _md.version("mlx-whisper")
         checks.append(Check("mlx-whisper", True, version))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         checks.append(
             Check(
                 "mlx-whisper",
@@ -103,7 +101,7 @@ def run_doctor(
         checks.append(
             Check("sounddevice", True, f"{len(host_apis)} host API(s) detected")
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         checks.append(
             Check(
                 "sounddevice",
@@ -142,7 +140,7 @@ def run_doctor(
                     f"peak {peak_str} {'(audible)' if audible else '(silent — try speaking)'}",
                 )
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             checks.append(
                 Check(
                     "mic sample",
@@ -184,7 +182,7 @@ def run_doctor(
                 "Requires macOS 13+. Install pyobjc-framework-ScreenCaptureKit.",
             )
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         checks.append(
             Check(
                 "system audio",

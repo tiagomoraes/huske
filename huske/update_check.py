@@ -19,7 +19,7 @@ import re
 import sys
 import threading
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -123,7 +123,7 @@ def _save_cache(latest_version: str) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "checked_at": datetime.now(UTC).isoformat(),
             "latest_version": latest_version,
         }
         tmp = path.with_suffix(path.suffix + ".tmp")
@@ -145,8 +145,8 @@ def _cache_is_stale(cached: dict[str, Any] | None) -> bool:
     except ValueError:
         return True
     if when.tzinfo is None:
-        when = when.replace(tzinfo=timezone.utc)
-    return datetime.now(timezone.utc) - when > _CACHE_TTL
+        when = when.replace(tzinfo=UTC)
+    return datetime.now(UTC) - when > _CACHE_TTL
 
 
 # ---------------------------------------------------------------------------

@@ -3,17 +3,11 @@
 from __future__ import annotations
 
 import platform
-import sys
+import tomllib
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:  # pragma: no cover - older Pythons
-    import tomli as tomllib  # type: ignore[no-redef]
-
 
 ModelSize = Literal["tiny", "base", "small", "medium", "large-v3"]
 # Kept for back-compat with existing config files. `compute_type` and `device`
@@ -92,7 +86,7 @@ class RuntimeConfig(BaseModel):
         return Path(str(v)).expanduser()
 
     @model_validator(mode="after")
-    def _no_cuda_on_mac(self) -> "RuntimeConfig":
+    def _no_cuda_on_mac(self) -> RuntimeConfig:
         if self.device == "cuda" and platform.system() == "Darwin":
             raise ValueError(
                 "device='cuda' is not available on macOS / Apple Silicon. "

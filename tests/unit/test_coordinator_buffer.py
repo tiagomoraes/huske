@@ -10,7 +10,7 @@ import threading
 import numpy as np
 import pytest
 
-from huske.capture.coordinator import _SourceBuffer, _pad_to_length, _to_db
+from huske.capture.coordinator import _pad_to_length, _SourceBuffer, _to_db
 
 
 def _block(n: int, fill: float = 0.5) -> np.ndarray:
@@ -71,14 +71,14 @@ def test_thread_safety() -> None:
         try:
             for _ in range(200):
                 buf.push(_block(50, 0.7))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             errors.append(exc)
 
     def consumer() -> None:
         try:
             for _ in range(200):
                 buf.take(20)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             errors.append(exc)
 
     threads = [threading.Thread(target=producer) for _ in range(4)] + [

@@ -9,10 +9,10 @@ each tick and dispatches.
 from __future__ import annotations
 
 import queue
-from enum import Enum
+from enum import StrEnum
 
 
-class Command(str, Enum):
+class Command(StrEnum):
     PAUSE_RESUME = "pause_resume"
     TOGGLE_SCREENSHOTS = "toggle_screenshots"
     STOP = "stop"

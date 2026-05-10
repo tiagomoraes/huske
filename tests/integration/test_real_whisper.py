@@ -20,7 +20,6 @@ from huske.config import RuntimeConfig
 from huske.models import AudioChunk
 from huske.transcribe.worker import TranscriptionWorker, chunk_to_job
 
-
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.skipif(

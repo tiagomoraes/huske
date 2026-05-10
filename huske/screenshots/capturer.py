@@ -18,7 +18,6 @@ import subprocess
 import threading
 from collections.abc import Callable
 from datetime import datetime
-from pathlib import Path
 from typing import Literal
 
 from huske import paths
@@ -96,7 +95,7 @@ class ScreenshotCapturer:
                 self._capture_once(datetime.now().astimezone())
             except subprocess.TimeoutExpired:
                 self._on_event("warn", "screenshot capture timed out")
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 self._on_event("warn", f"screenshot capture failed: {exc}")
 
     def _capture_once(self, now: datetime) -> int:
@@ -108,7 +107,7 @@ class ScreenshotCapturer:
             for i in range(1, self._cfg.screenshots_max_displays + 1)
         ]
         cmd = [_SCREENCAPTURE, "-x", "-t", "jpg", *(str(t) for t in targets)]
-        result = subprocess.run(  # noqa: S603 — argv is a fixed list
+        result = subprocess.run(
             cmd,
             capture_output=True,
             timeout=_CAPTURE_TIMEOUT_SECONDS,

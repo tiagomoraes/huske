@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import typer
 
@@ -46,39 +45,39 @@ def main(
 @app.command()
 def run(
     chunk_minutes: float = typer.Option(15.0, "--chunk-minutes", "-c", min=0.1, max=60.0),
-    output_root: Optional[Path] = typer.Option(None, "--output-root"),
-    audio_root: Optional[Path] = typer.Option(None, "--audio-root"),
-    model: Optional[str] = typer.Option(None, "--model"),
-    compute_type: Optional[str] = typer.Option(None, "--compute-type"),
-    device: Optional[str] = typer.Option(None, "--device"),
-    language: Optional[str] = typer.Option(None, "--language"),
-    input_device: Optional[str] = typer.Option(None, "--input-device"),
+    output_root: Path | None = typer.Option(None, "--output-root"),
+    audio_root: Path | None = typer.Option(None, "--audio-root"),
+    model: str | None = typer.Option(None, "--model"),
+    compute_type: str | None = typer.Option(None, "--compute-type"),
+    device: str | None = typer.Option(None, "--device"),
+    language: str | None = typer.Option(None, "--language"),
+    input_device: str | None = typer.Option(None, "--input-device"),
     keep_audio: bool = typer.Option(False, "--keep-audio/--no-keep-audio"),
-    screenshots: Optional[bool] = typer.Option(
+    screenshots: bool | None = typer.Option(
         None,
         "--screenshots/--no-screenshots",
         help="Capture a JPEG of every display every N seconds (off by default).",
     ),
-    screenshot_interval: Optional[float] = typer.Option(
+    screenshot_interval: float | None = typer.Option(
         None,
         "--screenshot-interval",
         min=1.0,
         max=3600.0,
         help="Seconds between screenshots (default 10, minimum 1).",
     ),
-    screenshots_root: Optional[Path] = typer.Option(
+    screenshots_root: Path | None = typer.Option(
         None, "--screenshots-root", help="Where screenshots are written."
     ),
-    config_path: Optional[Path] = typer.Option(None, "--config"),
+    config_path: Path | None = typer.Option(None, "--config"),
     log_level: str = typer.Option("INFO", "--log-level"),
     no_ui: bool = typer.Option(False, "--no-ui"),
-    menu_bar: Optional[bool] = typer.Option(
+    menu_bar: bool | None = typer.Option(
         None,
         "--menu-bar/--no-menu-bar",
         help="Show a macOS menu bar icon while recording (macOS only). "
         "Defaults to the config file value, or true if unset.",
     ),
-    system_audio_backend: Optional[str] = typer.Option(
+    system_audio_backend: str | None = typer.Option(
         None,
         "--system-audio-backend",
         help="System audio backend: auto (default), tap, sck, off.",
@@ -128,13 +127,13 @@ def menubar(
 
 @app.command()
 def recover(
-    output_root: Optional[Path] = typer.Option(None, "--output-root"),
-    audio_root: Optional[Path] = typer.Option(None, "--audio-root"),
-    model: Optional[str] = typer.Option(None, "--model"),
-    compute_type: Optional[str] = typer.Option(None, "--compute-type"),
-    device: Optional[str] = typer.Option(None, "--device"),
-    language: Optional[str] = typer.Option(None, "--language"),
-    config_path: Optional[Path] = typer.Option(None, "--config"),
+    output_root: Path | None = typer.Option(None, "--output-root"),
+    audio_root: Path | None = typer.Option(None, "--audio-root"),
+    model: str | None = typer.Option(None, "--model"),
+    compute_type: str | None = typer.Option(None, "--compute-type"),
+    device: str | None = typer.Option(None, "--device"),
+    language: str | None = typer.Option(None, "--language"),
+    config_path: Path | None = typer.Option(None, "--config"),
     log_level: str = typer.Option("INFO", "--log-level"),
 ) -> None:
     """Process orphaned audio chunks from prior runs without recording."""
@@ -154,8 +153,8 @@ def recover(
 
 @app.command()
 def doctor(
-    input_device: Optional[str] = typer.Option(None, "--input-device"),
-    config_path: Optional[Path] = typer.Option(None, "--config"),
+    input_device: str | None = typer.Option(None, "--input-device"),
+    config_path: Path | None = typer.Option(None, "--config"),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
     """Validate audio devices, model availability, and write paths."""
@@ -193,7 +192,7 @@ def _autostart_guard() -> None:
 
 @autostart_app.command("install")
 def autostart_install(
-    config_path: Optional[Path] = typer.Option(
+    config_path: Path | None = typer.Option(
         None, "--config", help="Path to a huske config.toml passed through to `huske run`."
     ),
     log_level: str = typer.Option("INFO", "--log-level"),
