@@ -17,7 +17,7 @@ class DeviceInfo:
     host_api: str
 
     @classmethod
-    def from_sd(cls, idx: int, raw: dict[str, Any], host_apis: list[dict[str, Any]]) -> "DeviceInfo":
+    def from_sd(cls, idx: int, raw: dict[str, Any], host_apis: list[dict[str, Any]]) -> DeviceInfo:
         return cls(
             index=idx,
             name=raw["name"],
@@ -60,7 +60,7 @@ def resolve_input_device(name: str | None) -> DeviceInfo | None:
         return None
     # System default input.
     try:
-        default_idx = sd.default.device[0]  # type: ignore[index]
+        default_idx = sd.default.device[0]
     except Exception:
         default_idx = -1
     if default_idx >= 0:

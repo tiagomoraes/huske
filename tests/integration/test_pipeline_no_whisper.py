@@ -5,11 +5,8 @@ Avoids invoking the real Whisper model so it stays fast and deterministic.
 
 from __future__ import annotations
 
-import threading
 from datetime import datetime, timedelta
 from pathlib import Path
-
-import pytest
 
 from huske.chunker.rotator import ChunkRotator
 from huske.config import RuntimeConfig
@@ -57,7 +54,7 @@ def test_full_pipeline_chunker_to_writer(isolated_cfg: RuntimeConfig) -> None:
     )
 
     start = datetime(2026, 5, 7, 9, 15, 0).astimezone()
-    # 30 blocks × 100ms = 3 seconds → 3 full chunks at 1s each.
+    # 30 blocks x 100ms = 3 seconds -> 3 full chunks at 1s each.
     for i in range(30):
         rot.write_block(
             synthetic_block(cfg.block_size, cfg.channels),
@@ -104,7 +101,7 @@ def test_graceful_stop_partial_chunk(isolated_cfg: RuntimeConfig) -> None:
     )
 
     start = datetime(2026, 5, 7, 9, 15, 0).astimezone()
-    # 6 blocks × 100ms = 0.6 seconds (less than 1-second chunk boundary).
+    # 6 blocks x 100ms = 0.6 seconds (less than 1-second chunk boundary).
     for i in range(6):
         rot.write_block(
             synthetic_block(cfg.block_size, cfg.channels),

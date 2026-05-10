@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import threading
 from datetime import datetime, timedelta
+from itertools import pairwise
 from pathlib import Path
 
 import numpy as np
@@ -123,7 +123,7 @@ def test_chunk_seq_monotonic(cfg: RuntimeConfig) -> None:
     seqs = [c.chunk_seq for c in finalized]
     assert seqs == sorted(seqs)
     assert seqs[0] == 1
-    assert all(b - a == 1 for a, b in zip(seqs, seqs[1:]))
+    assert all(b - a == 1 for a, b in pairwise(seqs))
 
 
 def test_two_sources_produce_two_wavs_per_chunk(cfg: RuntimeConfig) -> None:

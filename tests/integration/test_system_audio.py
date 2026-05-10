@@ -13,7 +13,6 @@ import time
 import numpy as np
 import pytest
 
-
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.skipif(sys.platform != "darwin", reason="macOS-only"),

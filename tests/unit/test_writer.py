@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-import pytest
 import yaml
 
 from huske import __version__
@@ -22,8 +21,8 @@ def _t(**overrides: object) -> Transcript:
     base: dict = dict(
         session_id="20260507T091500_8a3f2c19",
         chunk_seq=2,
-        start_time=datetime(2026, 5, 7, 9, 30, 0, tzinfo=timezone.utc),
-        end_time=datetime(2026, 5, 7, 9, 45, 0, tzinfo=timezone.utc),
+        start_time=datetime(2026, 5, 7, 9, 30, 0, tzinfo=UTC),
+        end_time=datetime(2026, 5, 7, 9, 45, 0, tzinfo=UTC),
         duration_seconds=900,
         actual_duration_seconds=900.0,
         gap_seconds=0.0,
@@ -70,7 +69,7 @@ def test_silent_chunk_body() -> None:
 
 def test_h1_heading_format() -> None:
     rendered = render_transcript(_t())
-    assert "# 09:30 – 09:45" in rendered
+    assert "# 09:30 – 09:45" in rendered  # noqa: RUF001
 
 
 def test_atomic_write_creates_parents(tmp_path: Path) -> None:
@@ -96,8 +95,8 @@ def test_build_helper_round_trip() -> None:
     t = build_transcript_from_segments(
         session_id="20260507T091500_8a3f2c19",
         chunk_seq=1,
-        start_time=datetime(2026, 5, 7, 9, 0, 0, tzinfo=timezone.utc),
-        end_time=datetime(2026, 5, 7, 9, 15, 0, tzinfo=timezone.utc),
+        start_time=datetime(2026, 5, 7, 9, 0, 0, tzinfo=UTC),
+        end_time=datetime(2026, 5, 7, 9, 15, 0, tzinfo=UTC),
         expected_duration_seconds=900.0,
         actual_duration_seconds=900.0,
         gap_seconds=0.0,
@@ -113,7 +112,7 @@ def test_build_helper_round_trip() -> None:
 
 
 def test_body_from_source_segments_inline_format() -> None:
-    chunk_start = datetime(2026, 5, 7, 14, 30, 0, tzinfo=timezone.utc)
+    chunk_start = datetime(2026, 5, 7, 14, 30, 0, tzinfo=UTC)
     segments = [
         {"start": 0.0, "end": 4.0, "text": "Olá, vamos começar.", "source": "system"},
         {"start": 1.0, "end": 3.0, "text": "Oi, tudo certo.", "source": "microphone"},
@@ -129,7 +128,7 @@ def test_body_from_source_segments_inline_format() -> None:
 
 
 def test_body_from_source_segments_groups_adjacent_same_source() -> None:
-    chunk_start = datetime(2026, 5, 7, 14, 30, 0, tzinfo=timezone.utc)
+    chunk_start = datetime(2026, 5, 7, 14, 30, 0, tzinfo=UTC)
     segments = [
         {"start": 0.0, "end": 4.0, "text": "Olá, vamos começar.", "source": "system"},
         {"start": 4.0, "end": 7.0, "text": "Hoje queria revisar.", "source": "system"},
@@ -147,7 +146,7 @@ def test_body_from_source_segments_groups_adjacent_same_source() -> None:
 
 
 def test_body_from_source_segments_empty_text_does_not_split_run() -> None:
-    chunk_start = datetime(2026, 5, 7, 14, 30, 0, tzinfo=timezone.utc)
+    chunk_start = datetime(2026, 5, 7, 14, 30, 0, tzinfo=UTC)
     segments = [
         {"start": 0.0, "end": 2.0, "text": "Primeira parte.", "source": "system"},
         {"start": 2.0, "end": 3.0, "text": "   ", "source": "microphone"},
@@ -158,7 +157,7 @@ def test_body_from_source_segments_empty_text_does_not_split_run() -> None:
 
 
 def test_body_from_source_segments_breaks_long_same_source_run() -> None:
-    chunk_start = datetime(2026, 5, 7, 14, 30, 0, tzinfo=timezone.utc)
+    chunk_start = datetime(2026, 5, 7, 14, 30, 0, tzinfo=UTC)
     segments = [
         {"start": 0.0, "end": 5.0, "text": "Início.", "source": "system"},
         {"start": 60.0, "end": 65.0, "text": "Meio.", "source": "system"},
@@ -173,7 +172,7 @@ def test_body_from_source_segments_breaks_long_same_source_run() -> None:
 
 
 def test_body_from_source_segments_empty_source_does_not_merge_with_neighbors() -> None:
-    chunk_start = datetime(2026, 5, 7, 14, 30, 0, tzinfo=timezone.utc)
+    chunk_start = datetime(2026, 5, 7, 14, 30, 0, tzinfo=UTC)
     segments = [
         {"start": 0.0, "end": 2.0, "text": "Primeira.", "source": "system"},
         {"start": 2.0, "end": 3.0, "text": "Sem fonte.", "source": ""},
@@ -189,7 +188,7 @@ def test_body_from_source_segments_empty_source_does_not_merge_with_neighbors() 
 
 
 def test_body_from_source_segments_skips_empty_text() -> None:
-    chunk_start = datetime(2026, 5, 7, 14, 30, 0, tzinfo=timezone.utc)
+    chunk_start = datetime(2026, 5, 7, 14, 30, 0, tzinfo=UTC)
     segments = [
         {"start": 0.0, "end": 1.0, "text": "  ", "source": "microphone"},
         {"start": 2.0, "end": 3.0, "text": "Hello", "source": "microphone"},
@@ -200,6 +199,6 @@ def test_body_from_source_segments_skips_empty_text() -> None:
 
 def test_body_from_source_segments_empty_returns_empty_string() -> None:
     body = body_from_source_segments(
-        datetime(2026, 5, 7, 14, 30, 0, tzinfo=timezone.utc), []
+        datetime(2026, 5, 7, 14, 30, 0, tzinfo=UTC), []
     )
     assert body == ""

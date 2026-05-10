@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import threading
 from datetime import datetime
+from types import TracebackType
 
 from rich.align import Align
-from rich.console import Group
+from rich.console import Group, RenderableType
 from rich.layout import Layout
 from rich.live import Live
 from rich.panel import Panel
@@ -34,7 +35,7 @@ def _fmt_duration(seconds: float) -> str:
 def _level_bar(db: float, width: int = 24) -> Text:
     # -60 dB → 0 cells, 0 dB → full.
     pct = max(0.0, min(1.0, (db + 60.0) / 60.0))
-    cells = int(round(pct * width))
+    cells = round(pct * width)
     bar = "█" * cells + "░" * (width - cells)
     if db > -6:
         color = "red"
@@ -120,7 +121,7 @@ def _render_running(state: RenderState) -> Panel:
     for _key, msg in state.warnings.items():
         warnings_block.append(Text(f"⚠  {msg}", style="yellow"))
 
-    parts: list[object] = [main_table]
+    parts: list[RenderableType] = [main_table]
     if warnings_block:
         parts.append(Text(""))
         parts.extend(warnings_block)
@@ -168,7 +169,7 @@ def _render_stopping(state: RenderState) -> Panel:
     for _key, msg in state.warnings.items():
         warnings_block.append(Text(f"⚠  {msg}", style="yellow"))
 
-    parts: list[object] = [main_table, *hints]
+    parts: list[RenderableType] = [main_table, *hints]
     if warnings_block:
         parts.append(Text(""))
         parts.extend(warnings_block)
@@ -246,7 +247,7 @@ class LiveUI:
         self._refresh = refresh_per_second
         self._stop = threading.Event()
 
-    def __enter__(self) -> "LiveUI":
+    def __enter__(self) -> LiveUI:
         self._live = Live(
             _render(self._state),
             refresh_per_second=self._refresh,
@@ -261,7 +262,12 @@ class LiveUI:
             return
         self._live.update(_render(self._state))
 
-    def __exit__(self, *exc_info: object) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         if self._live is not None:
-            self._live.__exit__(*exc_info)
+            self._live.__exit__(exc_type, exc, tb)
             self._live = None

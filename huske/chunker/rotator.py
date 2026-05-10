@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 import soundfile as sf
 
 from huske import paths
@@ -69,7 +70,7 @@ class ChunkRotator:
 
     def write_block(
         self,
-        block: np.ndarray,
+        block: npt.NDArray[np.float32],
         source: str = "microphone",
         now: datetime | None = None,
     ) -> None:

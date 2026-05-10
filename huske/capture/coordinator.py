@@ -25,6 +25,7 @@ from datetime import datetime
 from typing import Protocol
 
 import numpy as np
+import numpy.typing as npt
 import sounddevice as sd
 
 from huske.capture.system_audio import (
@@ -34,10 +35,13 @@ from huske.capture.system_audio import (
 from huske.capture.system_audio_tap import (
     CoreAudioTapPermissionError,
     CoreAudioTapStream,
+)
+from huske.capture.system_audio_tap import (
     is_supported as is_tap_supported,
 )
 from huske.config import RuntimeConfig
 
+NDArrayF32 = npt.NDArray[np.float32]
 
 SystemAudioBackendInstance = SystemAudioStream | CoreAudioTapStream
 SystemAudioPermissionLike = SystemAudioPermissionError | CoreAudioTapPermissionError
@@ -46,7 +50,7 @@ SystemAudioPermissionLike = SystemAudioPermissionError | CoreAudioTapPermissionE
 class BlockSink(Protocol):
     def write_block(
         self,
-        block: np.ndarray,
+        block: NDArrayF32,
         source: str = "microphone",
         now: datetime | None = None,
     ) -> None: ...
@@ -64,12 +68,12 @@ class _SourceBuffer:
 
     def __init__(self, max_frames: int) -> None:
         self._max = max_frames
-        self._chunks: deque[np.ndarray] = deque()
+        self._chunks: deque[NDArrayF32] = deque()
         self._n = 0
         self._lock = threading.Lock()
         self._dropped_warn = False
 
-    def push(self, block: np.ndarray) -> bool:
+    def push(self, block: NDArrayF32) -> bool:
         """Append `block` (mono float32). Returns True iff frames had to be dropped."""
         dropped = False
         with self._lock:
@@ -81,12 +85,12 @@ class _SourceBuffer:
                 dropped = True
         return dropped
 
-    def take(self, n: int) -> np.ndarray:
+    def take(self, n: int) -> NDArrayF32:
         """Pop up to n mono samples. Returns a mono float32 array of length min(n, available)."""
         with self._lock:
             if self._n == 0 or n <= 0:
                 return np.zeros(0, dtype=np.float32)
-            taken: list[np.ndarray] = []
+            taken: list[NDArrayF32] = []
             remaining = n
             while remaining > 0 and self._chunks:
                 head = self._chunks[0]
@@ -215,7 +219,7 @@ class CaptureCoordinator:
             self._mic_stream.start()
             self._mic_active = True
             self._on_event("info", "microphone capture started")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             self._on_event("error", f"mic capture failed: {exc}")
             self._mic_active = False
 
@@ -268,7 +272,7 @@ class CaptureCoordinator:
                 )
                 self._system_stream = None
                 continue
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 last_error = exc
                 self._on_event(
                     "error", f"system audio backend '{choice}' failed: {exc}"
@@ -301,13 +305,13 @@ class CaptureCoordinator:
             try:
                 self._mic_stream.stop()
                 self._mic_stream.close()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
             self._mic_stream = None
         if self._system_stream is not None:
             try:
                 self._system_stream.stop(timeout=timeout)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
             self._system_stream = None
         if self._mixer_thread is not None:
@@ -318,7 +322,7 @@ class CaptureCoordinator:
 
     def _mic_callback(
         self,
-        indata: np.ndarray,
+        indata: NDArrayF32,
         frames: int,
         time_info: object,
         status: object,
@@ -359,13 +363,13 @@ class CaptureCoordinator:
 
             # Must copy: sounddevice reuses the buffer for the next callback.
             self._mic_buf.push(np.asarray(mono, dtype=np.float32).copy())
-        except Exception:  # noqa: BLE001
+        except Exception:
             # Never propagate — would crash PortAudio's audio thread.
             return
 
     def _mixer_loop(self) -> None:
         sr = self._cfg.sample_rate
-        block_frames = max(1, int(round(sr * _MIXER_BLOCK_SECONDS)))
+        block_frames = max(1, round(sr * _MIXER_BLOCK_SECONDS))
 
         while not self._stop.is_set():
             if self._paused.is_set():
@@ -420,7 +424,7 @@ class CaptureCoordinator:
             self._emit_aligned_pair(mic_part, sys_part)
 
     def _emit_aligned_pair(
-        self, mic_part: np.ndarray, sys_part: np.ndarray
+        self, mic_part: NDArrayF32, sys_part: NDArrayF32
     ) -> None:
         """Forward one mixer tick's mic + system frames to the chunker.
 
@@ -467,7 +471,7 @@ def _to_db(x: float) -> float:
     return float(20.0 * np.log10(min(x, 1.0)))
 
 
-def _pad_to_length(part: np.ndarray, target: int) -> np.ndarray:
+def _pad_to_length(part: NDArrayF32, target: int) -> NDArrayF32:
     """Trailing-pad ``part`` with zeros so its length matches ``target``.
 
     If ``target`` is 0 (no reference) or ``part`` is already long enough,

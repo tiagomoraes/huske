@@ -5,12 +5,12 @@ from __future__ import annotations
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import yaml
 
 from huske import __version__
 from huske.models import Transcript
-
 
 _DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
@@ -18,7 +18,7 @@ _DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 def _heading(t: Transcript) -> str:
     day = _DAYS[t.start_time.weekday()]
     return (
-        f"# {t.start_time.strftime('%H:%M')} – {t.end_time.strftime('%H:%M')} "
+        f"# {t.start_time.strftime('%H:%M')} – {t.end_time.strftime('%H:%M')} "  # noqa: RUF001
         f"({day} {t.start_time.date().isoformat()})"
     )
 
@@ -79,7 +79,7 @@ def build_transcript_from_segments(
     language: str,
     incomplete: bool,
     text: str,
-    segments: list[dict] | None = None,
+    segments: list[dict[str, Any]] | None = None,
 ) -> Transcript:
     return Transcript(
         session_id=session_id,
@@ -111,7 +111,7 @@ def _label_for(source: str) -> str:
 
 
 def body_from_source_segments(
-    chunk_start: datetime, segments: list[dict]
+    chunk_start: datetime, segments: list[dict[str, Any]]
 ) -> str:
     """Render source segments as paragraphs prefixed with ``[HH:MM:SS · source]``.
 

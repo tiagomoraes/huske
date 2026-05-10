@@ -319,10 +319,10 @@ def run_session(
             helper_log = cfg.logs_root / f"menubar_{session.session_id}.log"
             helper_log.parent.mkdir(parents=True, exist_ok=True)
             try:
-                helper_proc = subprocess.Popen(  # noqa: S603
+                helper_proc = subprocess.Popen(
                     argv,
                     stdout=subprocess.DEVNULL,
-                    stderr=open(helper_log, "ab"),  # noqa: SIM115
+                    stderr=open(helper_log, "ab"),
                     start_new_session=True,
                 )
                 log.info("menubar_helper_started", pid=helper_proc.pid)
