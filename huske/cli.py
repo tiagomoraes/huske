@@ -110,11 +110,19 @@ def run(
 @app.command()
 def menubar(
     attach: Path = typer.Option(..., "--attach", help="Path to a huske control socket."),
+    style: str = typer.Option(
+        "text",
+        "--style",
+        help="Label style for the menu bar item: 'text' (default, shows 'huske') or 'icon' (logo).",
+    ),
 ) -> None:
     """Render the menu bar helper attached to a running huske session (macOS only)."""
     from huske.menubar import run_helper
 
-    raise typer.Exit(run_helper(attach))
+    if style not in {"text", "icon"}:
+        typer.secho(f"invalid --style: {style!r} (expected 'text' or 'icon')", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+    raise typer.Exit(run_helper(attach, style=style))
 
 
 @app.command()

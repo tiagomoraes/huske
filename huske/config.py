@@ -76,6 +76,7 @@ class RuntimeConfig(BaseModel):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     no_ui: bool = False
     menu_bar_enabled: bool = True
+    menu_bar_label_style: Literal["text", "icon"] = "text"
 
     # Backend used to capture system audio on macOS.
     #   auto: Core Audio tap on macOS 14.4+ (resilient to screen-share

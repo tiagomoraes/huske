@@ -308,7 +308,14 @@ def run_session(
         if server is not None and cfg.menu_bar_enabled:
             from huske.agent import resolve_huske_binary
 
-            argv = [*resolve_huske_binary(), "menubar", "--attach", str(server.socket_path)]
+            argv = [
+                *resolve_huske_binary(),
+                "menubar",
+                "--attach",
+                str(server.socket_path),
+                "--style",
+                cfg.menu_bar_label_style,
+            ]
             helper_log = cfg.logs_root / f"menubar_{session.session_id}.log"
             helper_log.parent.mkdir(parents=True, exist_ok=True)
             try:

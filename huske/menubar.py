@@ -1,9 +1,14 @@
 """macOS menu bar helper.
 
 Runs as a child process spawned by ``huske run``. Connects to the
-orchestrator's Unix-domain control socket, renders an ``NSStatusBar`` icon
+orchestrator's Unix-domain control socket, renders an ``NSStatusBar`` item
 with a small action menu, and translates clicks into command messages on
 the wire. Quits automatically when the socket closes (parent died).
+
+The label can be either the literal text ``huske`` (default) or the huske
+logo (``--style icon``). A monochrome state badge — recording dot, pause
+glyph, or three-dot draining indicator — is always rendered next to the
+label so the user knows the recording state at a glance.
 
 This module imports AppKit lazily so non-macOS builds can still import the
 :mod:`huske` package without a hard dependency on PyObjC AppKit bindings.
@@ -23,17 +28,14 @@ from huske.ipc.protocol import (
     encode_command,
 )
 
-# State badge appended next to the icon. Empty string when recording/idle so
-# the icon stands alone; only paused/stopping states surface a glyph.
-_BADGE_RECORDING = ""
-_BADGE_IDLE = ""
-_BADGE_PAUSED = " ⏸"
-_BADGE_STOPPING = " ⏳"
-
-_ICON_PATH = Path(__file__).parent / "menubar_assets" / "logo.png"
+_ASSETS = Path(__file__).parent / "menubar_assets"
+_LOGO_PATH = _ASSETS / "logo.png"
+_BADGE_DOT = _ASSETS / "badges" / "dot.png"
+_BADGE_PAUSE = _ASSETS / "badges" / "pause.png"
+_BADGE_DRAINING = _ASSETS / "badges" / "draining.png"
 
 
-def run_helper(socket_path: Path) -> int:
+def run_helper(socket_path: Path, *, style: str = "text") -> int:
     if sys.platform != "darwin":
         print("huske menubar is macOS-only", file=sys.stderr)
         return 2
@@ -44,12 +46,19 @@ def run_helper(socket_path: Path) -> int:
             NSApplication,
             NSApplicationActivationPolicyAccessory,
             NSImage,
+            NSImageLeft,
+            NSImageRight,
             NSMenu,
             NSMenuItem,
             NSStatusBar,
+            NSTextAttachment,
             NSVariableStatusItemLength,
         )
-        from Foundation import NSObject
+        from Foundation import (
+            NSAttributedString,
+            NSMutableAttributedString,
+            NSObject,
+        )
     except ImportError as exc:  # pragma: no cover — depends on PyObjC AppKit
         print(f"huske menubar requires AppKit (PyObjC): {exc}", file=sys.stderr)
         return 3
@@ -61,12 +70,26 @@ def run_helper(socket_path: Path) -> int:
         print(f"could not connect to {socket_path}: {exc}", file=sys.stderr)
         return 4
 
+    def _load_template(path: Path):  # type: ignore[no-untyped-def]
+        if not path.exists():
+            return None
+        image = NSImage.alloc().initWithContentsOfFile_(str(path))
+        if image is not None:
+            image.setTemplate_(True)
+        return image
+
+    logo_image = _load_template(_LOGO_PATH)
+    badge_recording = _load_template(_BADGE_DOT)
+    badge_paused = _load_template(_BADGE_PAUSE)
+    badge_stopping = _load_template(_BADGE_DRAINING)
+
     class HuskeMenuDelegate(NSObject):  # type: ignore[misc]
         def init(self):  # type: ignore[no-untyped-def]
             self = objc.super(HuskeMenuDelegate, self).init()
             if self is None:
                 return None
             self._sock = sock
+            self._style = style
             self._pending_lock = threading.Lock()
             self._pending_snapshot: ControlSnapshot | None = None
             self._status_item = None
@@ -77,12 +100,7 @@ def run_helper(socket_path: Path) -> int:
         def buildMenu(self) -> None:
             status_bar = NSStatusBar.systemStatusBar()
             self._status_item = status_bar.statusItemWithLength_(NSVariableStatusItemLength)
-            button = self._status_item.button()
-            image = NSImage.alloc().initWithContentsOfFile_(str(_ICON_PATH))
-            if image is not None:
-                image.setTemplate_(True)
-                button.setImage_(image)
-            button.setTitle_(_BADGE_IDLE)
+            self._renderButton(badge=None)
 
             menu = NSMenu.alloc().init()
             self._status_label = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
@@ -106,6 +124,44 @@ def run_helper(socket_path: Path) -> int:
             item.setTarget_(self)
             menu.addItem_(item)
 
+        @objc.python_method
+        def _renderButton(self, badge) -> None:  # type: ignore[no-untyped-def]
+            button = self._status_item.button()
+            if self._style == "icon":
+                # Logo on the left as the primary image; badge appears as a
+                # text-attachment inline glyph on its right.
+                if logo_image is not None:
+                    button.setImage_(logo_image)
+                    button.setImagePosition_(NSImageLeft)
+                else:
+                    button.setImage_(None)
+                if badge is not None:
+                    button.setAttributedTitle_(self._badge_attributed(badge, leading_space=True))
+                else:
+                    button.setTitle_("")
+            else:
+                # Text mode: literal "huske" with the badge as a sibling image.
+                button.setTitle_("huske")
+                if badge is not None:
+                    button.setImage_(badge)
+                    button.setImagePosition_(NSImageRight)
+                else:
+                    button.setImage_(None)
+
+        @objc.python_method
+        def _badge_attributed(self, badge, *, leading_space: bool):  # type: ignore[no-untyped-def]
+            attr = NSMutableAttributedString.alloc().init()
+            if leading_space:
+                attr.appendAttributedString_(
+                    NSAttributedString.alloc().initWithString_(" ")
+                )
+            attachment = NSTextAttachment.alloc().init()
+            attachment.setImage_(badge)
+            attr.appendAttributedString_(
+                NSAttributedString.attributedStringWithAttachment_(attachment)
+            )
+            return attr
+
         # -- main-thread methods (selectors must end in `_` for PyObjC) --
 
         def applySnapshot_(self, _):  # type: ignore[no-untyped-def]
@@ -114,28 +170,30 @@ def run_helper(socket_path: Path) -> int:
                 self._pending_snapshot = None
             if snap is None:
                 return
-            if snap.stopping:
-                badge = _BADGE_STOPPING
-            elif snap.paused:
-                badge = _BADGE_PAUSED
-            elif snap.recording:
-                badge = _BADGE_RECORDING
-            else:
-                badge = _BADGE_IDLE
-            self._status_item.button().setTitle_(badge)
 
             if snap.stopping:
-                state = "stopping…"
+                state_text = "draining…"
+                badge = badge_stopping
             elif snap.paused:
-                state = "paused"
+                state_text = "paused"
+                badge = badge_paused
             elif snap.recording:
-                state = "recording"
+                state_text = "recording"
+                badge = badge_recording
             else:
-                state = "idle"
-            chunk = f"chunk {snap.current_chunk_seq:03d}" if snap.current_chunk_seq else "no chunk yet"
+                state_text = "idle"
+                badge = None
+
+            self._renderButton(badge=badge)
+
+            chunk = (
+                f"chunk {snap.current_chunk_seq:03d}"
+                if snap.current_chunk_seq
+                else "no chunk yet"
+            )
             queue = f"queue {snap.queue_depth}"
             shots = "screenshots on" if snap.screenshots_enabled else "screenshots off"
-            self._status_label.setTitle_(f"{state} · {chunk} · {queue} · {shots}")
+            self._status_label.setTitle_(f"{state_text} · {chunk} · {queue} · {shots}")
 
         def terminateApp_(self, _):  # type: ignore[no-untyped-def]
             NSApplication.sharedApplication().terminate_(self)
