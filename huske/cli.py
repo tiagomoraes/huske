@@ -72,6 +72,12 @@ def run(
     config_path: Optional[Path] = typer.Option(None, "--config"),
     log_level: str = typer.Option("INFO", "--log-level"),
     no_ui: bool = typer.Option(False, "--no-ui"),
+    menu_bar: Optional[bool] = typer.Option(
+        None,
+        "--menu-bar/--no-menu-bar",
+        help="Show a macOS menu bar icon while recording (macOS only). "
+        "Defaults to the config file value, or true if unset.",
+    ),
     system_audio_backend: Optional[str] = typer.Option(
         None,
         "--system-audio-backend",
@@ -96,9 +102,28 @@ def run(
         screenshots_root=screenshots_root,
         log_level=log_level,
         no_ui=no_ui,
+        menu_bar_enabled=menu_bar,
         system_audio_backend=system_audio_backend,
     )
     raise typer.Exit(run_session(config_path=config_path, cli_overrides=cli_overrides))
+
+
+@app.command()
+def menubar(
+    attach: Path = typer.Option(..., "--attach", help="Path to a huske control socket."),
+    style: str = typer.Option(
+        "text",
+        "--style",
+        help="Label style for the menu bar item: 'text' (default, shows 'huske') or 'icon' (logo).",
+    ),
+) -> None:
+    """Render the menu bar helper attached to a running huske session (macOS only)."""
+    from huske.menubar import run_helper
+
+    if style not in {"text", "icon"}:
+        typer.secho(f"invalid --style: {style!r} (expected 'text' or 'icon')", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+    raise typer.Exit(run_helper(attach, style=style))
 
 
 @app.command()
