@@ -72,10 +72,11 @@ def run(
     config_path: Optional[Path] = typer.Option(None, "--config"),
     log_level: str = typer.Option("INFO", "--log-level"),
     no_ui: bool = typer.Option(False, "--no-ui"),
-    menu_bar: bool = typer.Option(
-        True,
+    menu_bar: Optional[bool] = typer.Option(
+        None,
         "--menu-bar/--no-menu-bar",
-        help="Show a macOS menu bar icon while recording (macOS only).",
+        help="Show a macOS menu bar icon while recording (macOS only). "
+        "Defaults to the config file value, or true if unset.",
     ),
     system_audio_backend: Optional[str] = typer.Option(
         None,
