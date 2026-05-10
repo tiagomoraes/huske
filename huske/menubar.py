@@ -23,10 +23,14 @@ from huske.ipc.protocol import (
     encode_command,
 )
 
-_TITLE_IDLE = "huske ●"
-_TITLE_RECORDING = "huske ⏺"
-_TITLE_PAUSED = "huske ⏸"
-_TITLE_STOPPING = "huske ⏳"
+# State badge appended next to the icon. Empty string when recording/idle so
+# the icon stands alone; only paused/stopping states surface a glyph.
+_BADGE_RECORDING = ""
+_BADGE_IDLE = ""
+_BADGE_PAUSED = " ⏸"
+_BADGE_STOPPING = " ⏳"
+
+_ICON_PATH = Path(__file__).parent / "menubar_assets" / "logo.png"
 
 
 def run_helper(socket_path: Path) -> int:
@@ -39,6 +43,7 @@ def run_helper(socket_path: Path) -> int:
         from AppKit import (
             NSApplication,
             NSApplicationActivationPolicyAccessory,
+            NSImage,
             NSMenu,
             NSMenuItem,
             NSStatusBar,
@@ -72,7 +77,12 @@ def run_helper(socket_path: Path) -> int:
         def buildMenu(self) -> None:
             status_bar = NSStatusBar.systemStatusBar()
             self._status_item = status_bar.statusItemWithLength_(NSVariableStatusItemLength)
-            self._status_item.button().setTitle_(_TITLE_IDLE)
+            button = self._status_item.button()
+            image = NSImage.alloc().initWithContentsOfFile_(str(_ICON_PATH))
+            if image is not None:
+                image.setTemplate_(True)
+                button.setImage_(image)
+            button.setTitle_(_BADGE_IDLE)
 
             menu = NSMenu.alloc().init()
             self._status_label = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
@@ -105,19 +115,27 @@ def run_helper(socket_path: Path) -> int:
             if snap is None:
                 return
             if snap.stopping:
-                title = _TITLE_STOPPING
+                badge = _BADGE_STOPPING
             elif snap.paused:
-                title = _TITLE_PAUSED
+                badge = _BADGE_PAUSED
             elif snap.recording:
-                title = _TITLE_RECORDING
+                badge = _BADGE_RECORDING
             else:
-                title = _TITLE_IDLE
-            self._status_item.button().setTitle_(title)
+                badge = _BADGE_IDLE
+            self._status_item.button().setTitle_(badge)
 
+            if snap.stopping:
+                state = "stopping…"
+            elif snap.paused:
+                state = "paused"
+            elif snap.recording:
+                state = "recording"
+            else:
+                state = "idle"
             chunk = f"chunk {snap.current_chunk_seq:03d}" if snap.current_chunk_seq else "no chunk yet"
             queue = f"queue {snap.queue_depth}"
             shots = "screenshots on" if snap.screenshots_enabled else "screenshots off"
-            self._status_label.setTitle_(f"{chunk} · {queue} · {shots}")
+            self._status_label.setTitle_(f"{state} · {chunk} · {queue} · {shots}")
 
         def terminateApp_(self, _):  # type: ignore[no-untyped-def]
             NSApplication.sharedApplication().terminate_(self)
