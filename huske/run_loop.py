@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import signal
+import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -15,6 +17,7 @@ from huske.capture.coordinator import CaptureCoordinator
 from huske.capture.devices import resolve_input_device, validate_device
 from huske.chunker.rotator import ChunkRotator
 from huske.config import RuntimeConfig, load_config
+from huske.control import Command, CommandChannel
 from huske.models import AudioChunk, AudioSource, RenderState, SessionState
 from huske.output_readme import ensure_output_readme
 from huske.recovery.scanner import (
@@ -246,13 +249,54 @@ def run_session(
             msg += " — current chunk queued"
         on_event("info", msg)
 
+    def _open_path(path: Path) -> None:
+        if not path.exists():
+            on_event("warn", f"path not found: {path}")
+            return
+        try:
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", str(path)])
+            elif sys.platform.startswith("linux"):
+                subprocess.Popen(["xdg-open", str(path)])
+            else:
+                on_event("warn", f"open not supported on {sys.platform}")
+        except OSError as exc:
+            on_event("error", f"failed to open {path.name}: {exc}")
+
+    def _open_transcripts() -> None:
+        _open_path(cfg.output_root)
+
+    def _open_latest_transcript() -> None:
+        if state.last_saved is None:
+            on_event("info", "no transcript saved yet")
+            return
+        _open_path(state.last_saved)
+
+    def _stop() -> None:
+        stop_flag.set()
+
+    commands = CommandChannel()
+    dispatch: dict[Command, Callable[[], None]] = {
+        Command.PAUSE_RESUME: _toggle_pause,
+        Command.TOGGLE_SCREENSHOTS: _toggle_screenshots,
+        Command.STOP: _stop,
+        Command.OPEN_TRANSCRIPTS: _open_transcripts,
+        Command.OPEN_LATEST_TRANSCRIPT: _open_latest_transcript,
+    }
+
+    def _pump_commands() -> None:
+        for cmd in commands.drain():
+            handler = dispatch.get(cmd)
+            if handler is not None:
+                handler()
+
     def _handle_key(key: str) -> None:
         if stop_flag.is_set():
             return
         normalized = key.lower()
         if normalized == "\x03":
             on_event("info", "stop requested — finalizing current chunk…")
-            stop_flag.set()
+            commands.send(Command.STOP)
             return
         if normalized == "?":
             state.update(help_visible=not state.help_visible)
@@ -263,12 +307,12 @@ def run_session(
             state.update(help_visible=False)
         elif normalized == "q":
             on_event("info", "stop requested — finalizing current chunk…")
-            stop_flag.set()
+            commands.send(Command.STOP)
         elif normalized == "p":
-            _toggle_pause()
+            commands.send(Command.PAUSE_RESUME)
             state.update(help_visible=False)
         elif normalized == "s":
-            _toggle_screenshots()
+            commands.send(Command.TOGGLE_SCREENSHOTS)
             state.update(help_visible=False)
 
     def _session_loop(
@@ -280,6 +324,7 @@ def run_session(
             cfg, state, rotator, capture, worker, stop_flag, log,
             on_result, ui=ui, read_key=read_key, on_key=_handle_key,
             screenshot_status=_screenshot_status,
+            pump_commands=_pump_commands,
         )
 
         # Phase 2: stopping. Keep the UI alive while we drain.
@@ -379,6 +424,7 @@ def _main_loop(
     read_key: Callable[[], str | None] | None = None,
     on_key: Callable[[str], None] | None = None,
     screenshot_status: Callable[[], tuple[bool, int, datetime | None]] | None = None,
+    pump_commands: Callable[[], None] | None = None,
 ) -> None:
     """Run the asyncio-free main loop. Updates UI, polls worker results, watches heartbeat."""
     while not stop_flag.is_set():
@@ -390,6 +436,11 @@ def _main_loop(
                 on_key(key)
                 if stop_flag.is_set():
                     break
+            if stop_flag.is_set():
+                break
+
+        if pump_commands is not None:
+            pump_commands()
             if stop_flag.is_set():
                 break
 
