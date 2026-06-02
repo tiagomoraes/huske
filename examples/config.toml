@@ -26,9 +26,15 @@ device = "auto"
 # Optional language hint, ISO 639-1. Omit for auto-detect.
 # language = "pt"
 
-# Microphone device name (substring match). System audio is always captured
-# via ScreenCaptureKit on macOS 13+ and is independent of this setting.
+# Microphone device name (substring match). System audio is independent of
+# this setting.
 # input_device = "MacBook Pro Microphone"
+
+# System audio backend: auto | tap | sck | off
+# auto uses the Core Audio process tap on macOS 14.4+ so screen sharing in
+# Google Meet/Zoom/etc. does not interrupt capture. Older macOS versions fall
+# back to ScreenCaptureKit.
+system_audio_backend = "auto"
 
 # Keep raw WAV chunks after successful transcription.
 keep_audio = false

@@ -113,7 +113,7 @@ const LiveDemo = () => {
       <div className="body">
         <div className="head">
           <Mark size={16}/>
-          <span className="name">huske 0.3.1</span>
+        <span className="name">huske 0.5.0</span>
           <span className="meta">
             session <code>4f9c2a31-08d2</code>
             <span className="arrow">→</span>
@@ -132,7 +132,7 @@ const LiveDemo = () => {
           <Meter src="mic" level={mic} db={`${dbMic} dB`}/>
 
           <span className="lbl">sys level</span>
-          <Meter src="sck" level={sys} db={`${dbSys} dB`}/>
+          <Meter src="tap" level={sys} db={`${dbSys} dB`}/>
 
           <span className="lbl">queue</span>
           <span className="val">2 chunks pending · transcribing <code>002</code></span>
@@ -141,7 +141,7 @@ const LiveDemo = () => {
           <span className="val saved"><span className="glyph">✓</span> 2026-05-08/091500_4f9c2a31_002.md</span>
 
           <span className="lbl">model</span>
-          <span className="val">mlx-whisper:large-v3-turbo · apple gpu</span>
+          <span className="val">mlx-whisper:base · apple gpu</span>
         </div>
 
         <div className="log">
@@ -154,6 +154,7 @@ const LiveDemo = () => {
           <span><kbd>?</kbd> controls</span>
           <span><kbd>p</kbd> pause</span>
           <span><kbd>s</kbd> screenshots</span>
+          <span><kbd>i</kbd> input</span>
           <span><kbd>q</kbd> quit</span>
           <span><kbd>^C</kbd> stop</span>
         </div>
@@ -168,7 +169,7 @@ const Hero = () => (
       <div className="hero-stack">
         <div className="eyebrow">
           <span className="dot"/>
-          <span className="ver">v0.3.1</span>
+          <span className="ver">v0.5.0</span>
           <span className="sep">·</span>
           <span>macOS · apple silicon</span>
           <span className="sep">·</span>
@@ -226,7 +227,7 @@ const InstallSection = () => (
         <div>
           <div className="aux-eyebrow">next steps</div>
           <ol className="aux-list">
-            <li><span className="step">01</span><span><code>huske doctor</code><br/><span className="muted">validate your setup · prompts for screen recording on first run</span></span></li>
+            <li><span className="step">01</span><span><code>huske doctor</code><br/><span className="muted">validate your setup · prompts for macOS capture permission on first run</span></span></li>
             <li><span className="step">02</span><span><code>huske run</code><br/><span className="muted">start recording · ctrl+c to stop gracefully</span></span></li>
             <li><span className="step">03</span><span>point your agent at <code>~/huske/transcripts/</code><br/><span className="muted">ask it about your day</span></span></li>
           </ol>

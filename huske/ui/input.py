@@ -34,7 +34,14 @@ class TerminalKeyReader:
         return self
 
     def read_key(self) -> str | None:
-        """Return the next available character, or None if no key is waiting."""
+        """Return the next available key, or None if no key is waiting.
+
+        Most keys are returned as a single character. CSI escape sequences
+        (e.g. ``\\x1b[A`` for the Up arrow) are coalesced into one token so
+        callers can match arrow keys without race-prone state machines.
+        Bare Esc still arrives as ``\\x1b`` because the terminal sends it as
+        a one-byte packet.
+        """
         if self._buffer:
             return self._buffer.popleft()
         if self._fd is None:
@@ -49,8 +56,24 @@ class TerminalKeyReader:
             data = os.read(self._fd, 32)
         except OSError:
             return None
-        for ch in data.decode("utf-8", errors="ignore"):
-            self._buffer.append(ch)
+        text = data.decode("utf-8", errors="ignore")
+        i = 0
+        while i < len(text):
+            ch = text[i]
+            if ch == "\x1b" and i + 1 < len(text) and text[i + 1] == "[":
+                # CSI: ESC '[' params* final-byte (0x40..0x7E).
+                j = i + 2
+                while j < len(text):
+                    cj = text[j]
+                    if 0x40 <= ord(cj) <= 0x7E:
+                        j += 1
+                        break
+                    j += 1
+                self._buffer.append(text[i:j])
+                i = j
+            else:
+                self._buffer.append(ch)
+                i += 1
         if self._buffer:
             return self._buffer.popleft()
         return None

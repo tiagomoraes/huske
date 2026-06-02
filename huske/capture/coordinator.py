@@ -1,13 +1,15 @@
-"""Capture coordinator: runs mic (sounddevice) + system audio (ScreenCaptureKit) in parallel
-and forwards each source separately to the chunker so they can be transcribed independently.
+"""Capture coordinator: runs mic + system audio in parallel.
+
+Microphone capture uses sounddevice. System audio uses Core Audio process tap
+where available, with ScreenCaptureKit as the legacy fallback. Each source is
+forwarded separately to the chunker so they can be transcribed independently.
 
 Threads:
   - PortAudio audio thread (sounddevice-managed) calls ``_mic_callback`` directly
     for every input block. Mono conversion + peak-level update + push-to-ring-buffer
     happen here. No Python loop is involved — the audio thread is high-priority
     and not subject to GIL contention from our other Python threads.
-  - The SCStream sample-handler thread (ScreenCaptureKit-managed) supplies system mono
-    frames via ``SystemAudioStream``'s internal queue.
+  - The system-audio backend supplies mono frames through its internal queue.
   - Our ``_mixer_loop`` thread drains both ring buffers at fixed cadence and forwards
     each one to the chunker (the BlockSink) with its source tag — no mixing on disk.
     Per-source peaks for the UI are tracked at push time on each source's audio thread.
@@ -179,6 +181,10 @@ class CaptureCoordinator:
         return self._sys_active
 
     @property
+    def mic_device_index(self) -> int | None:
+        return self._mic_device_index
+
+    @property
     def paused(self) -> bool:
         return self._paused.is_set()
 
@@ -248,6 +254,7 @@ class CaptureCoordinator:
             order = ["tap", "sck"] if is_tap_supported() else ["sck"]
 
         last_error: Exception | None = None
+        tap_error: Exception | None = None
         for choice in order:
             try:
                 if choice == "tap":
@@ -263,9 +270,21 @@ class CaptureCoordinator:
                 self._system_stream.start()
                 self._sys_active = True
                 self._on_warning_clear("system_audio")
+                if choice == "tap":
+                    self._on_warning_clear("system_audio_backend")
+                elif backend == "auto" and tap_error is not None:
+                    self._on_warning(
+                        "system_audio_backend",
+                        "Core Audio tap failed; using ScreenCaptureKit fallback. "
+                        "System audio may stop during screen sharing.",
+                    )
+                else:
+                    self._on_warning_clear("system_audio_backend")
                 return
             except (SystemAudioPermissionError, CoreAudioTapPermissionError) as exc:
                 last_error = exc
+                if choice == "tap":
+                    tap_error = exc
                 self._on_event(
                     "warn",
                     f"system audio backend '{choice}' unavailable: {exc}",
@@ -274,6 +293,8 @@ class CaptureCoordinator:
                 continue
             except Exception as exc:
                 last_error = exc
+                if choice == "tap":
+                    tap_error = exc
                 self._on_event(
                     "error", f"system audio backend '{choice}' failed: {exc}"
                 )
@@ -284,7 +305,7 @@ class CaptureCoordinator:
         if isinstance(last_error, SystemAudioPermissionError):
             self._on_warning(
                 "system_audio",
-                "Screen Recording permission needed for system audio. "
+                "ScreenCaptureKit system audio needs Screen Recording permission. "
                 "System Settings → Privacy & Security → Screen Recording.",
             )
         elif isinstance(last_error, CoreAudioTapPermissionError):
@@ -298,6 +319,99 @@ class CaptureCoordinator:
                 "System audio capture failed — mic-only mode.",
             )
         self._sys_active = False
+
+    def swap_mic_device(self, new_device_index: int) -> bool:
+        """Switch the live microphone input to ``new_device_index``.
+
+        Stops the existing ``sd.InputStream`` before opening the new one —
+        macOS Core Audio is unreliable when two input streams on different
+        physical devices are open at the same time (especially while the
+        system-audio aggregate device is also alive), so we serialize the
+        teardown and the open. If the new device fails to open we try to
+        revert to the old one; if that also fails we leave the coordinator
+        in mic-off mode and surface a warning.
+        """
+        if new_device_index == self._mic_device_index and self._mic_stream is not None:
+            return True
+
+        old_stream = self._mic_stream
+        old_index = self._mic_device_index
+
+        with self._pause_lock:
+            was_paused = self._paused.is_set()
+            self._paused.set()
+            self._mic_stream = None
+            self._mic_active = False
+            self._clear_buffers()
+            with self._peak_lock:
+                self._mic_peak = 0.0
+
+        if old_stream is not None:
+            try:
+                old_stream.stop()
+                old_stream.close()
+            except Exception:
+                pass
+
+        new_stream: sd.InputStream | None = None
+        try:
+            new_stream = sd.InputStream(
+                device=new_device_index,
+                channels=1,
+                samplerate=self._cfg.sample_rate,
+                blocksize=self._cfg.block_size,
+                dtype="float32",
+                latency="high",
+                callback=self._mic_callback,
+            )
+            new_stream.start()
+        except Exception as exc:
+            self._on_event("error", f"mic switch failed: {exc}")
+            new_stream = None
+
+        if new_stream is None and old_index is not None:
+            # Try to fall back to the previous device.
+            try:
+                fallback = sd.InputStream(
+                    device=old_index,
+                    channels=1,
+                    samplerate=self._cfg.sample_rate,
+                    blocksize=self._cfg.block_size,
+                    dtype="float32",
+                    latency="high",
+                    callback=self._mic_callback,
+                )
+                fallback.start()
+            except Exception as exc:
+                self._on_event(
+                    "error", f"mic switch failed and old device unavailable: {exc}"
+                )
+                with self._pause_lock:
+                    if not was_paused:
+                        self._paused.clear()
+                return False
+            with self._pause_lock:
+                self._mic_stream = fallback
+                self._mic_device_index = old_index
+                self._mic_active = True
+                if not was_paused:
+                    self._paused.clear()
+            return False
+
+        if new_stream is None:
+            with self._pause_lock:
+                if not was_paused:
+                    self._paused.clear()
+            return False
+
+        with self._pause_lock:
+            self._mic_stream = new_stream
+            self._mic_device_index = new_device_index
+            self._mic_active = True
+            if not was_paused:
+                self._paused.clear()
+        self._on_event("info", "microphone capture switched")
+        return True
 
     def stop(self, timeout: float = 5.0) -> None:
         self._stop.set()

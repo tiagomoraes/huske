@@ -106,6 +106,10 @@ def _read_toml(path: Path) -> dict[str, Any]:
         return tomllib.load(f)
 
 
+def default_user_config_path() -> Path:
+    return Path.home() / ".config" / "huske" / "config.toml"
+
+
 def load_config(
     config_path: Path | None = None,
     cli_overrides: dict[str, Any] | None = None,
@@ -116,8 +120,33 @@ def load_config(
     if absent). `cli_overrides` are applied last and win on conflict.
     """
 
-    file_path = config_path or (Path.home() / ".config" / "huske" / "config.toml")
+    file_path = config_path or default_user_config_path()
     file_data = _read_toml(file_path) if file_path.exists() else {}
     overrides = {k: v for k, v in (cli_overrides or {}).items() if v is not None}
     merged = {**file_data, **overrides}
     return RuntimeConfig(**merged)
+
+
+def update_user_config(
+    updates: dict[str, Any], config_path: Path | None = None
+) -> Path:
+    """Upsert keys in the user's TOML config, preserving any other keys.
+
+    A key set to ``None`` is removed (so callers can clear a field by passing
+    ``{"input_device": None}``). The file is created if it does not exist.
+    Returns the path that was written.
+    """
+    import tomli_w
+
+    target = config_path or default_user_config_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    existing = _read_toml(target)
+    merged: dict[str, Any] = dict(existing)
+    for k, v in updates.items():
+        if v is None:
+            merged.pop(k, None)
+        else:
+            merged[k] = v
+    with target.open("wb") as f:
+        tomli_w.dump(merged, f)
+    return target

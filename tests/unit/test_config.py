@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from huske.config import RuntimeConfig, load_config
+from huske.config import RuntimeConfig, load_config, update_user_config
 
 
 def test_defaults_are_sane() -> None:
@@ -74,3 +74,35 @@ def test_load_config_missing_toml_uses_defaults(tmp_path: Path) -> None:
 def test_unknown_field_rejected() -> None:
     with pytest.raises(ValueError):
         RuntimeConfig(nonsense=True)  # type: ignore[call-arg]
+
+
+def test_update_user_config_creates_file(tmp_path: Path) -> None:
+    target = tmp_path / "missing" / "config.toml"
+    written = update_user_config({"input_device": "MacBook Pro Microphone"}, target)
+    assert written == target
+    cfg = load_config(config_path=target)
+    assert cfg.input_device == "MacBook Pro Microphone"
+
+
+def test_update_user_config_preserves_other_keys(tmp_path: Path) -> None:
+    target = tmp_path / "config.toml"
+    target.write_text(
+        'chunk_minutes = 5\nmodel = "tiny"\nlanguage = "pt"\n', encoding="utf-8"
+    )
+    update_user_config({"input_device": "Built-in"}, target)
+    cfg = load_config(config_path=target)
+    assert cfg.chunk_minutes == 5.0
+    assert cfg.model == "tiny"
+    assert cfg.language == "pt"
+    assert cfg.input_device == "Built-in"
+
+
+def test_update_user_config_clears_with_none(tmp_path: Path) -> None:
+    target = tmp_path / "config.toml"
+    target.write_text(
+        'input_device = "Old Device"\nmodel = "small"\n', encoding="utf-8"
+    )
+    update_user_config({"input_device": None}, target)
+    cfg = load_config(config_path=target)
+    assert cfg.input_device is None
+    assert cfg.model == "small"

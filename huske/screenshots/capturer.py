@@ -5,10 +5,11 @@ Each tick writes one JPEG per attached display to
 ``~/huske/screenshots/YYYY-MM-DD/<session_id>/HHMMSS_dN.jpg``.
 
 Why ``screencapture``: it's built into macOS, ships native JPEG encoding, and
-inherits the same Screen Recording permission the audio capture already
-requires. ``screencapture`` writes "1 file per screen" when given multiple
-file paths — we pass ``screenshots_max_displays`` paths and only the
-existing displays produce files. No external dep, no probing required.
+uses Screen Recording permission. System audio may use a different Core Audio
+permission on newer macOS versions, so screenshots can still trigger their own
+prompt. ``screencapture`` writes "1 file per screen" when given multiple file
+paths — we pass ``screenshots_max_displays`` paths and only the existing
+displays produce files. No external dep, no probing required.
 """
 
 from __future__ import annotations

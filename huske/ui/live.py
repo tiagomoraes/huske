@@ -185,11 +185,50 @@ def _render_help() -> Panel:
     table.add_column(justify="left")
     table.add_row("p", "pause or resume audio recording")
     table.add_row("s", "toggle periodic screenshots")
+    table.add_row("i", "choose microphone input device")
     table.add_row("?", "show or hide this help")
     table.add_row("q", "graceful stop")
     table.add_row("Esc", "close controls")
     table.add_row("Ctrl+C", "graceful stop")
     return Panel(table, title="controls", border_style="cyan", padding=(1, 2))
+
+
+def _render_input_picker(state: RenderState) -> Panel:
+    table = Table.grid(padding=(0, 2))
+    table.add_column(justify="left", no_wrap=True)
+    table.add_column(justify="left")
+    if not state.picker_devices:
+        table.add_row(Text(""), Text("no input devices found", style="yellow"))
+    for i, (dev_index, dev_name) in enumerate(state.picker_devices):
+        is_cursor = i == state.picker_cursor
+        is_current = dev_index == state.picker_current_index
+        marker = "▶" if is_cursor else " "
+        suffix = " (current)" if is_current else ""
+        if is_cursor:
+            row_style = "bold cyan"
+        elif is_current:
+            row_style = "green"
+        else:
+            row_style = "white"
+        table.add_row(
+            Text(marker, style="bold cyan"),
+            Text(f"{dev_name}{suffix}", style=row_style),
+        )
+
+    hint = Text(
+        "j/k or ↓/↑ move   Enter switch   Esc cancel",
+        style="dim",
+    )
+    note = Text(
+        "Tip: Bluetooth headsets (AirPods) drop output quality when used as mic.",
+        style="yellow",
+    )
+    return Panel(
+        Group(table, Text(""), hint, note),
+        title="microphone input",
+        border_style="cyan",
+        padding=(1, 2),
+    )
 
 
 def _render(state: RenderState) -> Layout:
@@ -212,7 +251,9 @@ def _render(state: RenderState) -> Layout:
     layout["header"].update(Panel(Align.left(header_text), border_style="cyan"))
 
     # Main.
-    if state.help_visible and not state.stopping:
+    if state.picker_visible and not state.stopping:
+        layout["main"].update(_render_input_picker(state))
+    elif state.help_visible and not state.stopping:
         layout["main"].update(_render_help())
     elif state.stopping:
         layout["main"].update(_render_stopping(state))

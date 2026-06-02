@@ -117,7 +117,7 @@ finalized (orphaned) ──valid WAV──▶ queued
 | `actual_duration_seconds` | `float` | Captured duration. |
 | `gap_seconds` | `float` | |
 | `audio_sources` | `list[str]` | |
-| `model` | `str` | `"faster-whisper:<size>"` (e.g., `"faster-whisper:base"`). |
+| `model` | `str` | `"mlx-whisper:<size>"` (e.g., `"mlx-whisper:base"`). |
 | `language` | `str` | ISO 639-1, e.g. `"pt"`, `"en"`, or `"auto"` if undetected. |
 | `incomplete` | `bool` | `True` if produced from recovery or graceful-stop short chunk. |
 | `body` | `str` | Plain text transcript. |
@@ -140,21 +140,25 @@ finalized (orphaned) ──valid WAV──▶ queued
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `chunk_minutes` | `int` | `15` | Allowed range: 1–60. |
+| `chunk_minutes` | `float` | `15` | Allowed range: 0.1–60. |
 | `output_root` | `Path` | `~/huske/transcripts` | Day folders live here. |
 | `audio_root` | `Path` | `~/huske/audio` | Per-session subdirs created under here. |
 | `model` | `str` | `"base"` | One of `tiny`, `base`, `small`, `medium`, `large-v3`. |
-| `compute_type` | `str` | `"int8"` | Passed to `faster-whisper`. |
-| `device` | `str` | `"auto"` | `auto`, `cpu`, `cuda`. |
+| `compute_type` | `str` | `"int8"` | Kept for back-compat; `float32` opts out of fp16 inference, other values use the MLX default. |
+| `device` | `str` | `"auto"` | Kept for back-compat; `cuda` is rejected on macOS. |
 | `language` | `str \| None` | `None` (auto-detect) | ISO 639-1. |
 | `keep_audio` | `bool` | `False` | Retain WAVs after successful transcription. |
-| `input_device` | `str \| None` | `None` (system default) | Preferred input device name (typically the user's aggregate device). |
+| `input_device` | `str \| None` | `None` (system default) | Preferred microphone device name. If unavailable, Huske falls back to the default input with a warning. |
 | `sample_rate` | `int` | `48000` | Hz. |
 | `block_size` | `int` | `1024` | Samples per audio callback. |
+| `screenshots_enabled` | `bool` | `False` | Enable periodic screenshots. |
+| `screenshots_interval_seconds` | `float` | `10.0` | Seconds between screenshots, minimum 1. |
+| `screenshots_root` | `Path` | `~/huske/screenshots` | Screenshot output root. |
+| `system_audio_backend` | `str` | `"auto"` | `auto`, `tap`, `sck`, or `off`. `auto` chooses Core Audio process tap on macOS 14.4+ and ScreenCaptureKit fallback otherwise. |
 | `log_level` | `str` | `"INFO"` | |
 
 **Validation** (Pydantic):
-- `chunk_minutes`: `1 <= n <= 60`.
+- `chunk_minutes`: `0.1 <= n <= 60`.
 - `output_root` and `audio_root`: parent must exist or be creatable.
 - `model`: must be one of the enumerated sizes.
 - `device == "cuda"` rejected with a clear message on Apple Silicon (no CUDA).
@@ -178,7 +182,7 @@ finalized (orphaned) ──valid WAV──▶ queued
 | `queue_depth` | `int` | Chunks awaiting/being transcribed. |
 | `last_saved` | `Path \| None` | |
 | `events` | `deque[Event]` | Capped at 5; rolling. |
-| `warnings` | `list[str]` | Active (sticky) warnings, e.g. "system audio unavailable". |
+| `warnings` | `dict[str, str]` | Active sticky warnings keyed by subsystem, e.g. `"system_audio"`. |
 
 `Event` = `(timestamp, severity ∈ {info,warn,error}, message)`.
 

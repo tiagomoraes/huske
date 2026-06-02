@@ -24,8 +24,8 @@ description: "Implementation task list for Huske — Always-On Terminal Audio Re
 
 **Purpose**: Project initialization — Python package skeleton, dependency manifest, tooling.
 
-- [x] T001 Create Python package skeleton at `huske/` with empty `huske/__init__.py` (with `__version__ = "0.1.0"`) and `huske/__main__.py` that imports and runs `huske.cli:app`
-- [x] T002 Create `pyproject.toml` at repo root declaring: project metadata (name `huske`, Python `>=3.11`), runtime deps (`sounddevice`, `numpy`, `soundfile`, `faster-whisper`, `rich`, `typer`, `pydantic>=2`, `structlog`, `tomli; python_version<'3.11'`), dev deps under `[project.optional-dependencies].dev` (`pytest`, `pytest-asyncio`, `ruff`, `mypy`), and console script entry point `huske = huske.cli:app`
+- [x] T001 Create Python package skeleton at `huske/` with `huske/__init__.py` exposing the package version and `huske/__main__.py` that imports and runs `huske.cli:app`
+- [x] T002 Create `pyproject.toml` at repo root declaring: project metadata (name `huske`, Python `>=3.11`), runtime deps (`sounddevice`, `numpy`, `soundfile`, `mlx-whisper`, `rich`, `typer`, `pydantic>=2`, `structlog`, PyObjC frameworks), dev deps under `[project.optional-dependencies].dev` (`pytest`, `pytest-asyncio`, `ruff`, `mypy`), and console script entry point `huske = huske.cli:app`
 - [x] T003 [P] Add `ruff` and `mypy` configuration to `pyproject.toml` (line length 100, target Python 3.11, mypy `strict = true` with `disallow_untyped_defs`)
 - [x] T004 [P] Add `pytest` configuration to `pyproject.toml` `[tool.pytest.ini_options]` with `testpaths = ["tests"]`, `asyncio_mode = "auto"`, and a `markers` entry for `integration`
 - [x] T005 [P] Create test scaffolding: `tests/__init__.py`, `tests/unit/__init__.py`, `tests/integration/__init__.py`, and an empty `tests/integration/conftest.py`
@@ -56,30 +56,30 @@ description: "Implementation task list for Huske — Always-On Terminal Audio Re
 
 ## Phase 3: User Story 1 — Always-On Capture That Yields Transcripts (Priority: P1) 🎯 MVP
 
-**Goal**: Continuous mic + system-audio capture that auto-rotates every 15 minutes, transcribes each chunk locally with `faster-whisper` in a separate process, and writes a Markdown transcript with full frontmatter to the day-organized output tree. Graceful stop finalizes the partial chunk. Recovery on startup reclaims orphaned audio from prior crashes.
+**Goal**: Continuous mic + system-audio capture that auto-rotates every 15 minutes, transcribes each chunk locally with `mlx-whisper` in a separate process, and writes a Markdown transcript with full frontmatter to the day-organized output tree. Graceful stop finalizes the partial chunk. Recovery on startup reclaims orphaned audio from prior crashes.
 
 **Independent Test**: Run `huske run` for ~17 minutes while occasionally speaking; confirm a transcript file appears under `~/huske/transcripts/YYYY-MM-DD/<HHMMSS>_<id>_001.md` containing the spoken text and that recording continued into a second chunk without gaps. Then `kill -9` huske mid-chunk, restart, and confirm `huske recover` (or auto-recovery) processes the orphan WAV.
 
 ### Tests for User Story 1
 
-- [x] T015 [P] [US1] Add `tests/integration/conftest.py` fixtures: `fake_audio_stream` (replays a WAV via a `sounddevice` monkeypatch into the real callback), `tiny_model` (forces `faster-whisper` to use the `tiny` size for speed), `tmp_huske_root` (isolated `output_root` and `audio_root`), and a `canned_transcription_worker` fixture that swaps `faster-whisper` for a deterministic stub
+- [x] T015 [P] [US1] Add `tests/integration/conftest.py` fixtures: fake audio sources, isolated `output_root` and `audio_root`, and canned transcription-worker fixtures so tests do not require real Whisper inference.
 - [x] T016 [P] [US1] Add `tests/unit/test_chunker.py` covering: chunk rotation at the configured boundary, double-writer handoff produces zero dropped frames (verify by sample-count accounting), short chunk on graceful stop carries `actual_duration_seconds < expected_duration_seconds`
 - [x] T017 [P] [US1] Add `tests/unit/test_writer.py` covering: full frontmatter schema (every key from `contracts/transcript-format.md`), atomic write (write to `.tmp` + rename), silent-chunk body (`_(no speech detected)_`), correct H1 heading
 - [x] T018 [P] [US1] Add `tests/unit/test_recovery.py` covering: orphan detection by dead-PID lock, valid-WAV → enqueued, truncated-WAV → moved to `audio/incomplete/`, empty session dir cleaned up after recovery
-- [x] T019 [US1] Add `tests/integration/test_end_to_end.py`: feed a 90-second WAV through `fake_audio_stream` with `chunk_minutes=0.25` (15 s, allowed by lowering the test bound), assert that 6 transcript files land in the expected day folder with sortable filenames and parseable frontmatter
-- [x] T020 [US1] Add `tests/integration/test_graceful_stop.py`: start a session, after 8 s of fake audio send SIGINT, assert that exactly one transcript file is produced with `actual_duration_seconds ≈ 8.0` and `incomplete: true` in frontmatter
+- [x] T019 [US1] Add `tests/integration/test_pipeline_no_whisper.py`: run the pipeline with canned transcription and isolated output/audio roots, then assert transcript files land in the expected day folder with sortable filenames and parseable frontmatter.
+- [x] T020 [US1] Add `tests/integration/test_smoke.py`: cover basic CLI/session smoke paths, including graceful finalization behavior.
 
 ### Implementation for User Story 1
 
 - [x] T021 [P] [US1] Implement `AudioChunk` dataclass + state machine in `huske/chunker/__init__.py` (or a `models.py` if cleaner) per `data-model.md` §2
-- [x] T022 [P] [US1] Implement audio capture stream in `huske/capture/stream.py`: open a `sounddevice.InputStream` at 48 kHz / 2ch / float32 / blocksize 1024; callback writes frames into a thread-safe ring buffer; expose `start()`, `stop()`, `last_callback_at` (wall-clock for sleep/wake monitor), `read_frames(n)`, `pop_block()` for the chunker
+- [x] T022 [P] [US1] Implement audio capture coordination in `huske/capture/coordinator.py`: open a `sounddevice.InputStream` for microphone capture, start the configured system-audio backend, buffer mono source blocks, expose `start()`, `stop()`, `last_callback_at`, source activity, and peak levels for the UI.
 - [x] T023 [US1] Implement chunker rotation in `huske/chunker/rotator.py`: maintains *current* and *next* `soundfile.SoundFile` writers; rotation scheduled at `chunk_started_at + chunk_minutes`; pre-opens the next writer 0.5 s before the boundary; in a single audio callback closes current + switches to next; on close emits an `AudioChunk(state="finalized")` event
 - [x] T024 [P] [US1] Implement transcript writer in `huske/transcribe/writer.py`: `write_transcript(transcript: Transcript, path: Path)` renders YAML frontmatter (using `yaml.safe_dump`) + Markdown body, writes atomically (`.tmp` + `os.replace`), handles silent-chunk body, ensures parent dir exists
 - [x] T025 [US1] Implement transcription worker subprocess in `huske/transcribe/worker.py`: `multiprocessing.Process` target that loops on a `multiprocessing.Queue`, instantiates `faster_whisper.WhisperModel(cfg.model, compute_type=cfg.compute_type, device=cfg.device)`, transcribes each chunk path, builds a `Transcript`, calls `writer.write_transcript`, posts result back on a result queue. On crash: parent restarts and re-queues the in-flight chunk
 - [x] T026 [US1] Implement orphan recovery in `huske/recovery/scanner.py`: `scan_orphans(audio_root) -> list[OrphanSession]`; for each orphan, validate WAVs (header check + non-zero duration), enqueue valid ones, move truncated ones to `audio/incomplete/<session_id>/`, delete now-empty session directory. Returns a summary record
-- [x] T027 [US1] Wire `huske run` end-to-end in `huske/cli.py`: load config, run startup recovery (calls `recovery.scan_orphans` and feeds chunks into the new session's queue), validate input device (calls `capture.devices.validate_device`, exits 3 with actionable message on failure), create session + lock, spawn transcription worker, start `capture.stream`, run the `chunker.rotator` loop in asyncio, install SIGINT handler that triggers graceful stop (close current chunk → finalize → submit → drain queue → release lock → exit 0). For US1 the UI is plain log lines; Rich `Live` lands in US3
+- [x] T027 [US1] Wire `huske run` end-to-end in `huske/run_loop.py`: load config, run startup recovery, validate or fall back from the configured input device, create session + lock, warm up the transcription worker, start `CaptureCoordinator`, run the chunker, and install signal/key handlers that trigger graceful stop (close current chunk → finalize → submit → drain queue → release lock → exit 0).
 - [x] T028 [US1] Implement `huske recover` command in `huske/cli.py`: load config, run `recovery.scan_orphans`, spawn a one-shot transcription worker, drain the queue with a progress log line per chunk, print summary (`<n> sessions recovered, <m> chunks transcribed, <k> moved to incomplete`), exit 0 / 1 per `contracts/cli.md`
-- [x] T029 [US1] Add audio-source tagging to `AudioChunk`: at chunk open, record `audio_sources = ["microphone", "system"]` (or just one if degraded); `capture.stream` posts a "source dropped" event when a channel goes silent for >5s mid-chunk so the chunker can mutate `audio_sources` before close
+- [x] T029 [US1] Add audio-source tagging to `AudioChunk`: record the effective sources (`microphone`, `system`) for each chunk based on the active coordinator sources; per-source WAV paths are stored in `audio_paths`.
 
 **Checkpoint**: User Story 1 is fully functional. `huske run` records continuously, produces correct transcripts at each rotation, finalizes the partial chunk on Ctrl+C, and `huske recover` reclaims orphans from prior crashes. SC-001, SC-002, SC-005, SC-007, SC-008 should be measurable now.
 
@@ -118,18 +118,18 @@ description: "Implementation task list for Huske — Always-On Terminal Audio Re
 
 - [x] T037 [P] [US3] Add `tests/unit/test_render_state.py`: assert `RenderState.update(...)` is thread-safe, event deque is capped at 5, and warnings are sticky (not auto-evicted by event rotation)
 - [x] T038 [P] [US3] Add `tests/unit/test_sleep_wake.py`: simulate a 7-second gap in `last_callback_at` and assert the heartbeat monitor closes the current chunk with a `gap_seconds` annotation and attempts to restart the stream
-- [x] T039 [P] [US3] Add `tests/integration/test_doctor.py`: run `huske doctor` against a mocked sounddevice with a healthy aggregate device → exit 0; with no input devices → exit 3 with the actionable BlackHole guidance from quickstart
+- [x] T039 [P] [US3] Add doctor/device tests: run `huske doctor` against mocked sounddevice and backend probes; healthy mic + system backend → exit 0; no input devices → exit 3 with actionable microphone guidance.
 
 ### Implementation for User Story 3
 
 - [x] T040 [P] [US3] Implement `RenderState` dataclass + thread-safe `update(**fields)` and `push_event(severity, message)` in `huske/ui/state.py` per `data-model.md` §5
-- [x] T041 [P] [US3] Implement peak-level computation in `huske/capture/stream.py`: maintain a 1-second rolling max of |samples| per channel, expose `peak_levels_db()` for the UI; this runs in the audio callback so it must be allocation-free (preallocate the buffer)
+- [x] T041 [P] [US3] Implement peak-level computation in `huske/capture/coordinator.py`: maintain recent peak levels per source and expose `peak_levels_db()` for the UI.
 - [x] T042 [US3] Implement Rich `Live` UI in `huske/ui/live.py`: build a `Layout` with `header` / `main` / `footer` regions per `research.md` R11; render at 8 Hz from `RenderState`; level bars use Rich's bar-graph or a custom `█▇▆▅▄▃▂▁` ramp; rolling event list color-codes `info`/`warn`/`error`
-- [ ] T043 [US3] _(deferred to v0.2)_ Implement `q` / `?` keypress handling in `huske/ui/live.py`. **Status**: Ctrl+C / SIGTERM are wired and documented as the stop signal; raw-stdin keypress is a nice-to-have not shipped in v0.1.
-- [x] T044 [US3] Wire `RenderState` updates from the run loop in `huske/cli.py`: chunker rotation → `update(current_chunk_seq=..., next_rotation_at=...)`; worker completion → `update(last_saved=..., queue_depth=...)`; capture-stream errors → `push_event("warn", ...)`; mount the Rich Live in the `huske run` command unless `--no-ui` is set
-- [x] T045 [US3] Implement sleep/wake heartbeat monitor in `huske/session.py`: an asyncio task checks `capture.stream.last_callback_at` every 1 s; if `>5 s` stale, mark the current chunk with `gap_seconds = elapsed`, close it, submit for transcription, and restart the input stream; emit a `warn` event to `RenderState`
-- [x] T046 [US3] Implement device-disconnect handling in `huske/capture/stream.py`: catch `sounddevice.PortAudioError` and degraded callback states; mutate the chunk's `audio_sources` (drop "microphone" or "system" if its channel goes flatline > 5 s); push a sticky warning to `RenderState` until the source recovers
-- [x] T047 [US3] Implement `huske doctor` command in `huske/cli.py`: runs all checks from `contracts/cli.md` `huske doctor` section (Python version, faster-whisper importable, model cached, sounddevice working, default input is an aggregate device with 2ch+, 3-second sample with peak meter per channel, output/audio roots writable, no orphan sessions), prints the human-readable report (Rich-styled), supports `--json` for machine output, exits per the documented exit codes
+- [x] T043 [US3] Implement live key handling: `?` controls overlay, `q` graceful stop, `p` pause/resume, `s` screenshots, `i` microphone input picker, Esc close controls, and Ctrl+C graceful stop.
+- [x] T044 [US3] Wire `RenderState` updates from the run loop in `huske/run_loop.py`: chunker rotation → `update(current_chunk_seq=..., next_rotation_at=...)`; worker completion → `update(last_saved=..., queue_depth=...)`; capture errors → `push_event("warn", ...)`; mount the Rich Live in `huske run` unless `--no-ui` is set.
+- [x] T045 [US3] Implement sleep/wake heartbeat monitoring in `huske/run_loop.py`: check `CaptureCoordinator.last_callback_at`; if stale, surface a sticky warning and finalize/resume around pause/stop transitions as needed.
+- [x] T046 [US3] Implement device degradation handling in `huske/capture/coordinator.py`: catch microphone/system-audio backend errors, update active source flags, and push sticky warnings to `RenderState`.
+- [x] T047 [US3] Implement `huske doctor` command in `huske/cli.py`: runs all checks from `contracts/cli.md` `huske doctor` section (Python version, mlx-whisper importable, model note, sounddevice working, resolved microphone sample, effective system-audio backend, output/audio roots writable), prints the human-readable report (Rich-styled), supports `--json` for machine output, exits per the documented exit codes
 
 **Checkpoint**: All three user stories are independently functional. SC-006 (first-run usability) is measurable.
 
@@ -175,7 +175,7 @@ description: "Implementation task list for Huske — Always-On Terminal Audio Re
 
 - All `[P]` Setup tasks (T003–T006) can run in parallel.
 - All `[P]` Foundational tasks (T008–T010, T013–T014) can run in parallel after T007 lands the config model.
-- Within US1: T015–T018 (test scaffolding + unit tests) and T021–T022, T024 (independent modules — chunker dataclass, capture stream, writer) can run in parallel. T023 (rotator) depends on T021 + T022. T025 (worker) depends on T024. T027 (CLI wire-up) depends on T022, T023, T025, T026. T029 must follow T022 + T023.
+- Within US1: T015–T018 (test scaffolding + unit tests) and T021–T022, T024 (independent modules — chunker dataclass, capture coordinator, writer) can run in parallel. T023 (rotator) depends on T021 + T022. T025 (worker) depends on T024. T027 (run-loop wire-up) depends on T022, T023, T025, T026. T029 must follow T022 + T023.
 - Within US2: T030–T032 (tests) and T033 (README) are mutually parallel; T034 depends on T033 + T027; T035–T036 are independent edits.
 - Within US3: T037–T039 (tests) and T040–T041 (state + level meters) are mutually parallel; T042 depends on T040; T043–T046 depend on T042; T047 (doctor) depends on T010 and is otherwise independent.
 - Polish (Phase 6) tasks T048–T052 are all independent; T053 depends on every preceding task.
@@ -191,7 +191,7 @@ Task T016: "Add tests/unit/test_chunker.py covering rotation handoff"
 Task T017: "Add tests/unit/test_writer.py covering frontmatter schema"
 Task T018: "Add tests/unit/test_recovery.py covering orphan detection"
 Task T021: "Implement AudioChunk dataclass in huske/chunker/__init__.py"
-Task T022: "Implement audio capture stream in huske/capture/stream.py"
+Task T022: "Implement audio capture coordinator in huske/capture/coordinator.py"
 Task T024: "Implement transcript writer in huske/transcribe/writer.py"
 
 # Then sequentially:
@@ -223,7 +223,7 @@ Task T020: "Add graceful-stop integration test" (needs T027)
 2. Add US1 → MVP (v0.1.0).
 3. Add US2 → polished knowledge base, README on disk, rapid-restart-safe (v0.2.0).
 4. Add US3 → live UI + doctor command + sleep/wake handling (v0.3.0).
-5. Polish → README, examples, smoke test, manual quickstart validation (v0.3.1).
+5. Polish → README, examples, smoke test, manual quickstart validation.
 
 ### Parallel Team Strategy
 
