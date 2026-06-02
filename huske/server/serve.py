@@ -11,6 +11,7 @@ rule protects the audio drainer, which does not exist here.
 
 from __future__ import annotations
 
+import hashlib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -104,6 +105,29 @@ def run(
                 _print(f"[warn] indexing {path.name} failed: {str(exc).splitlines()[0]}")
 
         executor.submit(_job)
+
+    def _startup_backfill() -> None:
+        """Index any transcript stored but not yet in the index (e.g. crash recovery).
+
+        Queued before uvicorn starts. Because the executor has max_workers=1, new
+        ingest jobs queue behind this naturally — no race between backfill and live
+        ingest. The Indexer is idempotent on content hash so overlap is safe.
+        """
+        try:
+            from huske.search.indexer import iter_transcripts
+
+            pending = [
+                p for p in iter_transcripts(cfg.output_root)
+                if not store.is_indexed(str(p.resolve()), hashlib.sha256(p.read_bytes()).hexdigest())
+            ]
+            if pending:
+                _print(f"[huske] startup backfill: {len(pending)} transcript(s) not yet indexed")
+            for path in pending:
+                _index(path)
+        except Exception as exc:
+            _print(f"[warn] startup backfill check failed: {str(exc).splitlines()[0]}")
+
+    executor.submit(_startup_backfill)
 
     write_token = load_or_create_token(token_path or ingest_token_path())
     app = IngestApp(

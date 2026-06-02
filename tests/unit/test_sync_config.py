@@ -25,13 +25,13 @@ def test_sync_endpoint_and_serve_overrides() -> None:
             "sync_endpoint": "https://huske.example.com",
             "ingest_port": 9000,
             "public_host": "huske.example.com",
-            "embedding_model": "fastembed:intfloat/multilingual-e5-base",
+            "embedding_model": "fastembed:intfloat/multilingual-e5-large",
         }
     )
     assert cfg.sync_endpoint == "https://huske.example.com"
     assert cfg.ingest_port == 9000
     assert cfg.public_host == "huske.example.com"
-    assert cfg.embedding_model == "fastembed:intfloat/multilingual-e5-base"
+    assert cfg.embedding_model == "fastembed:intfloat/multilingual-e5-large"
 
 
 def test_sync_root_expands_user(tmp_path: Path) -> None:

@@ -81,7 +81,7 @@ class FastEmbedE5Embedder:
     run the MLX/Metal path). Named in docs/adr/0002-local-search-stack.md as the
     documented fallback and made load-bearing for the server in
     docs/adr/0004-off-device-huske-server.md. Selected by a ``fastembed:<hf-id>``
-    model id, e.g. ``fastembed:intfloat/multilingual-e5-base``.
+    model id, e.g. ``fastembed:intfloat/multilingual-e5-large``.
 
     Like the MLX embedder, e5 is asymmetric: passages are prefixed ``passage: ``
     and queries ``query: ``, and outputs are L2-normalized so the two backends

@@ -32,6 +32,16 @@ class HashMismatchError(ValueError):
     """The body's declared sha256 does not match its content."""
 
 
+class ConflictError(ValueError):
+    """A transcript already exists at ``rel_path`` with different content.
+
+    Transcripts are immutable once written (one Chunk → one Transcript). A
+    second push with different content is rejected — it either indicates a
+    client bug or a stolen write token attempting to corrupt a known path.
+    The existing file is left untouched.
+    """
+
+
 def content_sha256(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
@@ -65,17 +75,25 @@ def resolve_target(output_root: Path, rel_path: str) -> Path:
 def store_transcript(output_root: Path, rel_path: str, content: str) -> tuple[str, Path]:
     """Atomically write ``content`` to ``output_root/rel_path``.
 
-    Returns ``("unchanged", path)`` if an identical file is already present
-    (idempotent), else ``("stored", path)``. ``rel_path`` is validated here too,
-    so this is safe to call directly.
+    - Returns ``("unchanged", path)`` if an identical file already exists (idempotent).
+    - Returns ``("stored", path)`` on a successful new write.
+    - Raises :class:`ConflictError` if the path already exists with **different** content
+      (transcripts are immutable; the existing file is left untouched).
+    - Raises :class:`RelPathError` on an unsafe ``rel_path``.
     """
     target = resolve_target(output_root, rel_path)
     data = content.encode("utf-8")
+    incoming_hash = hashlib.sha256(data).hexdigest()
 
     if target.exists():
-        existing = target.read_bytes()
-        if hashlib.sha256(existing).hexdigest() == hashlib.sha256(data).hexdigest():
+        existing_hash = hashlib.sha256(target.read_bytes()).hexdigest()
+        if existing_hash == incoming_hash:
             return ("unchanged", target)
+        raise ConflictError(
+            f"{rel_path!r} already exists with different content — "
+            "transcripts are immutable; re-ingest of the same path with different "
+            "content is rejected to prevent corruption"
+        )
 
     target.parent.mkdir(parents=True, exist_ok=True)
     # Write to a temp file in the same directory, then atomically replace — a

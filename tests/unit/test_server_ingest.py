@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from huske.server.ingest import (
+    ConflictError,
     HashMismatchError,
     RelPathError,
     content_sha256,
@@ -70,10 +71,13 @@ def test_store_transcript_writes_and_is_idempotent(tmp_path: Path) -> None:
     assert status2 == "unchanged"
     assert path2 == path
 
-    # Changed content (defensive; transcripts are immutable in practice).
-    status3, _ = store_transcript(tmp_path, _GOOD, "new content")
-    assert status3 == "stored"
-    assert path.read_text(encoding="utf-8") == "new content"
+
+def test_store_transcript_conflict_on_different_content(tmp_path: Path) -> None:
+    store_transcript(tmp_path, _GOOD, "original")
+    # A second push with different content must be rejected; the original is untouched.
+    with pytest.raises(ConflictError):
+        store_transcript(tmp_path, _GOOD, "tampered")
+    assert (tmp_path / _GOOD).read_text(encoding="utf-8") == "original"
 
 
 def test_store_transcript_rejects_traversal(tmp_path: Path) -> None:

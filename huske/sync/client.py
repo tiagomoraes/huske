@@ -82,7 +82,7 @@ class IngestClient:
         )
         try:
             with urllib.request.urlopen(req, timeout=self._timeout, context=self._ssl_ctx) as resp:
-                payload = json.loads(resp.read().decode("utf-8") or "{}")
+                raw = resp.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
             detail = _safe_error_detail(exc)
             raise SyncError(
@@ -90,6 +90,16 @@ class IngestClient:
             ) from exc
         except (urllib.error.URLError, TimeoutError, ssl.SSLError, OSError) as exc:
             raise SyncError(f"could not reach huske server: {exc}") from exc
+
+        try:
+            payload = json.loads(raw or "{}")
+        except json.JSONDecodeError as exc:
+            # A proxy or misconfigured server returned a non-JSON 200 (e.g. HTML
+            # error page). Treat as a retryable server-side fault rather than
+            # letting the JSONDecodeError propagate and kill the background thread.
+            raise SyncError(
+                f"server returned non-JSON response for {rel_path}: {raw[:120]!r}"
+            ) from exc
 
         status = str(payload.get("status", "stored"))
         return IngestResult(status=status, rel_path=rel_path)

@@ -84,6 +84,28 @@ def test_http_error_is_retryable_for_5xx(monkeypatch: pytest.MonkeyPatch) -> Non
     assert exc.value.retryable is True
 
 
+def test_non_json_200_is_retryable(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _HTMLResp:
+        def read(self) -> bytes:
+            return b"<html><body>Bad Gateway</body></html>"
+
+        def __enter__(self) -> _HTMLResp:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    def fake_urlopen(req: urllib.request.Request, **kwargs: Any) -> _HTMLResp:
+        return _HTMLResp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    client = IngestClient("https://huske.example.com", "tok")
+    with pytest.raises(SyncError) as exc:
+        client.push("2026-06-02/a.md", "c", sha256_hex("c"))
+    assert exc.value.status is None  # no HTTP status code (decode error)
+    assert exc.value.retryable is True  # retryable, not a 4xx logic error
+
+
 def test_network_error_is_retryable(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_urlopen(req: urllib.request.Request, **kwargs: Any) -> _FakeResponse:
         raise urllib.error.URLError("no route to host")

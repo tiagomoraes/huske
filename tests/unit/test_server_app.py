@@ -127,6 +127,21 @@ def test_ingest_rejects_bad_rel_path(tmp_path: Path) -> None:
     assert "error" in payload
 
 
+def test_ingest_conflict_on_different_content(tmp_path: Path) -> None:
+    app = _make_app(tmp_path, [])
+    asyncio.run(
+        _call(app, method="POST", path="/ingest", headers=_auth(), body=_ingest_body("original"))
+    )
+    # Second push with different content → 409; original untouched.
+    status, payload = asyncio.run(
+        _call(app, method="POST", path="/ingest", headers=_auth(), body=_ingest_body("tampered"))
+    )
+    assert status == 409
+    assert "error" in payload
+    written = tmp_path / _REL
+    assert written.read_text(encoding="utf-8") == "original"
+
+
 def test_ingest_rejects_hash_mismatch(tmp_path: Path) -> None:
     app = _make_app(tmp_path, [])
     status, _ = asyncio.run(

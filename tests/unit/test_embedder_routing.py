@@ -16,7 +16,7 @@ def test_backend_routing() -> None:
     assert embedder_backend("hashing") == "hashing"
     assert embedder_backend("fake") == "hashing"
     assert embedder_backend("hashing:128") == "hashing"
-    assert embedder_backend("fastembed:intfloat/multilingual-e5-base") == "fastembed"
+    assert embedder_backend("fastembed:intfloat/multilingual-e5-large") == "fastembed"
     assert embedder_backend("mlx-community/multilingual-e5-base") == "mlx"
 
 
@@ -31,6 +31,6 @@ def test_fastembed_routing_when_missing_raises_unavailable() -> None:
         import fastembed  # noqa: F401
     except ImportError:
         with pytest.raises(EmbedderUnavailable):
-            build_embedder("fastembed:intfloat/multilingual-e5-base")
+            build_embedder("fastembed:intfloat/multilingual-e5-large")
     else:  # pragma: no cover - only when the server extra is installed
         pytest.skip("fastembed installed; routing covered by test_backend_routing")

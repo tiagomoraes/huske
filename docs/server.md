@@ -52,7 +52,7 @@ Configure `~/.config/huske/config.toml` on the server:
 
 ```toml
 # CPU embedder — no Metal on a Linux VPS. Must be an e5 model.
-embedding_model = "fastembed:intfloat/multilingual-e5-base"
+embedding_model = "fastembed:intfloat/multilingual-e5-large"
 
 output_root = "/var/lib/huske/transcripts"
 index_root  = "/var/lib/huske/index"

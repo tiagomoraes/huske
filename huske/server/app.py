@@ -93,7 +93,7 @@ class IngestApp:
             return
 
         try:
-            from huske.server.ingest import verify_hash
+            from huske.server.ingest import ConflictError, verify_hash
 
             verify_hash(content, sha256)
             status, stored_path = store_transcript(self._output_root, rel_path, content)
@@ -102,6 +102,9 @@ class IngestApp:
             return
         except HashMismatchError as exc:
             await _json(send, 422, {"error": str(exc)})
+            return
+        except ConflictError as exc:
+            await _json(send, 409, {"error": str(exc)})
             return
         except OSError as exc:
             await _json(send, 500, {"error": f"could not store transcript: {exc}"})
