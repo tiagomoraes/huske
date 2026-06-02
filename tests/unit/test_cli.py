@@ -82,3 +82,37 @@ def test_doctor_accepts_system_audio_backend_override(
 
     assert result.exit_code == 0, result.output
     assert captured["cli_overrides"]["system_audio_backend"] == "tap"  # type: ignore[index]
+
+
+def test_serve_passes_overrides_to_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run_serve(cfg):  # type: ignore[no-untyped-def]
+        captured["ingest_port"] = cfg.ingest_port
+        captured["public_host"] = cfg.public_host
+        return 0
+
+    monkeypatch.setattr("huske.server.serve.run", fake_run_serve)
+    monkeypatch.setattr("huske.update_check.notify_if_outdated", lambda: None)
+
+    result = CliRunner().invoke(
+        app, ["serve", "--ingest-port", "9000", "--public-host", "huske.example.com"]
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["ingest_port"] == 9000
+    assert captured["public_host"] == "huske.example.com"
+
+
+def test_sync_invokes_runner(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run_sync(config_path=None, cli_overrides=None):  # type: ignore[no-untyped-def]
+        captured["cli_overrides"] = dict(cli_overrides or {})
+        return 0
+
+    monkeypatch.setattr("huske.sync.runner.run_sync", fake_run_sync)
+    monkeypatch.setattr("huske.update_check.notify_if_outdated", lambda: None)
+
+    result = CliRunner().invoke(app, ["sync"])
+    assert result.exit_code == 0, result.output
+    assert captured["cli_overrides"] == {}

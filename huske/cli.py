@@ -229,6 +229,56 @@ def mcp(
 
 
 # ---------------------------------------------------------------------------
+# Off-device huske server: replication client + serve side (huske[server])
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def serve(
+    ingest_host: str | None = typer.Option(
+        None, "--ingest-host", help="Bind address (default 127.0.0.1, behind a TLS reverse proxy)."
+    ),
+    ingest_port: int | None = typer.Option(
+        None, "--ingest-port", min=1, max=65535, help="Port (default 7642)."
+    ),
+    public_host: str | None = typer.Option(
+        None, "--public-host", help="Public hostname the reverse proxy serves (validates Host)."
+    ),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Run the off-device huske server: receive pushed transcripts and index them.
+
+    Single-tenant. Pair with `huske mcp` (the loopback read side) on the same
+    host for your co-located agent. See docs/server.md and
+    docs/adr/0004-off-device-huske-server.md.
+    """
+    from huske.config import load_config
+    from huske.server.serve import run as run_serve
+
+    overrides = _collect_overrides(
+        ingest_host=ingest_host, ingest_port=ingest_port, public_host=public_host
+    )
+    try:
+        cfg = load_config(config_path=config_path, cli_overrides=overrides)
+    except ValueError as exc:
+        typer.secho(f"config: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
+    raise typer.Exit(run_serve(cfg))
+
+
+@app.command()
+def sync(
+    output_root: Path | None = typer.Option(None, "--output-root"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Push every not-yet-replicated transcript to your huske server, then exit."""
+    from huske.sync.runner import run_sync
+
+    overrides = _collect_overrides(output_root=output_root)
+    raise typer.Exit(run_sync(config_path=config_path, cli_overrides=overrides))
+
+
+# ---------------------------------------------------------------------------
 # Autostart (macOS LaunchAgent)
 # ---------------------------------------------------------------------------
 

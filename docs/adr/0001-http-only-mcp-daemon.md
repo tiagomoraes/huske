@@ -4,6 +4,10 @@ status: accepted
 
 # HTTP-only persistent daemon for the MCP server
 
+_Extended by ADR 0004 (optional off-device huske server), which keeps this
+loopback-only read posture on the VPS too and adds a separate, write-only
+Ingest endpoint as the sole network-exposed surface._
+
 ## Context
 
 huske exposes its transcripts to local chat models (Claude Code, Claude

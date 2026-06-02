@@ -1,4 +1,9 @@
-"""Bearer token for the MCP daemon: load from disk, generate on first use."""
+"""Bearer tokens for the MCP daemon and the off-device server.
+
+Stdlib-only (no ``huske[mcp]`` extra needed), so the dependency-free replication
+client can read its write token from here too. See
+docs/adr/0001-http-only-mcp-daemon.md and 0004-off-device-huske-server.md.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +13,31 @@ from pathlib import Path
 
 
 def default_token_path() -> Path:
+    """Read token guarding the (loopback) MCP daemon."""
     return Path.home() / ".config" / "huske" / "mcp_token"
+
+
+def ingest_token_path() -> Path:
+    """Server-side write token guarding the ingest endpoint (``huske serve``)."""
+    return Path.home() / ".config" / "huske" / "ingest_token"
+
+
+def sync_token_path() -> Path:
+    """Client-side copy of the server's write token (``huske run`` / ``sync``).
+
+    The operator copies the value ``huske serve`` prints into this file on each
+    recording Mac that should replicate to the server.
+    """
+    return Path.home() / ".config" / "huske" / "sync_token"
+
+
+def load_token(path: Path) -> str | None:
+    """Return a token from ``path``, or ``None`` if absent/empty (never creates)."""
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+    except (FileNotFoundError, OSError):
+        return None
+    return value or None
 
 
 def load_or_create_token(path: Path | None = None) -> str:

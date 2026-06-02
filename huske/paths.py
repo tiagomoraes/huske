@@ -116,6 +116,20 @@ def index_db_path(cfg: RuntimeConfig) -> Path:
     return cfg.index_root / "passages.db"
 
 
+def sync_root(cfg: RuntimeConfig) -> Path:
+    return cfg.sync_root
+
+
+def outbox_db_path(cfg: RuntimeConfig) -> Path:
+    """Durable replication send-outbox (sqlite) under ``sync_root``.
+
+    Records which transcripts the off-device huske server has acknowledged so a
+    Mac that was offline catches the server up on reconnect. See
+    docs/adr/0004-off-device-huske-server.md.
+    """
+    return cfg.sync_root / "outbox.db"
+
+
 def screenshots_session_dir(
     cfg: RuntimeConfig, session_id: str, when: datetime
 ) -> Path:

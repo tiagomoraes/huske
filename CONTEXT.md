@@ -1,9 +1,12 @@
 # Huske
 
-Huske is a local-only macOS recorder that captures microphone + system audio,
+Huske is a local-first macOS recorder that captures microphone + system audio,
 transcribes it on-device with Whisper, and writes structured Markdown
-transcripts. This glossary defines the project's domain language. It is a
-glossary only — not a spec, not a design doc.
+transcripts. Recording and transcription always happen on-device; an optional,
+always-on off-device **huske server** can hold a **Replica** of the transcripts
+and serve search to a remote MCP client when the recording Mac is offline. This
+glossary defines the project's domain language. It is a glossary only — not a
+spec, not a design doc.
 
 ## Language
 
@@ -42,6 +45,35 @@ single time range and the **set** of Sources it spans. The unit a search
 returns to an LLM.
 _Avoid_: chunk, segment, snippet, excerpt.
 
+### Replication & serving (this initiative)
+
+**huske server**:
+An optional, always-on remote deployment of huske (e.g. on a VPS) that holds a
+**Replica** of one user's transcripts and serves search to a **co-located
+agent** when the recording Mac is offline. It runs the same indexing and MCP
+code as the local install.
+_Avoid_: "backend", "cloud service" (both imply multi-tenant; the huske server
+is single-tenant — one deployment holds exactly one user's Replica).
+
+**Replica**:
+The off-device copy of the transcript corpus held by the **huske server**. The
+on-device transcripts remain authoritative; the Replica is kept in sync **from**
+them, never the reverse.
+
+**Co-located agent**:
+An agent (the user's "hermes" agent) that runs on the **same host** as the
+**huske server** and queries its search locally — the same way Claude on the
+recording Mac reaches that Mac's loopback daemon. In the chosen design the
+**huske server**'s search is never queried across the network; only **Ingest**
+crosses the network.
+_Avoid_: "remote client" — the consuming agent is co-located, not remote.
+
+**Ingest**:
+The act — and the authenticated endpoint — by which a **huske server** receives
+a finalized **Transcript** pushed from a recording Mac and feeds it into the
+server's index. Because a finalized Transcript is immutable, Ingest is
+idempotent: re-pushing the same Transcript is a no-op.
+
 ## Relationships
 
 - A **RecordingSession** contains one or more **Chunks**.
@@ -49,6 +81,9 @@ _Avoid_: chunk, segment, snippet, excerpt.
 - A **Transcript** is windowed into one or more **Passages** for retrieval.
 - A **Passage** spans one or more **Segments** and carries a single time range
   and Source set.
+- The optional **huske server** holds a **Replica** of the **Transcripts** and
+  serves **Passages** to a **co-located agent** when the recording Mac is
+  offline.
 
 ## Flagged ambiguities
 
