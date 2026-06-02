@@ -88,6 +88,7 @@ const Nav = ({ theme, setTheme }) => (
       <a href="#why">why</a>
       <a href="#how">how</a>
       <a href="#output">output</a>
+      <a href="#search">search</a>
       <a href="#privacy">privacy</a>
       <a href="#releases">releases</a>
       <a href="#faq">faq</a>
@@ -123,6 +124,7 @@ const Footer = () => (
             <li><a href="#why">why huske</a></li>
             <li><a href="#how">how it works</a></li>
             <li><a href="#output">output format</a></li>
+            <li><a href="#search">search &amp; mcp</a></li>
             <li><a href="#privacy">privacy</a></li>
             <li><a href="#faq">faq</a></li>
           </ul>

@@ -54,6 +54,16 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.10",
 ]
+# Local semantic search + MCP server (`huske index` / `huske mcp`). Opt-in:
+# embedding rides the MLX/Metal stack mlx-whisper already ships, the vector
+# store is a zero-dependency SQLite extension, and `mcp` is the official SDK.
+# See docs/adr/0001-0003 and CONTEXT.md (Passage).
+mcp = [
+    "mlx-embeddings>=0.1.0; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "sqlite-vec>=0.1.6",
+    "mcp>=1.12",
+    "uvicorn>=0.30",
+]
 
 [project.scripts]
 huske = "huske.cli:app"

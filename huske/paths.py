@@ -107,6 +107,15 @@ def incomplete_root(cfg: RuntimeConfig) -> Path:
     return cfg.audio_root / "incomplete"
 
 
+def index_root(cfg: RuntimeConfig) -> Path:
+    return cfg.index_root
+
+
+def index_db_path(cfg: RuntimeConfig) -> Path:
+    """Single-file sqlite-vec passage store under ``index_root``."""
+    return cfg.index_root / "passages.db"
+
+
 def screenshots_session_dir(
     cfg: RuntimeConfig, session_id: str, when: datetime
 ) -> Path:

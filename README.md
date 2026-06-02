@@ -41,6 +41,10 @@ it about your day.
 - **LLM-ready output** — every transcript is a single Markdown file with full
   YAML frontmatter; the directory layout is documented in
   `~/huske/transcripts/README.md` (auto-generated).
+- **Local semantic search (opt-in MCP server)** — `huske[mcp]` adds on-device
+  embedding + a local vector index so Claude Code, Claude Desktop, or ChatGPT
+  can search your transcripts by meaning. Embeddings and the index never leave
+  your machine; see [Search your transcripts from Claude / ChatGPT](#search-your-transcripts-from-claude--chatgpt-opt-in).
 - **Optional periodic screenshots** — opt in with `--screenshots` to also
   capture a JPEG of every attached display every 10 s, stored under
   `~/huske/screenshots/YYYY-MM-DD/<session>/HHMMSS_dN.jpg` for downstream
@@ -212,6 +216,62 @@ The screenshot interval must be at least 1 second.
 > never commit it, share with care, and review the
 > [Privacy and consent](#privacy-and-consent) section before enabling.
 
+## Search your transcripts from Claude / ChatGPT (opt-in)
+
+The base install gives any LLM agent file access to `~/huske/transcripts/`. For
+*semantic* search — "what did we decide about the pricing model last week?"
+across months of calls — install the optional extra:
+
+```bash
+pip install 'huske[mcp]'   # mlx-embeddings + sqlite-vec + the MCP SDK
+```
+
+This adds two subcommands and one config flag:
+
+1. **Build the index.** `huske index` embeds every transcript under
+   `output_root` into a single local vector file (`~/huske/index/passages.db`)
+   using a multilingual model that runs on the Apple Silicon GPU via MLX —
+   the same Metal stack `mlx-whisper` already uses. Nothing leaves your machine.
+
+   ```bash
+   huske index                 # backfill your whole history (incremental)
+   huske index --rebuild       # after changing the embedding model
+   ```
+
+   To keep the index fresh automatically, set `indexing_enabled = true` in
+   `~/.config/huske/config.toml`; `huske run` then embeds each finalized
+   transcript in the background, in an isolated subprocess that never blocks
+   audio capture.
+
+2. **Serve it over MCP.** `huske mcp` runs a small always-on HTTP server
+   (loopback-only, guarded by an auto-generated bearer token and Origin/Host
+   validation) that exposes `search` and `fetch` tools.
+
+   ```bash
+   huske mcp
+   # prints the endpoint, token, and a ready-to-paste registration command
+   ```
+
+   **Claude Code / Claude Desktop** connect directly — no tunnel:
+
+   ```bash
+   claude mcp add --transport http huske http://127.0.0.1:7641/mcp \
+     --header "Authorization: Bearer <token from the banner>"
+   ```
+
+   **ChatGPT** can only reach a public HTTPS endpoint, so it additionally needs
+   you to expose the local server through a tunnel (OpenAI's secure tunnel,
+   `cloudflared`, etc.). That sends transcript snippets through a public
+   endpoint to OpenAI — opt in deliberately.
+
+> **Privacy.** Embedding and indexing are fully on-device, but *answering*
+> happens in whichever chat model you connect — so transcript snippets are
+> sent to that model's provider (Anthropic for Claude, OpenAI for ChatGPT)
+> when it reads a result, exactly as if you had pasted them in. The local
+> endpoint is loopback-bound and token-guarded; only the ChatGPT-via-tunnel
+> path widens that surface. The design rationale lives in
+> [docs/adr/0001-http-only-mcp-daemon.md](docs/adr/0001-http-only-mcp-daemon.md).
+
 ## Privacy and consent
 
 huske is local-first: audio capture and transcription run on your machine, and
@@ -241,6 +301,9 @@ metadata can contain private or legally sensitive information.
 - [CLI contract](specs/001-huske-recorder/contracts/cli.md) — flags, exit codes.
 - [Transcript format contract](specs/001-huske-recorder/contracts/transcript-format.md) — the LLM-consumer interface.
 - [Quickstart](specs/001-huske-recorder/quickstart.md) — end-to-end setup.
+- [Glossary](CONTEXT.md) — domain language (Chunk, Segment, Passage, …).
+- [Architecture decisions](docs/adr/) — why the MCP daemon, search stack, and
+  embed-worker isolation are built the way they are.
 
 ## Community
 

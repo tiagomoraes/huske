@@ -56,16 +56,16 @@ const Pillars = () => (
 
         <div className="pillar" style={{ display: "flex", flexDirection: "column" }}>
           <div className="ph">agent · ready</div>
-          <h3>A directory your agent can read.</h3>
+          <h3>A directory your agent can read — and search.</h3>
           <p>
             Plain Markdown, organized by date, full YAML frontmatter, root <code>README.md</code>.
-            Point Claude Code, codex, or any LLM agent at <code>~/huske/transcripts/</code> and ask
-            it about your day.
+            Point Claude Code or any LLM agent at <code>~/huske/transcripts/</code>, or opt into the
+            <code>huske[mcp]</code> extra for on-device semantic <a href="#search">search over an MCP server</a>.
           </p>
           <div className="stat">
             <div><strong>md</strong>output format</div>
-            <div><strong>YAML</strong>frontmatter</div>
-            <div><strong>by date</strong>indexed</div>
+            <div><strong>vector</strong>local index</div>
+            <div><strong>mcp</strong>search + fetch</div>
           </div>
         </div>
       </div>
@@ -244,11 +244,138 @@ const OutputPreview = () => {
   );
 };
 
+const RECALL_RESULTS = [
+  {
+    when: "2026-05-07 · 09:15",
+    srcs: ["mic", "system"],
+    score: 0.92,
+    snippet: <>every failure is within 80&nbsp;ms of the cookie write returning — <mark>pin the auth header in the same hop.</mark></>,
+    full: "the timing is interesting — every failure is within 80 ms of the cookie write returning. … the middleware reads from the request before the response cookie has flushed. easy fix — we can pin the auth header in the same hop.",
+    cite: { session: "20260507T091500_8a3f", range: "09:15:38 – 09:15:54", sources: "mic · system" },
+  },
+  {
+    when: "2026-05-06 · 14:30",
+    srcs: ["system"],
+    score: 0.81,
+    snippet: <>staging logs confirmed the race; agreed to ship the header fix <mark>before the refactor.</mark></>,
+    full: "staging logs confirmed the race under load. we agreed to ship the small header fix this week and hold the broader session refactor until after the release.",
+    cite: { session: "20260506T142955_b71e", range: "14:31:10 – 14:32:02", sources: "system" },
+  },
+  {
+    when: "2026-05-05 · 11:00",
+    srcs: ["mic"],
+    score: 0.74,
+    snippet: <>flagged the token refresh as flaky on slow links — <mark>needs a repro.</mark></>,
+    full: "i flagged the token refresh as flaky on slow links during the demo. no repro yet — let's instrument it and pick it up next standup.",
+    cite: { session: "20260505T110000_c0a8", range: "11:02:40 – 11:03:09", sources: "mic" },
+  },
+];
+
+const MCP_CMD = 'claude mcp add --transport http huske \\\n  http://127.0.0.1:7641/mcp \\\n  --header "Authorization: Bearer hsk_…"';
+
+const SearchRecall = () => {
+  const [active, setActive] = React.useState(0);
+  const [copied, setCopied] = React.useState(false);
+  return (
+    <section id="search">
+      <div className="page">
+        <SectionHead
+          num="04"
+          label="search"
+          lead={<>Recall, not just <span className="accent">storage.</span></>}
+          sub={<>Opt into the <code>huske[mcp]</code> extra and every transcript becomes searchable by <em>meaning</em> — on-device embeddings, a local vector index, and an MCP server your chat model queries directly. The whole index is built and served without a byte leaving the machine.</>}
+        />
+        <div className="recall">
+          <div className="panel query-panel">
+            <div className="qbar">
+              <span className="prefix">query:</span>
+              <span className="q">what did we decide about the auth bug?</span>
+              <span className="caret" aria-hidden="true"/>
+            </div>
+            <div className="filters">
+              <span className="chip"><span className="k">source</span><span className="v">any</span></span>
+              <span className="chip"><span className="k">from</span><span className="v">2026-05-01</span></span>
+              <span className="chip"><span className="k">to</span><span className="v">2026-05-07</span></span>
+              <span className="chip"><span className="k">k</span><span className="v">8</span></span>
+            </div>
+            <div className="results">
+              {RECALL_RESULTS.map((r, i) => (
+                <div
+                  key={i}
+                  className={`result ${i === active ? "active" : ""}`}
+                  onClick={() => setActive(i)}
+                >
+                  <div className="rank">{String(i + 1).padStart(2, "0")}</div>
+                  <div className="main">
+                    <div className="title">
+                      <span>{r.when}</span>
+                      {r.srcs.map((s) => (
+                        <span key={s} className={`src ${s === "mic" ? "mic" : "sys"}`}>
+                          {s === "mic" ? "mic" : "sys"}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="snippet">{r.snippet}</div>
+                    {i === active && (
+                      <div className="detail">
+                        <div className="full">{r.full}</div>
+                        <div className="cite">
+                          <span><b>session</b> {r.cite.session}</span>
+                          <span><b>range</b> {r.cite.range}</span>
+                          <span><b>sources</b> {r.cite.sources}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="score">
+                    <span>{r.score.toFixed(2)}</span>
+                    <span className="meter"><span className="fill" style={{ width: `${r.score * 100}%` }}/></span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="panel wiring">
+            <div className="whead"><span className="dot"/> mcp · loopback</div>
+            <div className="cmd">
+              <button
+                className={`copy ${copied ? "copied" : ""}`}
+                onClick={() => {
+                  navigator.clipboard?.writeText(MCP_CMD.replace(/\\\n\s*/g, " "));
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1200);
+                }}
+              >
+                {copied ? <CheckGlyph/> : <CopyGlyph/>}
+                {copied ? "copied" : "copy"}
+              </button>
+              <div><span className="prompt">$ </span>claude mcp add <span className="flag">--transport</span> http huske</div>
+              <div>{"  "}http://127.0.0.1:7641/mcp</div>
+              <div>{"  "}<span className="flag">--header</span> "Authorization: Bearer hsk_…"</div>
+            </div>
+            <div className="wmeta">
+              <div className="row"><span className="k">endpoint</span><span className="v">127.0.0.1:7641/mcp</span></div>
+              <div className="row"><span className="k">auth</span><span className="v">bearer · origin-checked</span></div>
+              <div className="row"><span className="k">model</span><span className="v">multilingual-e5-base · 768d</span></div>
+              <div className="row"><span className="k">index</span><span className="v">3,184 passages · 212 days</span></div>
+            </div>
+            <div className="wnote">
+              <div className="ln"><span className="tick">✓</span><span>Claude Code &amp; Desktop connect direct — loopback, no tunnel.</span></div>
+              <div className="ln"><span className="warn">⚠</span><span>ChatGPT needs an HTTPS tunnel to reach it (opt-in).</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+};
+
 const Privacy = () => (
   <section id="privacy">
     <div className="page">
       <SectionHead
-        num="04"
+        num="05"
         label="privacy"
         lead={<>Local-first isn't a vibe. <span className="accent">It's the architecture.</span></>}
       />
@@ -359,7 +486,7 @@ const Releases = () => (
   <section id="releases">
     <div className="page">
       <SectionHead
-        num="05"
+        num="06"
         label="releases"
         lead={<>A short, public <span className="accent">changelog.</span></>}
         sub={<>Semantic versioning after 0.1.0. Patch notes are written in plain English and live in the repo. Install with <code>uv tool upgrade huske</code>, <code>pipx upgrade huske</code>, or <code>brew upgrade huske</code>.</>}
@@ -396,7 +523,7 @@ const Community = () => (
   <section id="community">
     <div className="page">
       <SectionHead
-        num="06"
+        num="07"
         label="community"
         lead={<>Open source. <span className="accent">Calmly maintained.</span></>}
         sub="huske is a small project. Contributions are welcome, issues are triaged in the open, and there's a clear PR template. Read the contributing guide before opening anything bigger than a typo fix."
@@ -438,7 +565,7 @@ const FAQ = () => (
   <section id="faq" className="faq-section">
     <div className="page page-narrow">
       <SectionHead
-        num="07"
+        num="08"
         label="faq"
         lead={<>The questions that actually <span className="accent">come up.</span></>}
       />
@@ -466,7 +593,14 @@ const FAQ = () => (
           <summary>Can I use it with Claude Code or another agent? <span className="chev">→</span></summary>
           <div className="answer">
             <p>Yes — that's the design target. Files under <code>~/huske/transcripts/</code> are plain Markdown, dated, with frontmatter. Point your agent at the directory and ask. The root <code>README.md</code> is auto-generated to be a useful entry point.</p>
-            <p>Common pattern: a daily standup recap, a "what did we decide about X this week" query, a search-then-quote across the whole month.</p>
+            <p>For semantic recall across months — "what did we decide about X this week" — install the <code>huske[mcp]</code> extra and run <code>huske mcp</code>. Your agent then searches by meaning over a local index instead of grepping filenames. See <a href="#search">search</a>.</p>
+          </div>
+        </details>
+        <details>
+          <summary>How does the semantic search / MCP server work? <span className="chev">→</span></summary>
+          <div className="answer">
+            <p><code>pip install 'huske[mcp]'</code> adds two subcommands. <code>huske index</code> embeds every transcript into a single local <code>sqlite-vec</code> file with a multilingual model running on the Apple GPU via MLX — the same stack as transcription, so nothing leaves the machine. Set <code>indexing_enabled = true</code> to keep it fresh automatically as you record.</p>
+            <p><code>huske mcp</code> serves a loopback HTTP MCP endpoint (bearer token + Origin checks) exposing <code>search</code> and <code>fetch</code>. Claude Code and Claude Desktop connect directly with no tunnel; ChatGPT can reach it through an HTTPS tunnel. Answering still happens in whichever chat model you connect, so result snippets reach that provider when it reads them — the indexing and the index itself stay on-device.</p>
           </div>
         </details>
         <details>
@@ -494,5 +628,5 @@ const FAQ = () => (
 );
 
 Object.assign(window, {
-  SectionHead, Pillars, HowItWorks, OutputPreview, Privacy, Releases, Community, FAQ,
+  SectionHead, Pillars, HowItWorks, OutputPreview, SearchRecall, Privacy, Releases, Community, FAQ,
 });

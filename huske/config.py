@@ -48,6 +48,9 @@ class RuntimeConfig(BaseModel):
     audio_root: Path = Field(default=Path.home() / "huske" / "audio")
     logs_root: Path = Field(default=Path.home() / "huske" / "logs")
     screenshots_root: Path = Field(default=Path.home() / "huske" / "screenshots")
+    # Local semantic search index (sqlite-vec passage store). See
+    # docs/adr/0002-local-search-stack.md.
+    index_root: Path = Field(default=Path.home() / "huske" / "index")
 
     model: ModelSize = "base"
     compute_type: ComputeType = "int8"
@@ -80,7 +83,28 @@ class RuntimeConfig(BaseModel):
     #   off : disable system audio capture entirely (mic-only).
     system_audio_backend: SystemAudioBackend = "auto"
 
-    @field_validator("output_root", "audio_root", "logs_root", "screenshots_root", mode="before")
+    # --- Local semantic search + MCP server (opt-in, `huske[mcp]` extra) ---
+    # When true, `huske run` indexes each finalized transcript into the passage
+    # store via an isolated embedding subprocess. Off by default so recording
+    # never pays the embedding cost unless explicitly opted in. See
+    # docs/adr/0003-embed-worker-isolation.md.
+    indexing_enabled: bool = False
+    # Embedding model id. Changing this invalidates the index (different vector
+    # space) — the store refuses to mix spaces; run `huske index --rebuild`.
+    embedding_model: str = "mlx-community/multilingual-e5-base"
+    # `huske mcp` daemon bind address. Loopback-only by default; a bearer token
+    # and Origin/Host validation guard it. See docs/adr/0001-http-only-mcp-daemon.md.
+    mcp_host: str = "127.0.0.1"
+    mcp_port: int = Field(default=7641, gt=0, le=65535)
+
+    @field_validator(
+        "output_root",
+        "audio_root",
+        "logs_root",
+        "screenshots_root",
+        "index_root",
+        mode="before",
+    )
     @classmethod
     def _expand(cls, v: Any) -> Path:
         return Path(str(v)).expanduser()

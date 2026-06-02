@@ -8,7 +8,8 @@ contribution rules live in [CONTRIBUTING.md](CONTRIBUTING.md).
 ## Project Shape
 
 - Python CLI/TUI package in `huske/` (entry point: `huske.cli:app`, exposed as
-  the `huske` console script — subcommands: `run`, `recover`, `doctor`).
+  the `huske` console script — subcommands: `run`, `recover`, `doctor`, and the
+  opt-in `index` / `mcp` for local semantic search).
 - Unit and integration tests in `tests/`.
 - Product specs and contracts in `specs/001-huske-recorder/`.
 - Public contributor documentation in `README.md`, `CONTRIBUTING.md`, and
@@ -50,11 +51,39 @@ orchestrator mutates it.
 `RuntimeConfig` (Pydantic). `paths.py` derives every filesystem path from
 that config; do not hardcode paths elsewhere.
 
+## Local search + MCP (opt-in `huske[mcp]` extra)
+
+A separate subsystem makes transcripts semantically searchable from chat
+models. It is off by default and adds no dependencies to the base install.
+
+- `search/` is the engine: `parser.py` reads the on-disk `.md` contract (not
+  in-memory state, so live indexing and backfill share one path),
+  `windowing.py` groups runs into **Passages** (the retrieval unit — see
+  `CONTEXT.md`), `embedder.py` wraps `mlx-embeddings` (multilingual-e5 on the
+  same MLX/Metal stack as whisper) behind an interface with a dependency-free
+  `HashingEmbedder` for tests, `store.py` is the `sqlite-vec` passage store
+  (filtered KNN, model-mismatch refusal), and `indexer.py` ties them together.
+- `search/worker.py` is an isolated embedding subprocess (mirrors the whisper
+  worker) that `run_loop.py` feeds finalized transcript paths when
+  `indexing_enabled`. Embedding must never run in the main process — same
+  audio-drainer-starvation rule as whisper.
+- `mcp/server.py` serves `search`/`fetch` (ChatGPT's contract, plus optional
+  filters for Claude) over a loopback HTTP MCP endpoint with a bearer token +
+  Origin/Host validation.
+
+The three load-bearing decisions are recorded in `docs/adr/0001-0003`. Keep the
+`sqlite-vec` schema and the model-versioning policy in `store.py` aligned with
+ADR 0002. The base recording pipeline must not import this subsystem eagerly —
+all heavy deps are lazily imported.
+
 ## Core Commands
 
 ```bash
 # Install (editable, with dev extras)
 uv pip install -e ".[dev]"
+
+# Add the optional local-search / MCP extra (mlx-embeddings, sqlite-vec, mcp)
+uv pip install -e ".[dev,mcp]"
 
 # CI baseline — what PRs must pass
 pytest tests/unit
