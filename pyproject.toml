@@ -33,6 +33,7 @@ dependencies = [
     "pydantic>=2.6",
     "structlog>=24.1",
     "pyyaml>=6.0",
+    "tomli-w>=1.0",
     # System audio capture on macOS via ScreenCaptureKit (macOS 13+).
     "pyobjc-framework-ScreenCaptureKit>=10; sys_platform == 'darwin'",
     "pyobjc-framework-CoreMedia>=10; sys_platform == 'darwin'",

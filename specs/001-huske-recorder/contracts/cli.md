@@ -1,6 +1,6 @@
 # Contract: CLI Surface
 
-**Status**: Phase 1 design — frozen for v1
+**Status**: Current public CLI contract for v0.5.x
 **Source**: `spec.md` FR-006, FR-013, FR-019, FR-021; `research.md` R10
 
 This contract defines the public command-line surface of `huske`. Anything not listed here is internal and may change.
@@ -36,18 +36,23 @@ huske --help                 Print help.
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
-| `--chunk-minutes` `-c` | int (1–60) | `15` | Chunk duration. |
+| `--chunk-minutes` `-c` | float (0.1–60) | `15` | Chunk duration. |
 | `--output-root` | path | `~/huske/transcripts` | Where transcripts are written. |
 | `--audio-root` | path | `~/huske/audio` | Where transient audio chunks are written. |
 | `--model` | choice | `base` | `tiny` \| `base` \| `small` \| `medium` \| `large-v3`. |
 | `--compute-type` | choice | `int8` | `int8` \| `int8_float16` \| `float16` \| `float32`. |
 | `--device` | choice | `auto` | `auto` \| `cpu` \| `cuda`. |
 | `--language` | str | (auto) | ISO 639-1, e.g., `pt`, `en`. |
-| `--input-device` | str | (system default) | Microphone device name (substring match). System audio is always captured via ScreenCaptureKit and is independent of this flag. |
+| `--input-device` | str | (system default) | Microphone device name (substring match). If configured but unavailable, Huske falls back to the default input with a warning. System audio is independent of this flag. |
 | `--keep-audio` / `--no-keep-audio` | bool | `--no-keep-audio` | Retain raw WAVs after transcription. |
+| `--screenshots` / `--no-screenshots` | bool | config/default false | Capture periodic screenshots. |
+| `--screenshot-interval` | float (1–3600) | `10.0` | Seconds between screenshots. |
+| `--screenshots-root` | path | `~/huske/screenshots` | Where screenshots are written. |
 | `--config` | path | `~/.config/huske/config.toml` | Path to TOML config file (silently ignored if absent). |
 | `--log-level` | choice | `INFO` | `DEBUG` \| `INFO` \| `WARNING` \| `ERROR`. |
 | `--no-ui` | bool | `false` | Run without the Rich live UI; emit log lines only. |
+| `--menu-bar` / `--no-menu-bar` | bool | config/default true | Show the macOS menu bar helper while recording. |
+| `--system-audio-backend` | choice | `auto` | `auto` \| `tap` \| `sck` \| `off`. `auto` uses Core Audio process tap on macOS 14.4+ and ScreenCaptureKit fallback otherwise. |
 
 **Behavior**:
 
@@ -67,7 +72,7 @@ huske --help                 Print help.
 | `1` | Unexpected runtime error. |
 | `2` | Config validation error. |
 | `3` | Audio device validation error. |
-| `4` | Permission error (mic, screen recording, filesystem). |
+| `4` | Transcription worker failed to initialize. |
 | `130` | Interrupted (SIGINT) before initialization completed. |
 
 **stdout/stderr**:
@@ -82,6 +87,7 @@ huske --help                 Print help.
 - Inside the controls overlay, `p` → pause or resume audio recording. Pausing finalizes the current partial
   chunk and does not write audio while paused.
 - Inside the controls overlay, `s` → enable or disable periodic screenshots without restarting.
+- Inside the controls overlay, `i` → choose the live microphone input device and persist it to the user config.
 - Inside the controls overlay, Esc → close controls.
 
 ---
@@ -117,33 +123,35 @@ huske --help                 Print help.
 **Output** (human-readable; with `--json`, structured):
 
 ```text
-huske doctor  v0.1.0
+huske doctor  v0.5.0
 
   ✓ Python             3.11.7
-  ✓ huske version      0.1.0
-  ✓ faster-whisper     1.2.1
+  ✓ huske version      0.5.0
+  ✓ mlx-whisper        0.4.3
   ✓ model              'base' will be downloaded on first use if missing
   ✓ sounddevice        1 host API(s) detected
   ✓ microphone         'MacBook Pro Microphone' (1ch, 48000 Hz)
   ✓ mic sample         peak -2.3 dB (audible)
-  ✓ system audio       Screen Recording permission granted — ScreenCaptureKit usable
+  ✓ system backend     auto -> Core Audio tap
+  ✓ system audio       Core Audio process tap usable
   ✓ output root        writable: /Users/you/huske/transcripts
   ✓ audio root         writable: /Users/you/huske/audio
 
 All checks passed.
 ```
 
-If a check fails, the line shows an actionable hint (e.g., for missing Screen Recording permission: "Open System Settings → Privacy & Security → Screen Recording, enable Python, then restart huske.") and the command exits with a non-zero code.
+If a check fails, the line shows an actionable hint (for example granting Audio Capture / Screen Recording permission or choosing an available microphone) and the command exits with a non-zero code.
 
 **Options**:
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `--input-device` | str | (system default) | Device to validate. |
+| `--system-audio-backend` | choice | config/default `auto` | Backend to validate: `auto`, `tap`, `sck`, or `off`. |
 | `--config` | path | `~/.config/huske/config.toml` | |
 | `--json` | bool | `false` | Emit machine-readable output instead. |
 
-**Exit codes**: `0` all pass, `3` device problem, `5` model unavailable, `2` config error.
+**Exit codes**: `0` all pass, `3` no usable microphone, `2` config error, `1` another non-fatal check failed.
 
 ---
 
@@ -177,7 +185,7 @@ huske autostart stop                launchctl kill TERM (graceful exit).
 `~/Library/Logs/huske/agent.{out,err}.log`.
 
 **Permissions**: the first time the agent records, macOS will prompt for
-Microphone and Screen Recording permission for the resolved `huske` binary
+Microphone and the relevant audio/screen capture permission for the resolved `huske` binary
 (or its Python interpreter). If the prompts don't appear after login, run
 `huske autostart start` once from the terminal to fire them while a user
 session is attached.
@@ -199,11 +207,13 @@ Path: `~/.config/huske/config.toml` (override with `--config`). Optional. Same f
 ```toml
 chunk_minutes = 15
 output_root = "~/huske/transcripts"
+audio_root = "~/huske/audio"
 model = "base"
 compute_type = "int8"
 language = "pt"
 keep_audio = false
 input_device = "MacBook Pro Microphone"
+system_audio_backend = "auto"
 log_level = "INFO"
 ```
 
@@ -213,7 +223,7 @@ CLI flags always win over config file values.
 
 ## Stability guarantees for v1
 
-- Command names (`run`, `recover`, `doctor`) and exit codes are stable.
+- Command names (`run`, `recover`, `doctor`, `autostart`) and exit codes are stable.
 - Flag names will not be renamed in v1.x; new flags may be added.
-- Config TOML key names are stable; unknown keys produce a warning, not an error.
+- Config TOML key names are stable; unknown keys are rejected as config errors.
 - The transcript file format is governed by `transcript-format.md` and is the primary interface for downstream LLM consumers.

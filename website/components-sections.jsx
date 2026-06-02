@@ -32,7 +32,7 @@ const Pillars = () => (
             is a once-a-day, opt-out version check.
           </p>
           <div className="stat">
-            <div><strong>0</strong>cloud calls</div>
+            <div><strong>0</strong>audio uploads</div>
             <div><strong>0</strong>accounts</div>
             <div><strong>~/huske/</strong>only</div>
           </div>
@@ -42,14 +42,15 @@ const Pillars = () => (
           <div className="ph">always · on</div>
           <h3>Continuous capture, no gaps.</h3>
           <p>
-            Microphone via <code>sounddevice</code>. System audio via Apple's <code>ScreenCaptureKit</code>.
-            Mixed in software, rotated into Markdown chunks every 15 minutes. SIGKILL the
+            Microphone via <code>sounddevice</code>. System audio via Core Audio process tap
+            on macOS 14.4+, with ScreenCaptureKit fallback on older macOS. Rotated into
+            Markdown chunks every 15 minutes. SIGKILL the
             process and <code>huske recover</code> reclaims orphaned audio.
           </p>
           <div className="stat">
             <div><strong>15 min</strong>default chunks</div>
             <div><strong>6 s — 60 m</strong>configurable</div>
-            <div><strong>16 kHz</strong>mono</div>
+            <div><strong>48 kHz</strong>mono wav</div>
           </div>
         </div>
 
@@ -57,7 +58,7 @@ const Pillars = () => (
           <div className="ph">agent · ready</div>
           <h3>A directory your agent can read.</h3>
           <p>
-            Plain Markdown, organized by date, full YAML frontmatter, day-level <code>README.md</code>.
+            Plain Markdown, organized by date, full YAML frontmatter, root <code>README.md</code>.
             Point Claude Code, codex, or any LLM agent at <code>~/huske/transcripts/</code> and ask
             it about your day.
           </p>
@@ -86,11 +87,11 @@ const HowItWorks = () => (
           <div className="n"><span className="digit">01</span></div>
           <div>
             <h4>Capture two streams.</h4>
-            <p>Microphone via <code>sounddevice</code>. System audio via Apple's <code>ScreenCaptureKit</code>. Mixed in software at 16 kHz mono so chunk boundaries never lose a sample.</p>
+            <p>Microphone via <code>sounddevice</code>. System audio via Core Audio process tap on macOS 14.4+, with ScreenCaptureKit fallback on older macOS. Each source is written as a mono WAV so chunk boundaries stay gapless.</p>
           </div>
           <div className="meta">
             <div className="row"><span className="k">backend</span><span className="v">auto · tap · sck · off</span></div>
-            <div className="row"><span className="k">permission</span><span className="v">screen recording</span></div>
+            <div className="row"><span className="k">permission</span><span className="v">audio capture · screen recording</span></div>
             <div className="row"><span className="k">prompted</span><span className="v">first run only</span></div>
           </div>
         </div>
@@ -104,7 +105,7 @@ const HowItWorks = () => (
           <div className="meta">
             <div className="row"><span className="k">--chunk-minutes</span><span className="v">0.1 – 60.0 <span className="opt">(15 default)</span></span></div>
             <div className="row"><span className="k">audio root</span><span className="v">~/huske/audio/</span></div>
-            <div className="row"><span className="k">format</span><span className="v">wav · pcm_s16le · 16 kHz</span></div>
+            <div className="row"><span className="k">format</span><span className="v">wav · pcm_s16le · 48 kHz</span></div>
           </div>
         </div>
 
@@ -115,7 +116,7 @@ const HowItWorks = () => (
             <p><code>mlx-whisper</code> on Apple Silicon, running on the M-series GPU via MLX. Per-chunk, on-device, no cloud. Per-source segments for mic and system audio so timestamps map back to wall-clock session time.</p>
           </div>
           <div className="meta">
-            <div className="row"><span className="k">--model</span><span className="v">large-v3-turbo <span className="opt">(default)</span></span></div>
+            <div className="row"><span className="k">--model</span><span className="v">base <span className="opt">(default)</span></span></div>
             <div className="row"><span className="k">engine</span><span className="v">mlx-whisper · apple gpu</span></div>
             <div className="row"><span className="k">latency</span><span className="v">~5–7× realtime · M2</span></div>
           </div>
@@ -125,7 +126,7 @@ const HowItWorks = () => (
           <div className="n"><span className="digit">04</span></div>
           <div>
             <h4>Write a Markdown ledger.</h4>
-            <p>One Markdown file per chunk under <code>YYYY-MM-DD/HHMMSS_session_NNN.md</code>, with YAML frontmatter and per-source turns. A day-level <code>README.md</code> indexes the chunks. That's the agent's input — and the human's, too.</p>
+            <p>One Markdown file per chunk under <code>YYYY-MM-DD/HHMMSS_&lt;sessionid8&gt;_&lt;seq&gt;.md</code>, with YAML frontmatter and timestamped per-source paragraphs. A root <code>README.md</code> documents the layout. That's the agent's input — and the human's, too.</p>
           </div>
           <div className="meta">
             <div className="row"><span className="k">--output-root</span><span className="v">~/huske/transcripts/</span></div>
@@ -160,6 +161,7 @@ const OutputPreview = () => {
         <div className="ledger">
           <div className="tree">
             <div className="head">~/huske/transcripts/</div>
+            <div className="item"><span className="glyph">├─</span> README.md</div>
             <div className="item root"><span className="glyph">▾</span> 2026-05-07/</div>
             {FILES.map((f, i) => (
               <div
@@ -172,11 +174,9 @@ const OutputPreview = () => {
                 {f.name}
               </div>
             ))}
-            <div className="item"><span className="glyph">└─</span> README.md</div>
             <div style={{ height: 12 }}/>
             <div className="item root"><span className="glyph">▸</span> 2026-05-06/</div>
             <div className="item root"><span className="glyph">▸</span> 2026-05-05/</div>
-            <div className="item"><span className="glyph">└─</span> README.md</div>
           </div>
           <div className="doc">
             <div className="crumb">
@@ -194,13 +194,19 @@ const OutputPreview = () => {
             </div>
             <div className="frontmatter">
               <div><span className="delim">---</span></div>
-              <div><span className="key">session_id:</span>      <span className="str">"8a3f2c19-08d2-4f29-b71e-1c204aa5a1f0"</span></div>
-              <div><span className="key">chunk:</span>            <span className="val">1</span></div>
-              <div><span className="key">started_at:</span>       <span className="str">2026-05-07T09:15:00-03:00</span></div>
+              <div><span className="key">session_id:</span>      <span className="str">"20260507T091500_8a3f"</span></div>
+              <div><span className="key">chunk_seq:</span>       <span className="val">1</span></div>
+              <div><span className="key">date:</span>            <span className="str">2026-05-07</span></div>
+              <div><span className="key">start_time:</span>      <span className="str">2026-05-07T09:15:00-03:00</span></div>
+              <div><span className="key">end_time:</span>        <span className="str">2026-05-07T09:30:00-03:00</span></div>
               <div><span className="key">duration_seconds:</span> <span className="val">900</span></div>
-              <div><span className="key">model:</span>            <span className="val">mlx-whisper:large-v3-turbo</span></div>
-              <div><span className="key">sources:</span>          <span className="val">[mic, system]</span></div>
-              <div><span className="key">host:</span>             <span className="str">"macbook-pro · darwin 24.0.0"</span></div>
+              <div><span className="key">duration_actual_seconds:</span> <span className="val">900.0</span></div>
+              <div><span className="key">gap_seconds:</span>     <span className="val">0.0</span></div>
+              <div><span className="key">model:</span>            <span className="val">mlx-whisper:base</span></div>
+              <div><span className="key">audio_sources:</span>    <span className="val">[microphone, system]</span></div>
+              <div><span className="key">language:</span>         <span className="str">auto</span></div>
+              <div><span className="key">incomplete:</span>       <span className="val">false</span></div>
+              <div><span className="key">huske_version:</span>    <span className="str">0.5.0</span></div>
               <div><span className="delim">---</span></div>
             </div>
 
@@ -441,13 +447,13 @@ const FAQ = () => (
           <summary>Does any audio leave my machine? <span className="chev">→</span></summary>
           <div className="answer">
             <p>No. Capture and transcription both run locally — <code>mlx-whisper</code> on Apple Silicon. The only network call huske makes is a once-a-day, opt-out version check against PyPI.</p>
-            <p>If you want to verify, <code>HUSKE_NO_UPDATE_CHECK=1</code> turns even that off, and <code>huske doctor</code> shows you which sockets are open.</p>
+            <p>If you want to keep it fully offline, <code>HUSKE_NO_UPDATE_CHECK=1</code> turns even that off. <code>huske doctor</code> validates local setup without uploading recordings.</p>
           </div>
         </details>
         <details>
           <summary>What permissions does it need on macOS? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>Microphone permission for your terminal, and Screen Recording permission for system-audio capture via <code>ScreenCaptureKit</code>. macOS prompts for both on first run. Run <code>huske doctor</code> first — it checks both and explains what's missing.</p>
+            <p>Microphone permission for your terminal, plus Audio Capture for the Core Audio tap on macOS 14.4+ or Screen Recording for the ScreenCaptureKit fallback. Screenshots also use Screen Recording. Run <code>huske doctor</code> first — it checks the effective backend and explains what's missing.</p>
           </div>
         </details>
         <details>
@@ -459,20 +465,20 @@ const FAQ = () => (
         <details>
           <summary>Can I use it with Claude Code or another agent? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>Yes — that's the design target. Files under <code>~/huske/transcripts/</code> are plain Markdown, dated, with frontmatter. Point your agent at the directory and ask. The day-level <code>README.md</code> is auto-generated to be a useful entry point.</p>
+            <p>Yes — that's the design target. Files under <code>~/huske/transcripts/</code> are plain Markdown, dated, with frontmatter. Point your agent at the directory and ask. The root <code>README.md</code> is auto-generated to be a useful entry point.</p>
             <p>Common pattern: a daily standup recap, a "what did we decide about X this week" query, a search-then-quote across the whole month.</p>
           </div>
         </details>
         <details>
           <summary>Is this only for Apple Silicon? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>Yes. The transcription engine (<code>mlx-whisper</code>) runs on the M-series GPU via MLX, and the system-audio capture path uses <code>ScreenCaptureKit</code>, which is macOS-only. Intel Macs and Linux/Windows are not supported in 0.3.</p>
+            <p>Apple Silicon Mac is the supported target in 0.5.0. The transcription engine (<code>mlx-whisper</code>) runs on the M-series GPU via MLX, and system-audio capture uses macOS-only Core Audio / ScreenCaptureKit APIs.</p>
           </div>
         </details>
         <details>
           <summary>How do I configure chunk length, model, output path? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>Flags: <code>--chunk-minutes</code> (0.1–60), <code>--model</code> (default <code>large-v3-turbo</code>), <code>--output-root</code> (default <code>~/huske/transcripts</code>), <code>--audio-root</code>. Or set them in <code>~/.config/huske/config.toml</code>.</p>
+            <p>Flags: <code>--chunk-minutes</code> (0.1–60), <code>--model</code> (default <code>base</code>; choices <code>tiny</code>, <code>base</code>, <code>small</code>, <code>medium</code>, <code>large-v3</code>), <code>--output-root</code>, <code>--audio-root</code>, and <code>--system-audio-backend</code> (<code>auto</code>, <code>tap</code>, <code>sck</code>, <code>off</code>). Or set them in <code>~/.config/huske/config.toml</code>.</p>
           </div>
         </details>
         <details>

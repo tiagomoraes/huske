@@ -65,10 +65,10 @@ gap_seconds: 0.0
 audio_sources:
   - microphone
   - system
-model: faster-whisper:base
+model: mlx-whisper:base
 language: pt
 incomplete: false
-huske_version: 0.1.0
+huske_version: 0.5.0
 ---
 ```
 
@@ -123,10 +123,11 @@ Huske writes (and refreshes if missing) a `<output_root>/README.md` that documen
 ```markdown
 # Huske transcripts
 
-This directory is managed by `huske` (https://…). Each subdirectory is a
-local calendar date in `YYYY-MM-DD` form. Each `.md` file is one
-transcribed audio chunk; filenames sort chronologically. The YAML
-frontmatter at the top of each file is the authoritative metadata.
+This directory is managed by the `huske` terminal app. Each subdirectory is a
+local calendar date in `YYYY-MM-DD` form, holding all transcripts whose chunk
+start time falls on that date. Each `.md` file is a single transcribed audio
+chunk; filenames sort chronologically (`HHMMSS_<sessionid8>_<seq>.md`). The
+YAML frontmatter at the top of each file is the authoritative metadata.
 
 To query: an LLM agent can be pointed at this directory and asked to
 read files by date/time. No bespoke tooling is required.

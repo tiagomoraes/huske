@@ -29,7 +29,7 @@ pipx install .
 ```
 
 The first time `huske run` actually transcribes a chunk, it'll download the
-Whisper `base` model (~150 MB) into the `huggingface` cache.
+matching `mlx-community/whisper-<size>-mlx` model into the Hugging Face cache.
 
 ---
 
@@ -42,35 +42,39 @@ huske doctor
 Expected output on a healthy first install:
 
 ```text
-huske doctor  v0.1.0
+huske doctor  v0.5.0
 
   ✓ Python             3.11.7
-  ✓ huske version      0.1.0
-  ✓ faster-whisper     1.2.1
+  ✓ huske version      0.5.0
+  ✓ mlx-whisper        0.4.3
   ✓ model              'base' will be downloaded on first use if missing
   ✓ sounddevice        1 host API(s) detected
   ✓ microphone         'MacBook Pro Microphone' (1ch, 48000 Hz)
   ✓ mic sample         peak -2.3 dB (audible)
-  ✓ system audio       Screen Recording permission granted — ScreenCaptureKit usable
+  ✓ system backend     auto -> Core Audio tap
+  ✓ system audio       Core Audio process tap usable
   ✓ output root        writable: /Users/you/huske/transcripts
   ✓ audio root         writable: /Users/you/huske/audio
 
 All checks passed.
 ```
 
-If `system audio` shows ✗ "Screen Recording permission not granted", see step 3.
+If `system audio` fails, see step 3.
 
 ---
 
-## 3. Grant Screen Recording permission (once)
+## 3. Grant macOS capture permission (once)
 
-On first launch, macOS shows the standard Screen Recording prompt because
-ScreenCaptureKit is what huske uses to capture system audio.
+On macOS 14.4+, Huske uses a Core Audio process tap for system audio. macOS may
+prompt for Audio Capture or a screen-recording-adjacent permission. On older
+macOS versions, or when `system_audio_backend = "sck"`, Huske uses
+ScreenCaptureKit and needs Screen Recording permission.
 
 1. Run `huske run` (or `huske doctor`) once. macOS will pop a dialog asking
    permission for your Python interpreter.
 2. Click **Open System Settings** in that dialog (or open it manually:
-   System Settings → Privacy & Security → **Screen Recording**).
+   System Settings → Privacy & Security, then the relevant Audio Capture or
+   Screen Recording pane).
 3. Toggle the switch next to **Python** (or your launcher) to **on**.
 4. Quit and re-run huske — the permission only takes effect on next launch.
 
@@ -89,7 +93,7 @@ huske run
 You'll see a Rich live status panel:
 
 ```text
-┌─ huske 0.1.0 ──── session 8a3f2c19 ───── ~/huske/transcripts ─┐
+┌─ huske 0.5.0 ──── session 8a3f2c19 ───── ~/huske/transcripts ─┐
 │                                                               │
 │  ● RECORDING       chunk 1 (00:03:42 / 15:00)                 │
 │                    next rotation in 11:18                     │
@@ -103,7 +107,7 @@ You'll see a Rich live status panel:
 ```
 
 Talk into your mic. Play music or have a video call. Both sources show
-activity on the meters and end up in the same transcript, mixed.
+activity on the meters and end up in the same transcript with source tags.
 
 Press **Ctrl+C** to stop. The current partial chunk is finalized,
 transcribed, and saved before the process exits.
@@ -138,10 +142,10 @@ duration_seconds: 900
 duration_actual_seconds: 900.0
 gap_seconds: 0.0
 audio_sources: [microphone, system]
-model: faster-whisper:base
+model: mlx-whisper:base
 language: en
 incomplete: false
-huske_version: 0.1.0
+huske_version: 0.5.0
 ---
 
 # 09:15 – 09:30 (Wed 2026-05-07)
@@ -160,6 +164,7 @@ chunk_minutes = 10
 model = "small"
 language = "pt"
 output_root = "~/Documents/huske"
+system_audio_backend = "auto"
 ```
 
 Re-run `huske doctor` to confirm, then `huske run`.

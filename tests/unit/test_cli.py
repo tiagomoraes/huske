@@ -62,3 +62,23 @@ def test_run_with_menu_bar_overrides_config(
     result = runner.invoke(app, ["run", "--menu-bar"])
     assert result.exit_code == 0, result.output
     assert captured["cli_overrides"]["menu_bar_enabled"] is True  # type: ignore[index]
+
+
+def test_doctor_accepts_system_audio_backend_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run_doctor(config_path=None, cli_overrides=None, json_output=False):  # type: ignore[no-untyped-def]
+        captured["config_path"] = config_path
+        captured["cli_overrides"] = dict(cli_overrides or {})
+        captured["json_output"] = json_output
+        return 0
+
+    monkeypatch.setattr("huske.doctor.run_doctor", fake_run_doctor)
+    monkeypatch.setattr("huske.update_check.notify_if_outdated", lambda: None)
+
+    result = CliRunner().invoke(app, ["doctor", "--system-audio-backend", "tap"])
+
+    assert result.exit_code == 0, result.output
+    assert captured["cli_overrides"]["system_audio_backend"] == "tap"  # type: ignore[index]

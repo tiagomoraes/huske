@@ -105,6 +105,10 @@ class RenderState:
     paused: bool = False
     stopping: bool = False
     help_visible: bool = False
+    picker_visible: bool = False
+    picker_devices: list[tuple[int, str]] = field(default_factory=list)
+    picker_cursor: int = 0
+    picker_current_index: int | None = None
     current_chunk_seq: int = 0
     chunk_started_at: datetime | None = None
     next_rotation_at: datetime | None = None

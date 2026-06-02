@@ -20,8 +20,13 @@ from huske.config import RuntimeConfig
 
 
 class _NullSink:
-    def write_block(self, block: np.ndarray, now: object | None = None) -> None:
-        del block, now
+    def write_block(
+        self,
+        block: np.ndarray,
+        source: str = "microphone",
+        now: object | None = None,
+    ) -> None:
+        del block, source, now
 
 
 class _FakeStream:
@@ -56,9 +61,19 @@ class _FailingSCK(_FakeStream):
         raise SystemAudioPermissionError("simulated failure")
 
 
-def _coord(cfg: RuntimeConfig) -> CaptureCoordinator:
+def _coord(
+    cfg: RuntimeConfig, warnings: dict[str, str] | None = None
+) -> CaptureCoordinator:
     # mic_device_index=None — we patch InputStream so it never runs.
-    return CaptureCoordinator(cfg=cfg, mic_device_index=None, sink=_NullSink())
+    return CaptureCoordinator(
+        cfg=cfg,
+        mic_device_index=None,
+        sink=_NullSink(),
+        on_warning=warnings.__setitem__ if warnings is not None else None,
+        on_warning_clear=(
+            (lambda key: warnings.pop(key, None)) if warnings is not None else None
+        ),
+    )
 
 
 @pytest.fixture
@@ -196,11 +211,13 @@ def test_auto_falls_back_when_tap_start_fails(
         audio_root=tmp_path / "a",
         logs_root=tmp_path / "l",
     )
-    coord = _coord(cfg)
+    warnings: dict[str, str] = {}
+    coord = _coord(cfg, warnings=warnings)
     coord.start()
     try:
         assert isinstance(coord._system_stream, WorkingSCK)
         assert coord.system_active
+        assert "screen sharing" in warnings["system_audio_backend"]
     finally:
         coord.stop()
 

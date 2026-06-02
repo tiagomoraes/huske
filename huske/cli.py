@@ -154,14 +154,28 @@ def recover(
 @app.command()
 def doctor(
     input_device: str | None = typer.Option(None, "--input-device"),
+    system_audio_backend: str | None = typer.Option(
+        None,
+        "--system-audio-backend",
+        help="System audio backend to validate: auto, tap, sck, off.",
+    ),
     config_path: Path | None = typer.Option(None, "--config"),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
     """Validate audio devices, model availability, and write paths."""
     from huske.doctor import run_doctor
 
-    cli_overrides = _collect_overrides(input_device=input_device)
-    raise typer.Exit(run_doctor(config_path=config_path, cli_overrides=cli_overrides, json_output=json_output))
+    cli_overrides = _collect_overrides(
+        input_device=input_device,
+        system_audio_backend=system_audio_backend,
+    )
+    raise typer.Exit(
+        run_doctor(
+            config_path=config_path,
+            cli_overrides=cli_overrides,
+            json_output=json_output,
+        )
+    )
 
 
 # ---------------------------------------------------------------------------

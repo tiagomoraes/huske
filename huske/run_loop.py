@@ -14,9 +14,13 @@ from typing import Any
 
 from huske import logging_setup, paths
 from huske.capture.coordinator import CaptureCoordinator
-from huske.capture.devices import resolve_input_device, validate_device
+from huske.capture.devices import (
+    list_input_devices,
+    resolve_input_device_with_fallback,
+    validate_device,
+)
 from huske.chunker.rotator import ChunkRotator
-from huske.config import RuntimeConfig, load_config
+from huske.config import RuntimeConfig, load_config, update_user_config
 from huske.control import Command, CommandChannel
 from huske.ipc import ControlServer
 from huske.ipc.protocol import ControlSnapshot
@@ -70,8 +74,11 @@ def run_session(
     log.info("starting", session_id=session.session_id, version_hint="v0.1.0")
 
     # Resolve + validate input device.
-    device = resolve_input_device(cfg.input_device)
-    report = validate_device(device)
+    device_resolution = resolve_input_device_with_fallback(cfg.input_device)
+    if device_resolution.warning:
+        _print(f"[warn] {device_resolution.warning}")
+        log.warning("device_resolution", message=device_resolution.warning)
+    report = validate_device(device_resolution.device)
     if not report.ok:
         for issue in report.issues:
             _print(f"[error] {issue}")
@@ -351,8 +358,65 @@ def run_session(
         last_snap = snap
         server.broadcast_state(snap)
 
+    def _open_input_picker() -> None:
+        try:
+            devices = list_input_devices()
+        except Exception as exc:
+            on_event("error", f"could not list input devices: {exc}")
+            return
+        current_idx = capture.mic_device_index
+        cursor = 0
+        for i, d in enumerate(devices):
+            if d.index == current_idx:
+                cursor = i
+                break
+        state.update(
+            picker_visible=True,
+            picker_devices=[(d.index, d.name) for d in devices],
+            picker_cursor=cursor,
+            picker_current_index=current_idx,
+            help_visible=False,
+        )
+
+    def _commit_input_picker() -> None:
+        if not state.picker_devices:
+            state.update(picker_visible=False)
+            return
+        idx = max(0, min(state.picker_cursor, len(state.picker_devices) - 1))
+        new_idx, new_name = state.picker_devices[idx]
+        if new_idx == state.picker_current_index:
+            state.update(picker_visible=False)
+            return
+        if not capture.swap_mic_device(new_idx):
+            state.update(picker_visible=False)
+            return
+        on_event("info", f"microphone → {new_name}")
+        try:
+            update_user_config({"input_device": new_name})
+        except Exception as exc:
+            on_event("warn", f"could not save mic preference: {exc}")
+        state.update(picker_visible=False, picker_current_index=new_idx)
+
+    def _handle_picker_key(key: str) -> None:
+        if key == "\x1b":  # Esc
+            state.update(picker_visible=False)
+            return
+        if key in ("\r", "\n"):  # Enter
+            _commit_input_picker()
+            return
+        n = len(state.picker_devices)
+        if n == 0:
+            return
+        if key in ("j", "J", "\x1b[B"):  # j or Down
+            state.update(picker_cursor=min(state.picker_cursor + 1, n - 1))
+        elif key in ("k", "K", "\x1b[A"):  # k or Up
+            state.update(picker_cursor=max(state.picker_cursor - 1, 0))
+
     def _handle_key(key: str) -> None:
         if stop_flag.is_set():
+            return
+        if state.picker_visible:
+            _handle_picker_key(key)
             return
         normalized = key.lower()
         if normalized == "\x03":
@@ -375,6 +439,8 @@ def run_session(
         elif normalized == "s":
             commands.send(Command.TOGGLE_SCREENSHOTS)
             state.update(help_visible=False)
+        elif normalized == "i":
+            _open_input_picker()
 
     def _session_loop(
         ui: LiveUI | None,
