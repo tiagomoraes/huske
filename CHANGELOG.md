@@ -6,6 +6,8 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.6.0 - 2026-06-02
+
 ### Changed
 
 - Release process collapses into three scripts under `scripts/`:
