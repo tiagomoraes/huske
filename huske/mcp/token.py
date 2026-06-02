@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import secrets
 from pathlib import Path
 
@@ -19,9 +20,9 @@ def load_or_create_token(path: Path | None = None) -> str:
             return existing
     token = secrets.token_urlsafe(32)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(token + "\n", encoding="utf-8")
-    try:
-        target.chmod(0o600)
-    except OSError:  # pragma: no cover - platform dependent
-        pass
+    # Write with 0o600 from the start — avoids a race window where the file is
+    # world-readable between write_text() and a subsequent chmod().
+    fd = os.open(str(target), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(token + "\n")
     return token

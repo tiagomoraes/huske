@@ -718,6 +718,7 @@ def run_recover(
 
     worker = TranscriptionWorker()
     worker.start()
+    report = RecoveryReport()
     try:
         report = _do_recovery(cfg, worker, log)
     finally:

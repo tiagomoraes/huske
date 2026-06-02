@@ -143,7 +143,7 @@ def window(
             if count(candidate) <= max_tokens:
                 text = candidate
         sources = _sources_in_order(cur)
-        passages.append(make(text, cur[0].start, cur[-1].start, sources))
+        passages.append(make(text, cur[0].start, cur[-1].end or cur[-1].start, sources))
         prev_tail = _last_sentence(body)
         cur = []
         cur_tok = 0
@@ -153,7 +153,7 @@ def window(
             continue
         rtok = count(run.text)
 
-        if cur and (run.start - cur[-1].start).total_seconds() > max_gap_seconds:
+        if cur and (run.start - (cur[-1].end or cur[-1].start)).total_seconds() > max_gap_seconds:
             emit()
             prev_tail = ""  # do not carry context across a silence
 
@@ -162,7 +162,7 @@ def window(
             prev_tail = ""
             src = [run.source] if run.source else []
             for piece in _split_oversized(run.text, target_tokens, count):
-                passages.append(make(piece, run.start, run.start, src))
+                passages.append(make(piece, run.start, run.end or run.start, src))
             continue
 
         if cur and cur_tok + rtok > target_tokens:

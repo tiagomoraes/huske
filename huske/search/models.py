@@ -20,6 +20,9 @@ class Run:
     start: datetime
     source: str  # "mic" | "system" | "" (unknown)
     text: str
+    # Filled by parse_transcript as next_run.start (last run: doc.end_time).
+    # None only in tests that construct Run directly.
+    end: datetime | None = None
 
 
 @dataclass(slots=True)

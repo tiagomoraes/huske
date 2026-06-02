@@ -63,12 +63,17 @@ def search_passages(
     k: int = DEFAULT_K,
 ) -> dict[str, Any]:
     """Semantic search → ChatGPT-shaped ``{"results": [...]}``."""
+    try:
+        day_from = _date_to_day(date_from)
+        day_to = _date_to_day(date_to)
+    except ValueError as exc:
+        raise ValueError(f"invalid date: {exc}. Use YYYY-MM-DD format.") from exc
     embedding = embedder.embed_query(query)
     hits = store.search(
         embedding,
         k=_clamp_k(k),
-        day_from=_date_to_day(date_from),
-        day_to=_date_to_day(date_to),
+        day_from=day_from,
+        day_to=day_to,
         source=_normalize_source(source),
         session_id=session or None,
     )

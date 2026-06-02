@@ -75,6 +75,10 @@ def parse_transcript(path: Path) -> TranscriptDoc:
     language = str(front.get("language", "auto"))
 
     runs = _parse_body(m.group(2), start_time)
+    for i, run in enumerate(runs[:-1]):
+        run.end = runs[i + 1].start
+    if runs:
+        runs[-1].end = end_time
     return TranscriptDoc(
         path=path,
         session_id=session_id,

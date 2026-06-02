@@ -89,7 +89,7 @@ class PassageStore:
         """
         sqlite_vec = _require_sqlite_vec()
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(db_path))
+        conn = sqlite3.connect(str(db_path), check_same_thread=False)
         try:
             conn.enable_load_extension(True)
             sqlite_vec.load(conn)  # type: ignore[attr-defined]
@@ -163,7 +163,7 @@ class PassageStore:
     def _create_schema(conn: sqlite3.Connection, dim: int) -> None:
         conn.execute(
             f"""
-            CREATE VIRTUAL TABLE passages USING vec0(
+            CREATE VIRTUAL TABLE IF NOT EXISTS passages USING vec0(
                 embedding float[{dim}] distance_metric=cosine,
                 session_id text partition key,
                 day integer,
@@ -266,7 +266,7 @@ class PassageStore:
     ) -> list[SearchHit]:
         where = ["embedding MATCH ?", "k = ?"]
         params: list[object] = [_serialize(self._sqlite_vec, query_embedding), int(k)]
-        if session_id:
+        if session_id is not None:
             where.append("session_id = ?")
             params.append(session_id)
         if day_from is not None:
