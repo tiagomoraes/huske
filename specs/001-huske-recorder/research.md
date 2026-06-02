@@ -13,7 +13,7 @@ This document records the technology and design decisions made before drafting d
 
 **Rationale**:
 - Whisper-class transcription has the most mature, fastest local bindings in Python (`faster-whisper`, `mlx-whisper`, OpenAI reference). Iteration cost is lowest.
-- Audio capture via `sounddevice` (PortAudio) is straightforward and works on macOS once an aggregate device is configured.
+- Audio capture via `sounddevice` (PortAudio) is straightforward for the microphone, while macOS system audio is handled through built-in capture APIs without virtual devices.
 - Rich/Textual provide TUI quality matching the "interface bonitinha" goal without writing terminal control codes by hand.
 - The user's other tooling (Claude Code, MCP integrations) is Python/JS friendly; downstream LLM consumption of transcripts won't care about the producer's language.
 
@@ -26,42 +26,41 @@ This document records the technology and design decisions made before drafting d
 
 ## R2. Local transcription engine
 
-**Decision**: `faster-whisper` (CTranslate2 backend), default model `base`, configurable.
+**Decision**: `mlx-whisper`, default model `base`, configurable.
 
 **Rationale**:
-- 4–10× faster than the reference OpenAI implementation on the same hardware.
-- Runs on CPU, CUDA, or Metal (via CT2 builds). On Apple Silicon CPU it processes ~5× real-time at `base`, comfortably meeting SC-002 (transcript on disk within 2 minutes of a 15-min chunk close).
-- Single dependency, simple API: `WhisperModel(...).transcribe(audio_path)` returns segments. Easy to wrap.
-- Models download on first use and cache locally (`~/.cache/huggingface`), no manual setup beyond `pip install`.
+- Runs on the M-series GPU via MLX and is materially faster than the prior CTranslate2 path on Apple Silicon.
+- Keeps the product target focused on Apple Silicon, which is also where the macOS system-audio capture story is strongest.
+- Models download on first use and cache locally through Hugging Face tooling, no manual setup beyond installing Huske.
 
 **Alternatives considered**:
-- **`mlx-whisper`** (Apple MLX): potentially faster on M-series, but adds an MLX dependency and doesn't help non-Mac users. We can keep `mlx-whisper` as an optional engine behind a config flag in a future iteration; not required for v1.
+- **`faster-whisper`** (CTranslate2 backend): worked in early prototypes, but MLX is faster and simpler for the Apple Silicon-only target.
 - **`whisper.cpp` via Python bindings**: also fast, but pre-built wheels are less consistent and model file management is manual.
 - **OpenAI reference `whisper`**: simplest dependency, but ~5× slower; would risk SC-002 on slower hardware.
 
 **Configuration knobs exposed**:
 - `model`: model size (`tiny`, `base`, `small`, `medium`, `large-v3`); default `base`.
-- `compute_type`: `int8` (CPU default), `int8_float16`, `float16`, `float32`. Default `int8`.
-- `device`: `auto` (default), `cpu`, `cuda`.
+- `compute_type`: kept for back-compat; `float32` opts out of fp16 inference, other values use the MLX default.
+- `device`: kept for back-compat; `cuda` is rejected on macOS.
 
 ---
 
 ## R3. Audio capture on macOS — mic + system audio
 
-**Decision (revised)**: Two parallel sources, mixed in software:
+**Decision (revised)**: Two parallel sources, written separately and merged at transcript time:
 - **Microphone**: `sounddevice` (PortAudio bindings) reading from the system default mic (or a user-selected mic via `--input-device`). 1 channel, mono float32.
-- **System audio**: Apple's **ScreenCaptureKit** framework (`SCStream` + `SCContentFilter`, macOS 13+), accessed from Python via `pyobjc-framework-ScreenCaptureKit`. We configure `capturesAudio = true`, `excludesCurrentProcessAudio = true`, `sampleRate = 48000`, `channelCount = 2`, then mix down to mono in the SCK delegate.
+- **System audio**: Core Audio process tap on macOS 14.4+ (`AudioHardwareCreateProcessTap`) with ScreenCaptureKit fallback on older macOS. Both paths produce mono float32 blocks at the configured sample rate.
 
-A `CaptureCoordinator` (`huske/capture/coordinator.py`) runs both sources concurrently, each pushing into its own bounded mono ring buffer. A mixer thread drains both at 50 ms cadence, sums them (each at gain 0.5), and forwards the mixed mono block to the chunker. If system audio fails (permission missing, framework error) the coordinator degrades to mic-only with a sticky warning surfaced in the UI.
+A `CaptureCoordinator` (`huske/capture/coordinator.py`) runs both sources concurrently, each pushing into its own bounded mono ring buffer. A mixer thread drains both at 50 ms cadence and forwards source-tagged blocks to the chunker. If system audio fails (permission missing, framework error) the coordinator degrades to mic-only with a sticky warning surfaced in the UI.
 
 **Rationale**:
-- ScreenCaptureKit is Apple's modern, kext-less, framework-only API for capturing what the system is playing. No virtual audio driver, no Aggregate Device, no Audio MIDI Setup — `pip install huske` + grant Screen Recording permission once.
+- Core Audio process tap is decoupled from screen capture and survives Google Meet / Zoom screen-sharing sessions that can interrupt ScreenCaptureKit audio capture. ScreenCaptureKit remains a useful fallback on older macOS. No virtual audio driver, no Aggregate Device, no Audio MIDI Setup.
 - Eliminates the entire class of BlackHole/Aggregate-Device fragility (driver gets revoked on macOS upgrades, Aggregate Device deleted by audio-config resets, AirPods auto-switching breaks system-output routing).
 - PyObjC's bindings expose `SCStream` / `SCContentFilter` / `CMSampleBuffer` / `CMBlockBufferCopyDataBytes` directly — no Swift bridge, no compiled helper binary, no build step. The whole bridge is one Python module.
 - `excludesCurrentProcessAudio = true` prevents capturing huske's own terminal output, avoiding feedback loops.
-- The 50 % gain on each source keeps the summed signal well within ±1.0 even when both sources are at max.
+- Keeping per-source WAVs lets the transcription worker preserve source labels and align segment timestamps back to wall-clock time.
 
-**Permission model**: Screen Recording is a TCC-tracked permission, granted per-binary-path (i.e., per Python interpreter). On first run, macOS shows the standard "X wants to record this computer's screen and audio" dialog. After approval, it's silent forever. `huske doctor` checks the permission state by calling `SCShareableContent.getShareableContentWithCompletionHandler:` — a populated displays array means access is granted; an error or empty array means it isn't.
+**Permission model**: macOS grants capture permissions per-binary-path (i.e., per Python interpreter). Core Audio tap may prompt for Audio Capture or a screen-recording-adjacent permission depending on the OS minor version. ScreenCaptureKit fallback and screenshots use Screen Recording. `huske doctor` validates the effective backend.
 
 **Alternatives considered**:
 - **BlackHole 2ch + Aggregate Device** (the v0.0 plan): simpler code path but compound-interest fragility — every macOS update is a coin flip on whether the driver still loads, every audio reset deletes the Aggregate Device, every AirPods reconnection silently changes system output away from the multi-output device. Rejected for a personal-use tool that should "just work" indefinitely.
@@ -71,15 +70,15 @@ A `CaptureCoordinator` (`huske/capture/coordinator.py`) runs both sources concur
 
 **Capture parameters**:
 - Mic: 48 kHz, 1ch, float32, blocksize 1024 (~21 ms at 48 kHz).
-- System: 48 kHz, configured stereo from SCStream, downmixed to mono in the SCK delegate.
+- System: 48 kHz mono blocks from Core Audio tap or ScreenCaptureKit fallback.
 - Mixer cadence: 50 ms (2400 frames at 48 kHz).
-- Output (post-mix): 1ch, 48 kHz, float32 — written directly to the chunker's WAV file.
+- Output: one 1ch, 48 kHz WAV per active source per chunk.
 
 `huske doctor` will:
 1. List input devices.
 2. Validate the resolved mic.
 3. Run a ~1-second mic sample and report peak dB.
-4. Check Screen Recording permission for system audio.
+4. Validate the configured system-audio backend.
 5. Verify output / audio paths are writable.
 
 ---
@@ -89,7 +88,7 @@ A `CaptureCoordinator` (`huske/capture/coordinator.py`) runs both sources concur
 **Decision**: Three execution contexts, hard isolation between them.
 1. **Audio callback thread** (sounddevice-owned): only writes raw frames into a shared lock-free ring buffer. No I/O, no allocation in the hot path.
 2. **Main thread** (asyncio): runs the Rich Live UI, the chunk-rotation timer, and chunk submission to the transcription queue. Dispatches chunk-finalization disk writes to a small ThreadPoolExecutor.
-3. **Transcription worker subprocess** (`multiprocessing.Process`): pulls chunk file paths from a `multiprocessing.Queue`, runs `faster-whisper` (CPU/Metal-bound, holds GIL), writes transcript markdown via the writer module, and posts a completion event back to a result queue.
+3. **Transcription worker subprocess** (`multiprocessing.Process`): pulls chunk file paths from a `multiprocessing.Queue`, runs `mlx-whisper`, writes transcript markdown via the writer module, and posts a completion event back to a result queue.
 
 **Rationale**:
 - The Python GIL makes a transcription thread an unacceptable risk: Whisper inference would starve the audio callback and the UI loop. A subprocess sidesteps this entirely.
@@ -140,7 +139,7 @@ end_time: 12:45:00-03:00
 duration_seconds: 900
 duration_actual_seconds: 900
 audio_sources: [microphone, system]
-model: faster-whisper:base
+model: mlx-whisper:base
 language: pt
 incomplete: false
 ---
@@ -218,7 +217,10 @@ A *session lock* is a file `~/huske/audio/<sessionid>/.lock` containing the runn
 2. Config file: `~/.config/huske/config.toml` if present.
 3. CLI flags via Typer.
 
-Fields: `chunk_minutes`, `output_root`, `audio_root`, `model`, `compute_type`, `device`, `language`, `keep_audio`, `input_device` (aggregate device name).
+Fields include `chunk_minutes`, `output_root`, `audio_root`, `logs_root`,
+`model`, `compute_type`, `device`, `language`, `keep_audio`, `input_device`
+(microphone name), screenshot settings, menu-bar settings, and
+`system_audio_backend`.
 
 **Rationale**: Standard pattern. TOML is stdlib in 3.11+. Pydantic provides validation and clear error messages.
 

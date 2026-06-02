@@ -17,7 +17,7 @@ class DeviceInfo:
     host_api: str
 
     @classmethod
-    def from_sd(cls, idx: int, raw: dict[str, Any], host_apis: list[dict[str, Any]]) -> "DeviceInfo":
+    def from_sd(cls, idx: int, raw: dict[str, Any], host_apis: list[dict[str, Any]]) -> DeviceInfo:
         return cls(
             index=idx,
             name=raw["name"],
@@ -35,6 +35,14 @@ class ValidationReport:
     suggestions: list[str]
 
 
+@dataclass
+class DeviceResolution:
+    device: DeviceInfo | None
+    requested_name: str | None
+    fallback_used: bool = False
+    warning: str | None = None
+
+
 def list_input_devices() -> list[DeviceInfo]:
     host_apis = list(sd.query_hostapis())
     raw_devices = sd.query_devices()
@@ -45,22 +53,22 @@ def list_input_devices() -> list[DeviceInfo]:
     return out
 
 
-def resolve_input_device(name: str | None) -> DeviceInfo | None:
-    """Resolve a device name (case-insensitive substring match) or return system default."""
-    devices = list_input_devices()
-    if name:
-        needle = name.lower()
-        for d in devices:
-            if d.name.lower() == needle:
-                return d
-        # Substring fallback (e.g., "MacBook Pro" matches "MacBook Pro Microphone").
-        for d in devices:
-            if needle in d.name.lower():
-                return d
-        return None
+def _match_input_device(devices: list[DeviceInfo], name: str) -> DeviceInfo | None:
+    needle = name.lower()
+    for d in devices:
+        if d.name.lower() == needle:
+            return d
+    # Substring fallback (e.g., "MacBook Pro" matches "MacBook Pro Microphone").
+    for d in devices:
+        if needle in d.name.lower():
+            return d
+    return None
+
+
+def _default_input_device(devices: list[DeviceInfo]) -> DeviceInfo | None:
     # System default input.
     try:
-        default_idx = sd.default.device[0]  # type: ignore[index]
+        default_idx = sd.default.device[0]
     except Exception:
         default_idx = -1
     if default_idx >= 0:
@@ -70,8 +78,39 @@ def resolve_input_device(name: str | None) -> DeviceInfo | None:
     return devices[0] if devices else None
 
 
+def resolve_input_device(name: str | None) -> DeviceInfo | None:
+    """Resolve a device name (case-insensitive substring match) or return system default."""
+    return resolve_input_device_with_fallback(name).device
+
+
+def resolve_input_device_with_fallback(name: str | None) -> DeviceResolution:
+    """Resolve the preferred input, falling back to the system default if absent."""
+    devices = list_input_devices()
+    if name:
+        matched = _match_input_device(devices, name)
+        if matched is not None:
+            return DeviceResolution(device=matched, requested_name=name)
+        fallback = _default_input_device(devices)
+        if fallback is not None:
+            return DeviceResolution(
+                device=fallback,
+                requested_name=name,
+                fallback_used=True,
+                warning=(
+                    f"Configured microphone '{name}' was not found; "
+                    f"using default microphone '{fallback.name}'."
+                ),
+            )
+        return DeviceResolution(
+            device=None,
+            requested_name=name,
+            warning=f"Configured microphone '{name}' was not found.",
+        )
+    return DeviceResolution(device=_default_input_device(devices), requested_name=None)
+
+
 def validate_device(device: DeviceInfo | None) -> ValidationReport:
-    """Validate a microphone device. System audio is captured separately via SCK."""
+    """Validate a microphone device. System audio has its own backend."""
     issues: list[str] = []
     suggestions: list[str] = []
 
@@ -79,7 +118,7 @@ def validate_device(device: DeviceInfo | None) -> ValidationReport:
         issues.append("No usable microphone found.")
         suggestions.append(
             "Connect a built-in or USB microphone and re-run. "
-            "System audio capture is handled separately via ScreenCaptureKit."
+            "System audio capture is handled by its own macOS backend."
         )
         return ValidationReport(ok=False, device=None, issues=issues, suggestions=suggestions)
 

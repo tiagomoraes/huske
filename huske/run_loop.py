@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import signal
+import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -12,9 +14,16 @@ from typing import Any
 
 from huske import logging_setup, paths
 from huske.capture.coordinator import CaptureCoordinator
-from huske.capture.devices import resolve_input_device, validate_device
+from huske.capture.devices import (
+    list_input_devices,
+    resolve_input_device_with_fallback,
+    validate_device,
+)
 from huske.chunker.rotator import ChunkRotator
-from huske.config import RuntimeConfig, load_config
+from huske.config import RuntimeConfig, load_config, update_user_config
+from huske.control import Command, CommandChannel
+from huske.ipc import ControlServer
+from huske.ipc.protocol import ControlSnapshot
 from huske.models import AudioChunk, AudioSource, RenderState, SessionState
 from huske.output_readme import ensure_output_readme
 from huske.recovery.scanner import (
@@ -65,8 +74,11 @@ def run_session(
     log.info("starting", session_id=session.session_id, version_hint="v0.1.0")
 
     # Resolve + validate input device.
-    device = resolve_input_device(cfg.input_device)
-    report = validate_device(device)
+    device_resolution = resolve_input_device_with_fallback(cfg.input_device)
+    if device_resolution.warning:
+        _print(f"[warn] {device_resolution.warning}")
+        log.warning("device_resolution", message=device_resolution.warning)
+    report = validate_device(device_resolution.device)
     if not report.ok:
         for issue in report.issues:
             _print(f"[error] {issue}")
@@ -103,6 +115,46 @@ def run_session(
         recording=False,
         screenshots_enabled=False,
     )
+
+    # Optional: background embedding worker for local semantic search. Started
+    # non-blocking — capture never waits on the embedding model to load, and an
+    # init failure degrades to "recording continues, no indexing". See
+    # docs/adr/0003-embed-worker-isolation.md.
+    embed_worker = None
+    if cfg.indexing_enabled:
+        from huske.search.worker import EmbedWorker
+
+        try:
+            cfg.index_root.mkdir(parents=True, exist_ok=True)
+            embed_worker = EmbedWorker(str(paths.index_db_path(cfg)), cfg.embedding_model)
+            embed_worker.start()
+            _print("[huske] indexing enabled — transcripts will be embedded in background")
+        except Exception as exc:
+            log.warning("embed_worker_start_failed", error=str(exc))
+            embed_worker = None
+
+    def _on_written(path: Path) -> None:
+        if embed_worker is not None:
+            embed_worker.submit(str(path))
+
+    def _drain_embed() -> None:
+        if embed_worker is None:
+            return
+        while True:
+            msg = embed_worker.poll_result(timeout=0.0)
+            if msg is None:
+                break
+            if "ready" in msg:
+                if msg.get("ready"):
+                    on_event("info", "indexing ready — transcripts will be embedded")
+                else:
+                    detail = str(msg.get("error", "")).splitlines()[0]
+                    on_event("warn", f"indexing unavailable: {detail}")
+            elif not msg.get("ok"):
+                detail = str(msg.get("error", "")).splitlines()[0]
+                on_event("warn", f"indexing failed: {detail}")
+            else:
+                log.info("indexed", path=msg.get("path"), passages=msg.get("passages"))
 
     # Recovery before starting new capture.
     rec_report = _do_recovery(cfg, worker, log)
@@ -246,13 +298,170 @@ def run_session(
             msg += " — current chunk queued"
         on_event("info", msg)
 
+    def _open_path(path: Path) -> None:
+        if not path.exists():
+            on_event("warn", f"path not found: {path}")
+            return
+        try:
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", str(path)])
+            elif sys.platform.startswith("linux"):
+                subprocess.Popen(["xdg-open", str(path)])
+            else:
+                on_event("warn", f"open not supported on {sys.platform}")
+        except OSError as exc:
+            on_event("error", f"failed to open {path.name}: {exc}")
+
+    def _open_transcripts() -> None:
+        _open_path(cfg.output_root)
+
+    def _open_latest_transcript() -> None:
+        if state.last_saved is None:
+            on_event("info", "no transcript saved yet")
+            return
+        _open_path(state.last_saved)
+
+    def _stop() -> None:
+        stop_flag.set()
+
+    commands = CommandChannel()
+    dispatch: dict[Command, Callable[[], None]] = {
+        Command.PAUSE_RESUME: _toggle_pause,
+        Command.TOGGLE_SCREENSHOTS: _toggle_screenshots,
+        Command.STOP: _stop,
+        Command.OPEN_TRANSCRIPTS: _open_transcripts,
+        Command.OPEN_LATEST_TRANSCRIPT: _open_latest_transcript,
+    }
+
+    def _pump_commands() -> None:
+        for cmd in commands.drain():
+            handler = dispatch.get(cmd)
+            if handler is not None:
+                handler()
+
+    server: ControlServer | None = None
+    helper_proc: subprocess.Popen[bytes] | None = None
+    if sys.platform == "darwin":
+        socket_dir = Path.home() / "Library" / "Application Support" / "huske"
+        socket_path = socket_dir / f"control-{paths.session_id_short(session.session_id)}.sock"
+        server = ControlServer(socket_path, commands, log)
+        try:
+            server.start()
+            log.info("ipc_server_started", socket=str(socket_path))
+        except OSError as exc:
+            log.warning("ipc_server_failed", error=str(exc))
+            server = None
+
+        if server is not None and cfg.menu_bar_enabled:
+            from huske.agent import resolve_huske_binary
+
+            argv = [
+                *resolve_huske_binary(),
+                "menubar",
+                "--attach",
+                str(server.socket_path),
+                "--style",
+                cfg.menu_bar_label_style,
+            ]
+            helper_log = cfg.logs_root / f"menubar_{session.session_id}.log"
+            helper_log.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                helper_proc = subprocess.Popen(
+                    argv,
+                    stdout=subprocess.DEVNULL,
+                    stderr=open(helper_log, "ab"),
+                    start_new_session=True,
+                )
+                log.info("menubar_helper_started", pid=helper_proc.pid)
+            except OSError as exc:
+                log.warning("menubar_helper_failed", error=str(exc))
+                helper_proc = None
+
+    last_snap: ControlSnapshot | None = None
+
+    def _publish_state() -> None:
+        nonlocal last_snap
+        if server is None:
+            return
+        snap = ControlSnapshot(
+            session_id=session.session_id,
+            recording=state.recording,
+            paused=state.paused,
+            stopping=state.stopping,
+            current_chunk_seq=state.current_chunk_seq,
+            queue_depth=state.queue_depth,
+            screenshots_enabled=state.screenshots_enabled,
+            last_saved_name=state.last_saved.name if state.last_saved else None,
+        )
+        if snap == last_snap:
+            return
+        last_snap = snap
+        server.broadcast_state(snap)
+
+    def _open_input_picker() -> None:
+        try:
+            devices = list_input_devices()
+        except Exception as exc:
+            on_event("error", f"could not list input devices: {exc}")
+            return
+        current_idx = capture.mic_device_index
+        cursor = 0
+        for i, d in enumerate(devices):
+            if d.index == current_idx:
+                cursor = i
+                break
+        state.update(
+            picker_visible=True,
+            picker_devices=[(d.index, d.name) for d in devices],
+            picker_cursor=cursor,
+            picker_current_index=current_idx,
+            help_visible=False,
+        )
+
+    def _commit_input_picker() -> None:
+        if not state.picker_devices:
+            state.update(picker_visible=False)
+            return
+        idx = max(0, min(state.picker_cursor, len(state.picker_devices) - 1))
+        new_idx, new_name = state.picker_devices[idx]
+        if new_idx == state.picker_current_index:
+            state.update(picker_visible=False)
+            return
+        if not capture.swap_mic_device(new_idx):
+            state.update(picker_visible=False)
+            return
+        on_event("info", f"microphone → {new_name}")
+        try:
+            update_user_config({"input_device": new_name})
+        except Exception as exc:
+            on_event("warn", f"could not save mic preference: {exc}")
+        state.update(picker_visible=False, picker_current_index=new_idx)
+
+    def _handle_picker_key(key: str) -> None:
+        if key == "\x1b":  # Esc
+            state.update(picker_visible=False)
+            return
+        if key in ("\r", "\n"):  # Enter
+            _commit_input_picker()
+            return
+        n = len(state.picker_devices)
+        if n == 0:
+            return
+        if key in ("j", "J", "\x1b[B"):  # j or Down
+            state.update(picker_cursor=min(state.picker_cursor + 1, n - 1))
+        elif key in ("k", "K", "\x1b[A"):  # k or Up
+            state.update(picker_cursor=max(state.picker_cursor - 1, 0))
+
     def _handle_key(key: str) -> None:
         if stop_flag.is_set():
+            return
+        if state.picker_visible:
+            _handle_picker_key(key)
             return
         normalized = key.lower()
         if normalized == "\x03":
             on_event("info", "stop requested — finalizing current chunk…")
-            stop_flag.set()
+            commands.send(Command.STOP)
             return
         if normalized == "?":
             state.update(help_visible=not state.help_visible)
@@ -263,13 +472,15 @@ def run_session(
             state.update(help_visible=False)
         elif normalized == "q":
             on_event("info", "stop requested — finalizing current chunk…")
-            stop_flag.set()
+            commands.send(Command.STOP)
         elif normalized == "p":
-            _toggle_pause()
+            commands.send(Command.PAUSE_RESUME)
             state.update(help_visible=False)
         elif normalized == "s":
-            _toggle_screenshots()
+            commands.send(Command.TOGGLE_SCREENSHOTS)
             state.update(help_visible=False)
+        elif normalized == "i":
+            _open_input_picker()
 
     def _session_loop(
         ui: LiveUI | None,
@@ -280,10 +491,15 @@ def run_session(
             cfg, state, rotator, capture, worker, stop_flag, log,
             on_result, ui=ui, read_key=read_key, on_key=_handle_key,
             screenshot_status=_screenshot_status,
+            pump_commands=_pump_commands,
+            publish_state=_publish_state,
+            on_written=_on_written,
+            on_tick=_drain_embed,
         )
 
         # Phase 2: stopping. Keep the UI alive while we drain.
         state.update(recording=False, paused=False, stopping=True, help_visible=False)
+        _publish_state()
         if ui is not None:
             ui.update()
 
@@ -318,11 +534,10 @@ def run_session(
                 seq = result["chunk_seq"]
                 on_result(seq)
                 if result["ok"]:
-                    state.update(last_saved=Path(result["transcript_path"]))
-                    on_event(
-                        "info",
-                        f"chunk {seq:03d} → {Path(result['transcript_path']).name}",
-                    )
+                    tp = Path(result["transcript_path"])
+                    state.update(last_saved=tp)
+                    on_event("info", f"chunk {seq:03d} → {tp.name}")
+                    _on_written(tp)
                 else:
                     on_event(
                         "error",
@@ -334,13 +549,16 @@ def run_session(
 
             now = time.monotonic()
             if now - last_ui_update >= 0.25:
+                _drain_embed()
                 state.update(queue_depth=worker.queue_depth)
+                _publish_state()
                 if ui is not None:
                     ui.update()
                 last_ui_update = now
 
         # Final UI update so the user sees "0 pending" before we tear down.
         state.update(queue_depth=0)
+        _publish_state()
         if ui is not None:
             ui.update()
 
@@ -355,8 +573,20 @@ def run_session(
         log.error("run_failed", error=str(exc))
         exit_code = 1
     finally:
+        if server is not None:
+            server.stop(timeout=1.0)
+        if helper_proc is not None and helper_proc.poll() is None:
+            try:
+                helper_proc.terminate()
+                helper_proc.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                helper_proc.kill()
         if screenshotter is not None and screenshotter.alive:
             screenshotter.stop(timeout=1.0)
+        if embed_worker is not None:
+            # SENTINEL is FIFO after queued paths, so any transcripts written
+            # during drain still get indexed before the worker exits.
+            embed_worker.stop(drain_timeout=10.0)
         worker.stop(drain_timeout=5.0)
         session.release_lock()
         cleanup_session_dir(session.audio_root)
@@ -379,6 +609,10 @@ def _main_loop(
     read_key: Callable[[], str | None] | None = None,
     on_key: Callable[[str], None] | None = None,
     screenshot_status: Callable[[], tuple[bool, int, datetime | None]] | None = None,
+    pump_commands: Callable[[], None] | None = None,
+    publish_state: Callable[[], None] | None = None,
+    on_written: Callable[[Path], None] | None = None,
+    on_tick: Callable[[], None] | None = None,
 ) -> None:
     """Run the asyncio-free main loop. Updates UI, polls worker results, watches heartbeat."""
     while not stop_flag.is_set():
@@ -390,6 +624,11 @@ def _main_loop(
                 on_key(key)
                 if stop_flag.is_set():
                     break
+            if stop_flag.is_set():
+                break
+
+        if pump_commands is not None:
+            pump_commands()
             if stop_flag.is_set():
                 break
 
@@ -414,11 +653,16 @@ def _main_loop(
                 tp = Path(result["transcript_path"])
                 state.update(last_saved=tp, queue_depth=worker.queue_depth)
                 state.push_event("info", f"chunk {seq:03d} → {tp.name}")
+                if on_written is not None:
+                    on_written(tp)
             else:
                 state.push_event(
                     "error",
                     f"chunk {seq:03d} failed: {result['error'].splitlines()[0]}",
                 )
+
+        if on_tick is not None:
+            on_tick()
 
         # UI render-state refresh.
         peaks = capture.peak_levels_db()
@@ -438,6 +682,9 @@ def _main_loop(
             queue_depth=worker.queue_depth,
             **screenshot_fields,
         )
+
+        if publish_state is not None:
+            publish_state()
 
         if ui is not None:
             ui.update()
@@ -471,6 +718,7 @@ def run_recover(
 
     worker = TranscriptionWorker()
     worker.start()
+    report = RecoveryReport()
     try:
         report = _do_recovery(cfg, worker, log)
     finally:

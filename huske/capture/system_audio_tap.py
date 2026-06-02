@@ -28,6 +28,7 @@ from collections.abc import Callable
 from datetime import datetime
 
 import numpy as np
+import numpy.typing as npt
 
 _PROCESS_TAP_MIN_VERSION = (14, 4)
 
@@ -171,7 +172,9 @@ class CoreAudioTapStream:
         self._cb_obj: object | None = None
         self._ca: ctypes.CDLL | None = None
 
-        self._queue: deque[tuple[np.ndarray, datetime]] = deque(maxlen=max_queued_blocks)
+        self._queue: deque[tuple[npt.NDArray[np.float32], datetime]] = deque(
+            maxlen=max_queued_blocks
+        )
         self._lock = threading.Lock()
         self._cond = threading.Condition(self._lock)
         self._last_callback_at: datetime | None = None
@@ -200,7 +203,7 @@ class CoreAudioTapStream:
         try:
             if not in_input:
                 return 0
-            bl = in_input.contents
+            bl = in_input.contents  # type: ignore[attr-defined]
             n = int(bl.mNumberBuffers)
             if n == 0:
                 return 0
@@ -215,7 +218,7 @@ class CoreAudioTapStream:
                     continue
                 channels = max(int(b.mNumberChannels), 1)
                 byte_arr = (ctypes.c_ubyte * int(b.mDataByteSize)).from_address(b.mData)
-                arr = np.frombuffer(byte_arr, dtype=np.float32).copy()
+                arr = np.frombuffer(byte_arr, dtype=np.float32).copy()  # type: ignore[call-overload]
                 if arr.size == 0:
                     continue
                 if channels == 1:
@@ -344,7 +347,7 @@ class CoreAudioTapStream:
         self._cb_obj = None
         self._on_event("info", "system audio capture stopped (core-audio tap)")
 
-    def drain_available(self) -> list[tuple[np.ndarray, datetime]]:
+    def drain_available(self) -> list[tuple[npt.NDArray[np.float32], datetime]]:
         with self._cond:
             out = list(self._queue)
             self._queue.clear()

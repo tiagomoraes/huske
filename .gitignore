@@ -33,6 +33,9 @@ Thumbs.db
 .env.*
 !.env.example
 
+# Claude Code runtime files
+.claude/scheduled_tasks.lock
+
 # Generated recordings, transcripts, logs, and model/cache data
 audio/
 transcripts/

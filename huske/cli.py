@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import typer
 
@@ -46,33 +45,39 @@ def main(
 @app.command()
 def run(
     chunk_minutes: float = typer.Option(15.0, "--chunk-minutes", "-c", min=0.1, max=60.0),
-    output_root: Optional[Path] = typer.Option(None, "--output-root"),
-    audio_root: Optional[Path] = typer.Option(None, "--audio-root"),
-    model: Optional[str] = typer.Option(None, "--model"),
-    compute_type: Optional[str] = typer.Option(None, "--compute-type"),
-    device: Optional[str] = typer.Option(None, "--device"),
-    language: Optional[str] = typer.Option(None, "--language"),
-    input_device: Optional[str] = typer.Option(None, "--input-device"),
+    output_root: Path | None = typer.Option(None, "--output-root"),
+    audio_root: Path | None = typer.Option(None, "--audio-root"),
+    model: str | None = typer.Option(None, "--model"),
+    compute_type: str | None = typer.Option(None, "--compute-type"),
+    device: str | None = typer.Option(None, "--device"),
+    language: str | None = typer.Option(None, "--language"),
+    input_device: str | None = typer.Option(None, "--input-device"),
     keep_audio: bool = typer.Option(False, "--keep-audio/--no-keep-audio"),
-    screenshots: Optional[bool] = typer.Option(
+    screenshots: bool | None = typer.Option(
         None,
         "--screenshots/--no-screenshots",
         help="Capture a JPEG of every display every N seconds (off by default).",
     ),
-    screenshot_interval: Optional[float] = typer.Option(
+    screenshot_interval: float | None = typer.Option(
         None,
         "--screenshot-interval",
         min=1.0,
         max=3600.0,
         help="Seconds between screenshots (default 10, minimum 1).",
     ),
-    screenshots_root: Optional[Path] = typer.Option(
+    screenshots_root: Path | None = typer.Option(
         None, "--screenshots-root", help="Where screenshots are written."
     ),
-    config_path: Optional[Path] = typer.Option(None, "--config"),
+    config_path: Path | None = typer.Option(None, "--config"),
     log_level: str = typer.Option("INFO", "--log-level"),
     no_ui: bool = typer.Option(False, "--no-ui"),
-    system_audio_backend: Optional[str] = typer.Option(
+    menu_bar: bool | None = typer.Option(
+        None,
+        "--menu-bar/--no-menu-bar",
+        help="Show a macOS menu bar icon while recording (macOS only). "
+        "Defaults to the config file value, or true if unset.",
+    ),
+    system_audio_backend: str | None = typer.Option(
         None,
         "--system-audio-backend",
         help="System audio backend: auto (default), tap, sck, off.",
@@ -96,20 +101,39 @@ def run(
         screenshots_root=screenshots_root,
         log_level=log_level,
         no_ui=no_ui,
+        menu_bar_enabled=menu_bar,
         system_audio_backend=system_audio_backend,
     )
     raise typer.Exit(run_session(config_path=config_path, cli_overrides=cli_overrides))
 
 
 @app.command()
+def menubar(
+    attach: Path = typer.Option(..., "--attach", help="Path to a huske control socket."),
+    style: str = typer.Option(
+        "text",
+        "--style",
+        help="Label style for the menu bar item: 'text' (default, shows 'huske') or 'icon' (logo).",
+    ),
+) -> None:
+    """Render the menu bar helper attached to a running huske session (macOS only)."""
+    from huske.menubar import run_helper
+
+    if style not in {"text", "icon"}:
+        typer.secho(f"invalid --style: {style!r} (expected 'text' or 'icon')", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+    raise typer.Exit(run_helper(attach, style=style))
+
+
+@app.command()
 def recover(
-    output_root: Optional[Path] = typer.Option(None, "--output-root"),
-    audio_root: Optional[Path] = typer.Option(None, "--audio-root"),
-    model: Optional[str] = typer.Option(None, "--model"),
-    compute_type: Optional[str] = typer.Option(None, "--compute-type"),
-    device: Optional[str] = typer.Option(None, "--device"),
-    language: Optional[str] = typer.Option(None, "--language"),
-    config_path: Optional[Path] = typer.Option(None, "--config"),
+    output_root: Path | None = typer.Option(None, "--output-root"),
+    audio_root: Path | None = typer.Option(None, "--audio-root"),
+    model: str | None = typer.Option(None, "--model"),
+    compute_type: str | None = typer.Option(None, "--compute-type"),
+    device: str | None = typer.Option(None, "--device"),
+    language: str | None = typer.Option(None, "--language"),
+    config_path: Path | None = typer.Option(None, "--config"),
     log_level: str = typer.Option("INFO", "--log-level"),
 ) -> None:
     """Process orphaned audio chunks from prior runs without recording."""
@@ -129,15 +153,79 @@ def recover(
 
 @app.command()
 def doctor(
-    input_device: Optional[str] = typer.Option(None, "--input-device"),
-    config_path: Optional[Path] = typer.Option(None, "--config"),
+    input_device: str | None = typer.Option(None, "--input-device"),
+    system_audio_backend: str | None = typer.Option(
+        None,
+        "--system-audio-backend",
+        help="System audio backend to validate: auto, tap, sck, off.",
+    ),
+    config_path: Path | None = typer.Option(None, "--config"),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
     """Validate audio devices, model availability, and write paths."""
     from huske.doctor import run_doctor
 
-    cli_overrides = _collect_overrides(input_device=input_device)
-    raise typer.Exit(run_doctor(config_path=config_path, cli_overrides=cli_overrides, json_output=json_output))
+    cli_overrides = _collect_overrides(
+        input_device=input_device,
+        system_audio_backend=system_audio_backend,
+    )
+    raise typer.Exit(
+        run_doctor(
+            config_path=config_path,
+            cli_overrides=cli_overrides,
+            json_output=json_output,
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
+# Local semantic search + MCP server (huske[mcp] extra)
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def index(
+    output_root: Path | None = typer.Option(None, "--output-root"),
+    rebuild: bool = typer.Option(
+        False, "--rebuild", help="Drop and rebuild the entire index (e.g. after a model change)."
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Re-embed even transcripts whose content is unchanged."
+    ),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Build or refresh the local semantic search index from transcripts."""
+    from huske.search.runner import run_index
+
+    cli_overrides = _collect_overrides(output_root=output_root)
+    raise typer.Exit(
+        run_index(
+            config_path=config_path,
+            cli_overrides=cli_overrides,
+            rebuild=rebuild,
+            force=force,
+        )
+    )
+
+
+@app.command()
+def mcp(
+    host: str | None = typer.Option(
+        None, "--host", help="Bind address (default 127.0.0.1, loopback-only)."
+    ),
+    port: int | None = typer.Option(None, "--port", min=1, max=65535, help="Port (default 7641)."),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Serve huske's transcript search over a local MCP (HTTP) endpoint."""
+    from huske.config import load_config
+    from huske.mcp.server import run as run_mcp
+
+    try:
+        cfg = load_config(config_path=config_path)
+    except ValueError as exc:
+        typer.secho(f"config: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
+    raise typer.Exit(run_mcp(cfg, host=host, port=port))
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +256,7 @@ def _autostart_guard() -> None:
 
 @autostart_app.command("install")
 def autostart_install(
-    config_path: Optional[Path] = typer.Option(
+    config_path: Path | None = typer.Option(
         None, "--config", help="Path to a huske config.toml passed through to `huske run`."
     ),
     log_level: str = typer.Option("INFO", "--log-level"),

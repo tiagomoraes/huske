@@ -17,7 +17,9 @@ from collections.abc import Callable
 from datetime import datetime
 
 import numpy as np
+import numpy.typing as npt
 import objc
+import ScreenCaptureKit as SCK
 from CoreMedia import (
     CMBlockBufferCopyDataBytes,
     CMBlockBufferGetDataLength,
@@ -25,9 +27,6 @@ from CoreMedia import (
     CMSampleBufferGetNumSamples,
 )
 from Foundation import NSObject
-
-import ScreenCaptureKit as SCK
-
 
 _PERMISSION_DENIED_MARKER = "permission denied"
 
@@ -56,13 +55,13 @@ def check_permission(timeout: float = 5.0) -> bool:
     content, error = holder[0]
     if error is not None:
         return False
-    return content is not None and len(content.displays()) > 0
+    return content is not None and len(content.displays()) > 0  # type: ignore[attr-defined]
 
 
-class _StreamOutput(NSObject):
+class _StreamOutput(NSObject):  # type: ignore[misc]
     """SCStreamOutput delegate. Receives audio CMSampleBuffers."""
 
-    def initWithCallback_(self, callback: Callable[[np.ndarray, datetime], None]):  # type: ignore[no-untyped-def]
+    def initWithCallback_(self, callback: Callable[[npt.NDArray[np.float32], datetime], None]):  # type: ignore[no-untyped-def]
         self = objc.super(_StreamOutput, self).init()
         if self is None:
             return None
@@ -103,7 +102,7 @@ class _StreamOutput(NSObject):
                 mono = planar.mean(axis=0).astype(np.float32, copy=False).copy()
             now = datetime.now().astimezone()
             self._callback(mono, now)
-        except Exception:  # noqa: BLE001
+        except Exception:
             # Never raise out of an Objective-C selector — would crash the runloop.
             return
 
@@ -130,7 +129,9 @@ class SystemAudioStream:
 
         self._stream: object | None = None
         self._output: object | None = None
-        self._queue: deque[tuple[np.ndarray, datetime]] = deque(maxlen=max_queued_blocks)
+        self._queue: deque[tuple[npt.NDArray[np.float32], datetime]] = deque(
+            maxlen=max_queued_blocks
+        )
         self._lock = threading.Lock()
         self._cond = threading.Condition(self._lock)
         self._last_callback_at: datetime | None = None
@@ -139,7 +140,7 @@ class SystemAudioStream:
     def last_callback_at(self) -> datetime | None:
         return self._last_callback_at
 
-    def _ingest(self, mono: np.ndarray, when: datetime) -> None:
+    def _ingest(self, mono: npt.NDArray[np.float32], when: datetime) -> None:
         with self._cond:
             if len(self._queue) == self._queue.maxlen:
                 # Backpressure: drop oldest. Only happens if the consumer has stalled
@@ -173,7 +174,7 @@ class SystemAudioStream:
                 "Grant Screen Recording permission to this Python in "
                 "System Settings → Privacy & Security → Screen Recording."
             )
-        displays = content.displays()
+        displays = content.displays()  # type: ignore[attr-defined]
         if not displays or len(displays) == 0:
             raise SystemAudioPermissionError(
                 "No displays available for ScreenCaptureKit — permission likely missing."
@@ -198,8 +199,8 @@ class SystemAudioStream:
         try:
             config.setWidth_(2)
             config.setHeight_(2)
-            config.setMinimumFrameInterval_(((1, 1)))  # 1 fps
-        except Exception:  # noqa: BLE001
+            config.setMinimumFrameInterval_((1, 1))  # 1 fps
+        except Exception:
             pass
 
         output = _StreamOutput.alloc().initWithCallback_(self._ingest)
@@ -241,13 +242,13 @@ class SystemAudioStream:
         def stop_cb(_error: object) -> None:
             stop_done.set()
 
-        self._stream.stopCaptureWithCompletionHandler_(stop_cb)
+        self._stream.stopCaptureWithCompletionHandler_(stop_cb)  # type: ignore[attr-defined]
         stop_done.wait(timeout)
         self._stream = None
         self._output = None
         self._on_event("info", "system audio capture stopped")
 
-    def drain_available(self) -> list[tuple[np.ndarray, datetime]]:
+    def drain_available(self) -> list[tuple[npt.NDArray[np.float32], datetime]]:
         """Pop everything currently queued (non-blocking)."""
         with self._cond:
             out = list(self._queue)

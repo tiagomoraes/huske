@@ -35,15 +35,15 @@ def session_id_short(session_id: str) -> str:
     return suffix[:8].ljust(8, "0")
 
 
-def output_root(cfg: "RuntimeConfig") -> Path:
+def output_root(cfg: RuntimeConfig) -> Path:
     return cfg.output_root
 
 
-def audio_root(cfg: "RuntimeConfig", session_id: str) -> Path:
+def audio_root(cfg: RuntimeConfig, session_id: str) -> Path:
     return cfg.audio_root / session_id
 
 
-def logs_path(cfg: "RuntimeConfig", session_id: str) -> Path:
+def logs_path(cfg: RuntimeConfig, session_id: str) -> Path:
     return cfg.logs_root / f"{session_id}.log"
 
 
@@ -51,12 +51,12 @@ def lock_path(audio_root: Path) -> Path:
     return audio_root / ".lock"
 
 
-def day_folder(cfg: "RuntimeConfig", when: datetime | date) -> Path:
+def day_folder(cfg: RuntimeConfig, when: datetime | date) -> Path:
     d = when.date() if isinstance(when, datetime) else when
     return cfg.output_root / d.isoformat()
 
 
-def transcript_filename(chunk: "AudioChunk", suffix: str | None = None) -> Path:
+def transcript_filename(chunk: AudioChunk, suffix: str | None = None) -> Path:
     """Per ``contracts/transcript-format.md``:
     ``<HHMMSS>_<sessionid8>_<chunk_seq:03d>.md``.
     """
@@ -71,7 +71,7 @@ def transcript_filename(chunk: "AudioChunk", suffix: str | None = None) -> Path:
     return Path(f"{name}.md")
 
 
-def transcript_path(cfg: "RuntimeConfig", chunk: "AudioChunk") -> Path:
+def transcript_path(cfg: RuntimeConfig, chunk: AudioChunk) -> Path:
     folder = day_folder(cfg, chunk.start_time)
     return folder / transcript_filename(chunk).name
 
@@ -90,7 +90,7 @@ def disambiguate_if_collides(target: Path) -> Path:
 
 
 def audio_chunk_path(
-    cfg: "RuntimeConfig",
+    cfg: RuntimeConfig,
     session_id: str,
     chunk_seq: int,
     start_time: datetime,
@@ -103,12 +103,21 @@ def audio_chunk_path(
     return folder / f"{base}.wav"
 
 
-def incomplete_root(cfg: "RuntimeConfig") -> Path:
+def incomplete_root(cfg: RuntimeConfig) -> Path:
     return cfg.audio_root / "incomplete"
 
 
+def index_root(cfg: RuntimeConfig) -> Path:
+    return cfg.index_root
+
+
+def index_db_path(cfg: RuntimeConfig) -> Path:
+    """Single-file sqlite-vec passage store under ``index_root``."""
+    return cfg.index_root / "passages.db"
+
+
 def screenshots_session_dir(
-    cfg: "RuntimeConfig", session_id: str, when: datetime
+    cfg: RuntimeConfig, session_id: str, when: datetime
 ) -> Path:
     """Per-day, per-session screenshot directory.
 
@@ -123,7 +132,7 @@ def screenshot_filename(when: datetime, display_index: int) -> str:
     return f"{when.strftime('%H%M%S')}_d{display_index}.jpg"
 
 
-def ensure_dirs(cfg: "RuntimeConfig", session_id: str) -> None:
+def ensure_dirs(cfg: RuntimeConfig, session_id: str) -> None:
     """Create the per-session directories. Idempotent."""
     cfg.output_root.mkdir(parents=True, exist_ok=True)
     cfg.audio_root.mkdir(parents=True, exist_ok=True)

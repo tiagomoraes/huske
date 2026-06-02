@@ -9,13 +9,13 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from threading import Lock
 from typing import Literal
 
 
-class SessionState(str, Enum):
+class SessionState(StrEnum):
     STARTING = "starting"
     RECORDING = "recording"
     STOPPING = "stopping"
@@ -23,7 +23,7 @@ class SessionState(str, Enum):
     FAILED = "failed"
 
 
-class ChunkState(str, Enum):
+class ChunkState(StrEnum):
     CAPTURING = "capturing"
     FINALIZED = "finalized"
     QUEUED = "queued"
@@ -105,6 +105,10 @@ class RenderState:
     paused: bool = False
     stopping: bool = False
     help_visible: bool = False
+    picker_visible: bool = False
+    picker_devices: list[tuple[int, str]] = field(default_factory=list)
+    picker_cursor: int = 0
+    picker_current_index: int | None = None
     current_chunk_seq: int = 0
     chunk_started_at: datetime | None = None
     next_rotation_at: datetime | None = None

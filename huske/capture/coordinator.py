@@ -1,13 +1,15 @@
-"""Capture coordinator: runs mic (sounddevice) + system audio (ScreenCaptureKit) in parallel
-and forwards each source separately to the chunker so they can be transcribed independently.
+"""Capture coordinator: runs mic + system audio in parallel.
+
+Microphone capture uses sounddevice. System audio uses Core Audio process tap
+where available, with ScreenCaptureKit as the legacy fallback. Each source is
+forwarded separately to the chunker so they can be transcribed independently.
 
 Threads:
   - PortAudio audio thread (sounddevice-managed) calls ``_mic_callback`` directly
     for every input block. Mono conversion + peak-level update + push-to-ring-buffer
     happen here. No Python loop is involved — the audio thread is high-priority
     and not subject to GIL contention from our other Python threads.
-  - The SCStream sample-handler thread (ScreenCaptureKit-managed) supplies system mono
-    frames via ``SystemAudioStream``'s internal queue.
+  - The system-audio backend supplies mono frames through its internal queue.
   - Our ``_mixer_loop`` thread drains both ring buffers at fixed cadence and forwards
     each one to the chunker (the BlockSink) with its source tag — no mixing on disk.
     Per-source peaks for the UI are tracked at push time on each source's audio thread.
@@ -25,6 +27,7 @@ from datetime import datetime
 from typing import Protocol
 
 import numpy as np
+import numpy.typing as npt
 import sounddevice as sd
 
 from huske.capture.system_audio import (
@@ -34,10 +37,13 @@ from huske.capture.system_audio import (
 from huske.capture.system_audio_tap import (
     CoreAudioTapPermissionError,
     CoreAudioTapStream,
+)
+from huske.capture.system_audio_tap import (
     is_supported as is_tap_supported,
 )
 from huske.config import RuntimeConfig
 
+NDArrayF32 = npt.NDArray[np.float32]
 
 SystemAudioBackendInstance = SystemAudioStream | CoreAudioTapStream
 SystemAudioPermissionLike = SystemAudioPermissionError | CoreAudioTapPermissionError
@@ -46,7 +52,7 @@ SystemAudioPermissionLike = SystemAudioPermissionError | CoreAudioTapPermissionE
 class BlockSink(Protocol):
     def write_block(
         self,
-        block: np.ndarray,
+        block: NDArrayF32,
         source: str = "microphone",
         now: datetime | None = None,
     ) -> None: ...
@@ -64,12 +70,12 @@ class _SourceBuffer:
 
     def __init__(self, max_frames: int) -> None:
         self._max = max_frames
-        self._chunks: deque[np.ndarray] = deque()
+        self._chunks: deque[NDArrayF32] = deque()
         self._n = 0
         self._lock = threading.Lock()
         self._dropped_warn = False
 
-    def push(self, block: np.ndarray) -> bool:
+    def push(self, block: NDArrayF32) -> bool:
         """Append `block` (mono float32). Returns True iff frames had to be dropped."""
         dropped = False
         with self._lock:
@@ -81,12 +87,12 @@ class _SourceBuffer:
                 dropped = True
         return dropped
 
-    def take(self, n: int) -> np.ndarray:
+    def take(self, n: int) -> NDArrayF32:
         """Pop up to n mono samples. Returns a mono float32 array of length min(n, available)."""
         with self._lock:
             if self._n == 0 or n <= 0:
                 return np.zeros(0, dtype=np.float32)
-            taken: list[np.ndarray] = []
+            taken: list[NDArrayF32] = []
             remaining = n
             while remaining > 0 and self._chunks:
                 head = self._chunks[0]
@@ -175,6 +181,10 @@ class CaptureCoordinator:
         return self._sys_active
 
     @property
+    def mic_device_index(self) -> int | None:
+        return self._mic_device_index
+
+    @property
     def paused(self) -> bool:
         return self._paused.is_set()
 
@@ -215,7 +225,7 @@ class CaptureCoordinator:
             self._mic_stream.start()
             self._mic_active = True
             self._on_event("info", "microphone capture started")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             self._on_event("error", f"mic capture failed: {exc}")
             self._mic_active = False
 
@@ -244,6 +254,7 @@ class CaptureCoordinator:
             order = ["tap", "sck"] if is_tap_supported() else ["sck"]
 
         last_error: Exception | None = None
+        tap_error: Exception | None = None
         for choice in order:
             try:
                 if choice == "tap":
@@ -259,17 +270,31 @@ class CaptureCoordinator:
                 self._system_stream.start()
                 self._sys_active = True
                 self._on_warning_clear("system_audio")
+                if choice == "tap":
+                    self._on_warning_clear("system_audio_backend")
+                elif backend == "auto" and tap_error is not None:
+                    self._on_warning(
+                        "system_audio_backend",
+                        "Core Audio tap failed; using ScreenCaptureKit fallback. "
+                        "System audio may stop during screen sharing.",
+                    )
+                else:
+                    self._on_warning_clear("system_audio_backend")
                 return
             except (SystemAudioPermissionError, CoreAudioTapPermissionError) as exc:
                 last_error = exc
+                if choice == "tap":
+                    tap_error = exc
                 self._on_event(
                     "warn",
                     f"system audio backend '{choice}' unavailable: {exc}",
                 )
                 self._system_stream = None
                 continue
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 last_error = exc
+                if choice == "tap":
+                    tap_error = exc
                 self._on_event(
                     "error", f"system audio backend '{choice}' failed: {exc}"
                 )
@@ -280,7 +305,7 @@ class CaptureCoordinator:
         if isinstance(last_error, SystemAudioPermissionError):
             self._on_warning(
                 "system_audio",
-                "Screen Recording permission needed for system audio. "
+                "ScreenCaptureKit system audio needs Screen Recording permission. "
                 "System Settings → Privacy & Security → Screen Recording.",
             )
         elif isinstance(last_error, CoreAudioTapPermissionError):
@@ -295,19 +320,112 @@ class CaptureCoordinator:
             )
         self._sys_active = False
 
+    def swap_mic_device(self, new_device_index: int) -> bool:
+        """Switch the live microphone input to ``new_device_index``.
+
+        Stops the existing ``sd.InputStream`` before opening the new one —
+        macOS Core Audio is unreliable when two input streams on different
+        physical devices are open at the same time (especially while the
+        system-audio aggregate device is also alive), so we serialize the
+        teardown and the open. If the new device fails to open we try to
+        revert to the old one; if that also fails we leave the coordinator
+        in mic-off mode and surface a warning.
+        """
+        if new_device_index == self._mic_device_index and self._mic_stream is not None:
+            return True
+
+        old_stream = self._mic_stream
+        old_index = self._mic_device_index
+
+        with self._pause_lock:
+            was_paused = self._paused.is_set()
+            self._paused.set()
+            self._mic_stream = None
+            self._mic_active = False
+            self._clear_buffers()
+            with self._peak_lock:
+                self._mic_peak = 0.0
+
+        if old_stream is not None:
+            try:
+                old_stream.stop()
+                old_stream.close()
+            except Exception:
+                pass
+
+        new_stream: sd.InputStream | None = None
+        try:
+            new_stream = sd.InputStream(
+                device=new_device_index,
+                channels=1,
+                samplerate=self._cfg.sample_rate,
+                blocksize=self._cfg.block_size,
+                dtype="float32",
+                latency="high",
+                callback=self._mic_callback,
+            )
+            new_stream.start()
+        except Exception as exc:
+            self._on_event("error", f"mic switch failed: {exc}")
+            new_stream = None
+
+        if new_stream is None and old_index is not None:
+            # Try to fall back to the previous device.
+            try:
+                fallback = sd.InputStream(
+                    device=old_index,
+                    channels=1,
+                    samplerate=self._cfg.sample_rate,
+                    blocksize=self._cfg.block_size,
+                    dtype="float32",
+                    latency="high",
+                    callback=self._mic_callback,
+                )
+                fallback.start()
+            except Exception as exc:
+                self._on_event(
+                    "error", f"mic switch failed and old device unavailable: {exc}"
+                )
+                with self._pause_lock:
+                    if not was_paused:
+                        self._paused.clear()
+                return False
+            with self._pause_lock:
+                self._mic_stream = fallback
+                self._mic_device_index = old_index
+                self._mic_active = True
+                if not was_paused:
+                    self._paused.clear()
+            return False
+
+        if new_stream is None:
+            with self._pause_lock:
+                if not was_paused:
+                    self._paused.clear()
+            return False
+
+        with self._pause_lock:
+            self._mic_stream = new_stream
+            self._mic_device_index = new_device_index
+            self._mic_active = True
+            if not was_paused:
+                self._paused.clear()
+        self._on_event("info", "microphone capture switched")
+        return True
+
     def stop(self, timeout: float = 5.0) -> None:
         self._stop.set()
         if self._mic_stream is not None:
             try:
                 self._mic_stream.stop()
                 self._mic_stream.close()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
             self._mic_stream = None
         if self._system_stream is not None:
             try:
                 self._system_stream.stop(timeout=timeout)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
             self._system_stream = None
         if self._mixer_thread is not None:
@@ -318,7 +436,7 @@ class CaptureCoordinator:
 
     def _mic_callback(
         self,
-        indata: np.ndarray,
+        indata: NDArrayF32,
         frames: int,
         time_info: object,
         status: object,
@@ -359,13 +477,13 @@ class CaptureCoordinator:
 
             # Must copy: sounddevice reuses the buffer for the next callback.
             self._mic_buf.push(np.asarray(mono, dtype=np.float32).copy())
-        except Exception:  # noqa: BLE001
+        except Exception:
             # Never propagate — would crash PortAudio's audio thread.
             return
 
     def _mixer_loop(self) -> None:
         sr = self._cfg.sample_rate
-        block_frames = max(1, int(round(sr * _MIXER_BLOCK_SECONDS)))
+        block_frames = max(1, round(sr * _MIXER_BLOCK_SECONDS))
 
         while not self._stop.is_set():
             if self._paused.is_set():
@@ -420,7 +538,7 @@ class CaptureCoordinator:
             self._emit_aligned_pair(mic_part, sys_part)
 
     def _emit_aligned_pair(
-        self, mic_part: np.ndarray, sys_part: np.ndarray
+        self, mic_part: NDArrayF32, sys_part: NDArrayF32
     ) -> None:
         """Forward one mixer tick's mic + system frames to the chunker.
 
@@ -467,7 +585,7 @@ def _to_db(x: float) -> float:
     return float(20.0 * np.log10(min(x, 1.0)))
 
 
-def _pad_to_length(part: np.ndarray, target: int) -> np.ndarray:
+def _pad_to_length(part: NDArrayF32, target: int) -> NDArrayF32:
     """Trailing-pad ``part`` with zeros so its length matches ``target``.
 
     If ``target`` is 0 (no reference) or ``part`` is already long enough,

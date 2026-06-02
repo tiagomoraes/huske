@@ -13,8 +13,10 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
 
-On macOS, grant Screen Recording permission to the Python interpreter before
-running real system-audio capture. `huske doctor` validates the local setup.
+On macOS, grant the capture permission requested for the Python interpreter
+before running real system-audio capture. `huske doctor` validates the effective
+backend: Core Audio process tap on macOS 14.4+ or ScreenCaptureKit fallback on
+older systems.
 
 ## Common commands
 
@@ -42,8 +44,8 @@ mypy huske
 ```
 
 Ruff and Mypy are useful while changing Python code, but they are not required
-CI gates yet because the 0.1 branch still needs a dedicated lint/type baseline
-cleanup.
+CI gates yet. Report any baseline failure instead of doing broad cleanup unless
+the task is specifically about lint or typing.
 
 Optional integration checks:
 
@@ -65,6 +67,8 @@ huske/
   recovery/      orphaned audio recovery
   transcribe/    worker process and transcript writing
   ui/            Rich live terminal UI
+docs/            maintainer and contributor documentation
+website/         static public website served by GitHub Pages
 specs/           feature specs, contracts, and planning notes
 tests/           unit and integration tests
 examples/        example user configuration

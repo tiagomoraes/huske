@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -32,7 +32,7 @@ def _chunk(session_id: str, seq: int, start: datetime) -> AudioChunk:
 
 
 def test_two_sessions_same_second_have_distinct_filenames(cfg: RuntimeConfig) -> None:
-    start = datetime(2026, 5, 7, 9, 15, 0, tzinfo=timezone.utc)
+    start = datetime(2026, 5, 7, 9, 15, 0, tzinfo=UTC)
     a = _chunk("20260507T091500_aaaa1111", 1, start)
     b = _chunk("20260507T091500_bbbb2222", 1, start)
     fa = paths.transcript_filename(a).name
@@ -52,7 +52,7 @@ def test_disambiguate_handles_real_collision(tmp_path: Path) -> None:
 
 
 def test_chunk_seq_disambiguates_within_session(cfg: RuntimeConfig) -> None:
-    start = datetime(2026, 5, 7, 9, 15, 0, tzinfo=timezone.utc)
+    start = datetime(2026, 5, 7, 9, 15, 0, tzinfo=UTC)
     a = _chunk("20260507T091500_aaaa1111", 1, start)
     b = _chunk("20260507T091500_aaaa1111", 2, start)
     assert paths.transcript_filename(a) != paths.transcript_filename(b)

@@ -5,10 +5,11 @@ Each tick writes one JPEG per attached display to
 ``~/huske/screenshots/YYYY-MM-DD/<session_id>/HHMMSS_dN.jpg``.
 
 Why ``screencapture``: it's built into macOS, ships native JPEG encoding, and
-inherits the same Screen Recording permission the audio capture already
-requires. ``screencapture`` writes "1 file per screen" when given multiple
-file paths — we pass ``screenshots_max_displays`` paths and only the
-existing displays produce files. No external dep, no probing required.
+uses Screen Recording permission. System audio may use a different Core Audio
+permission on newer macOS versions, so screenshots can still trigger their own
+prompt. ``screencapture`` writes "1 file per screen" when given multiple file
+paths — we pass ``screenshots_max_displays`` paths and only the existing
+displays produce files. No external dep, no probing required.
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ import subprocess
 import threading
 from collections.abc import Callable
 from datetime import datetime
-from pathlib import Path
 from typing import Literal
 
 from huske import paths
@@ -96,7 +96,7 @@ class ScreenshotCapturer:
                 self._capture_once(datetime.now().astimezone())
             except subprocess.TimeoutExpired:
                 self._on_event("warn", "screenshot capture timed out")
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 self._on_event("warn", f"screenshot capture failed: {exc}")
 
     def _capture_once(self, now: datetime) -> int:
@@ -108,7 +108,7 @@ class ScreenshotCapturer:
             for i in range(1, self._cfg.screenshots_max_displays + 1)
         ]
         cmd = [_SCREENCAPTURE, "-x", "-t", "jpg", *(str(t) for t in targets)]
-        result = subprocess.run(  # noqa: S603 — argv is a fixed list
+        result = subprocess.run(
             cmd,
             capture_output=True,
             timeout=_CAPTURE_TIMEOUT_SECONDS,

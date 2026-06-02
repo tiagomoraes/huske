@@ -12,7 +12,6 @@ from huske import paths
 from huske.config import RuntimeConfig
 from huske.screenshots import ScreenshotCapturer
 
-
 # ---------------------------------------------------------------------------
 # Config defaults and validation
 # ---------------------------------------------------------------------------
@@ -88,7 +87,7 @@ def _cfg(tmp_path: Path, *, max_displays: int = 4) -> RuntimeConfig:
     )
 
 
-def _fake_screencapture_writing(displays: int) -> "subprocess.CompletedProcess[bytes]":
+def _fake_screencapture_writing(displays: int) -> subprocess.CompletedProcess[bytes]:
     """Build a fake subprocess.run that writes JPEGs for the first ``displays``
     file arguments, mimicking how real ``screencapture`` writes 1 file per
     attached display."""
@@ -103,7 +102,7 @@ def test_capture_once_writes_files_for_each_display(
 
     captured_cmds: list[list[str]] = []
 
-    def fake_run(cmd: list[str], **kwargs: object) -> "subprocess.CompletedProcess[bytes]":
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
         captured_cmds.append(cmd)
         # Real screencapture writes the first N files for N attached displays.
         # Simulate 2 of 3 displays present.
@@ -135,7 +134,7 @@ def test_capture_once_raises_when_screencapture_fails(
     cfg = _cfg(tmp_path)
     cap = ScreenshotCapturer(cfg=cfg, session_id="sess2")
 
-    def fake_run(cmd: list[str], **kwargs: object) -> "subprocess.CompletedProcess[bytes]":
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
         return subprocess.CompletedProcess(
             args=cmd, returncode=1, stdout=b"", stderr=b"permission denied"
         )
@@ -153,7 +152,7 @@ def test_capture_once_raises_when_no_files_produced(
     cfg = _cfg(tmp_path)
     cap = ScreenshotCapturer(cfg=cfg, session_id="sess3")
 
-    def fake_run(cmd: list[str], **kwargs: object) -> "subprocess.CompletedProcess[bytes]":
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
         # success exit code but writes nothing — surface as a clear error.
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=b"", stderr=b"")
 
@@ -190,7 +189,7 @@ def test_loop_emits_warning_on_failure(
     cfg = _cfg(tmp_path)
     events: list[tuple[str, str]] = []
 
-    def fake_run(cmd: list[str], **kwargs: object) -> "subprocess.CompletedProcess[bytes]":
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
         return subprocess.CompletedProcess(
             args=cmd, returncode=1, stdout=b"", stderr=b"boom"
         )
@@ -218,7 +217,7 @@ def test_stop_is_idempotent(
         "huske.screenshots.capturer.shutil.which", lambda _: "/usr/sbin/screencapture"
     )
 
-    def fake_run(cmd: list[str], **kwargs: object) -> "subprocess.CompletedProcess[bytes]":
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
         for path_str in cmd[4:5]:
             Path(path_str).write_bytes(b"\xff\xd8")
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=b"", stderr=b"")

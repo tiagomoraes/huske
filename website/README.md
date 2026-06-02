@@ -44,7 +44,7 @@ The page is composed from three component files loaded via
 
 Hardcoded copy that's worth keeping in sync with the rest of the repo:
 
-- Version string (`v0.4.0`) appears in `Nav` and `Footer` — update on each
+- Version string (`v0.5.0`) appears in `Nav` and `Footer` — update on each
   release (see `pyproject.toml` `version`)
 - Release timeline data lives in `RELEASES` in `components-sections.jsx`
 - GitHub star count in `Nav` (`gh-pill .num`) is a static placeholder

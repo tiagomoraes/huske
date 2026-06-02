@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 _README_TEMPLATE = """# Huske transcripts
 
 This directory is managed by the `huske` terminal app. Each subdirectory is a

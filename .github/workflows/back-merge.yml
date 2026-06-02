@@ -1,0 +1,121 @@
+name: Auto back-merge after release
+
+# When a `release: vX.Y.Z` or `hotfix: ...` PR is merged into `main`,
+# automatically open the corresponding `chore/sync-main-after-...` PR back
+# into `develop`. The maintainer reviewer must still merge that PR with
+# **"Create a merge commit"** (not squash) — squashing drops `main`'s tip
+# as a second parent and every subsequent `develop -> main` PR shows
+# "out of date".
+#
+# Requires:
+#   - Repo setting: Settings → Actions → General → Workflow permissions →
+#     "Allow GitHub Actions to create and approve pull requests" enabled.
+#   - The `GITHUB_TOKEN` granted contents: write + pull-requests: write
+#     for this job (configured below via `permissions:`).
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  back-merge:
+    if: >-
+      github.event.pull_request.merged == true && (
+        startsWith(github.event.pull_request.title, 'release: v') ||
+        startsWith(github.event.pull_request.title, 'hotfix:')
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Compute branch name and label
+        id: meta
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          if [[ "$PR_TITLE" =~ ^release:\ v([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+            version="${BASH_REMATCH[1]}"
+            branch="chore/sync-main-after-v${version}"
+            label="v${version}"
+            kind="release"
+          else
+            slug=$(printf '%s' "$PR_TITLE" \
+              | sed -E 's/^hotfix:[[:space:]]*//' \
+              | tr -cs '[:alnum:]' '-' \
+              | sed -E 's/^-+|-+$//g' \
+              | tr '[:upper:]' '[:lower:]' \
+              | cut -c1-40)
+            branch="chore/sync-main-hotfix-${slug}"
+            label="hotfix-${slug}"
+            kind="hotfix"
+          fi
+          {
+            echo "branch=$branch"
+            echo "label=$label"
+            echo "kind=$kind"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Sanity-check the merge type
+        # If the promotion PR was squashed instead of merged, the back-merge
+        # is pointless: the merged main commit will not have main's prior
+        # tip as a second parent. Surface that loudly.
+        run: |
+          set -euo pipefail
+          parents=$(git log -1 --format='%P' origin/main | wc -w | tr -d ' ')
+          echo "main HEAD has $parents parent(s)"
+          if [ "$parents" -lt 2 ]; then
+            echo "::warning::main HEAD is not a merge commit (only $parents parent). The promotion PR may have been squashed; the back-merge will not add ancestry."
+          fi
+
+      - name: Create back-merge branch
+        run: |
+          set -euo pipefail
+          branch='${{ steps.meta.outputs.branch }}'
+          label='${{ steps.meta.outputs.label }}'
+          git fetch origin develop main
+          git checkout -B "$branch" origin/develop
+          git merge origin/main --no-ff -m "chore: sync main back into develop after $label"
+          git push --force-with-lease -u origin "$branch"
+
+      - name: Open back-merge PR (or note an existing one)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          branch='${{ steps.meta.outputs.branch }}'
+          label='${{ steps.meta.outputs.label }}'
+          existing=$(gh pr list --base develop --head "$branch" --state open --json number --jq '.[0].number' || true)
+          if [ -n "$existing" ]; then
+            echo "PR #$existing already open for $branch — refreshed branch only"
+            exit 0
+          fi
+          body=$(cat <<EOF
+          Auto-opened by \`.github/workflows/back-merge.yml\` after the \`${label}\` promotion PR merged into \`main\`.
+
+          The file diff against \`develop\` is empty — this PR only adds ancestry so future \`develop -> main\` PRs don't show "out of date" and the new tag is reachable from \`develop\`.
+
+          ## ⚠️ Merge instructions
+
+          > Use **"Create a merge commit"**, not squash. Squashing copies the content but drops \`main\`'s tip as a second parent — \`main\`'s history never lands in \`develop\`'s ancestry, defeating the whole purpose of this PR.
+          EOF
+          )
+          gh pr create \
+            --base develop \
+            --head "$branch" \
+            --title "chore: sync main back into develop after $label" \
+            --body "$body"

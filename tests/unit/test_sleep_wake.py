@@ -8,11 +8,9 @@ beyond the threshold, the run loop sets a sticky warning.
 
 from __future__ import annotations
 
-import time
 from datetime import datetime, timedelta
 
 from huske.models import RenderState
-
 
 _HEARTBEAT_THRESHOLD = 5.0
 

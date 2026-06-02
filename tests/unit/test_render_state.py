@@ -16,7 +16,7 @@ def test_update_and_event_are_thread_safe() -> None:
             for i in range(500):
                 state.update(current_chunk_seq=i)
                 state.push_event("info", f"e{i}")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             errors.append(exc)
 
     threads = [threading.Thread(target=bash) for _ in range(8)]

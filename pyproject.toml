@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "huske"
-version = "0.5.0"
+version = "0.6.0"
 description = "Always-on terminal audio recorder + local transcription (Whisper)"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -33,6 +33,7 @@ dependencies = [
     "pydantic>=2.6",
     "structlog>=24.1",
     "pyyaml>=6.0",
+    "tomli-w>=1.0",
     # System audio capture on macOS via ScreenCaptureKit (macOS 13+).
     "pyobjc-framework-ScreenCaptureKit>=10; sys_platform == 'darwin'",
     "pyobjc-framework-CoreMedia>=10; sys_platform == 'darwin'",
@@ -52,6 +53,16 @@ dev = [
     "pytest-asyncio>=0.23",
     "ruff>=0.4",
     "mypy>=1.10",
+]
+# Local semantic search + MCP server (`huske index` / `huske mcp`). Opt-in:
+# embedding rides the MLX/Metal stack mlx-whisper already ships, the vector
+# store is a zero-dependency SQLite extension, and `mcp` is the official SDK.
+# See docs/adr/0001-0003 and CONTEXT.md (Passage).
+mcp = [
+    "mlx-embeddings>=0.1.0; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "sqlite-vec>=0.1.6",
+    "mcp>=1.12",
+    "uvicorn>=0.30",
 ]
 
 [project.scripts]
@@ -85,6 +96,11 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "RUF"]
 ignore = ["E501"]  # line length handled by formatter
+
+[tool.ruff.lint.per-file-ignores]
+# Typer's idiomatic API uses `typer.Option(...)` / `typer.Argument(...)` as
+# argument defaults, which trips B008 (function-call-in-default-argument).
+"huske/cli.py" = ["B008"]
 
 [tool.mypy]
 python_version = "3.11"

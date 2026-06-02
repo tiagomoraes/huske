@@ -79,7 +79,7 @@ While huske is running, the user keeps the terminal visible and can see at a gla
 #### Capture
 - **FR-001**: System MUST continuously capture audio from the user's microphone while huske is running.
 - **FR-002**: System MUST continuously capture audio from the computer's system output (audio played by other applications) while huske is running.
-- **FR-003**: System MUST capture both sources concurrently into a single combined audio stream per chunk for transcription, without dropping audio at chunk boundaries.
+- **FR-003**: System MUST capture both sources concurrently into source-tagged audio for each chunk, without dropping audio at chunk boundaries.
 - **FR-004**: System MUST refuse to start if no usable audio input source is available, and surface a clear actionable error.
 
 #### Chunking
@@ -115,7 +115,7 @@ While huske is running, the user keeps the terminal visible and can see at a gla
 ### Key Entities
 
 - **Recording Session**: A single uninterrupted run of huske from start to graceful stop. Has a unique session identifier used to disambiguate output and group transcripts produced in the same run.
-- **Audio Chunk**: A fixed-duration (default 15 min) slice of captured audio bounded by chunk boundaries or session start/end. Has a start time, end time, actual duration, source mix (mic + system), and a status (capturing → finalized → transcribing → transcribed | failed).
+- **Audio Chunk**: A fixed-duration (default 15 min) slice of captured audio bounded by chunk boundaries or session start/end. Has a start time, end time, actual duration, effective sources (mic/system), per-source WAV paths, and a status (capturing → finalized → transcribing → transcribed | failed).
 - **Transcript**: The textual output of a successfully transcribed chunk. Carries metadata (date, start/end time, duration, session ID) plus the text body. Stored as a single file in the day's folder.
 - **Day Folder**: A subdirectory grouping all transcripts whose chunk start time falls on a single calendar date.
 - **Output Root**: The configurable top-level directory under which all day folders live. Must be a stable filesystem path that a downstream LLM agent can be pointed at.
@@ -138,11 +138,11 @@ While huske is running, the user keeps the terminal visible and can see at a gla
 - **Single-user, single-machine, personal use**: Huske is built for one user recording on their own machine for their own knowledge base. Multi-user, networked, or shared-recording scenarios are out of scope.
 - **Local-only processing**: All audio processing and transcription happens on the user's machine. No audio or transcript data leaves the device. (This is a hard requirement implied by the brief, treated as an assumption-of-record here.)
 - **Recording consent is the user's responsibility**: Capturing system audio may incidentally include other parties' voices (e.g., participants in a video call). Compliance with applicable recording-consent laws is the user's responsibility, not enforced by the app.
-- **Mic + system audio mixed, not separated**: For v1, the two sources are mixed into a single stream before transcription. Speaker diarization and per-source channels are out of scope.
+- **Mic + system audio are source-tagged, not diarized**: For v1, the two capture sources are retained separately for transcription and merged into a single Markdown transcript with source labels. Speaker diarization within either source is out of scope.
 - **Language handled by the underlying model**: Language detection and multi-language support are inherited from the chosen Whisper-class model with sensible defaults; explicit per-session language configuration is not required for v1.
 - **Default chunk duration is 15 minutes**, configurable. Reasonable bounds (e.g., 1–60 minutes) apply.
 - **Default output root is a predictable path under `$HOME`** (e.g., `~/huske/transcripts/`), configurable at startup. The path is documented so it can be passed to a downstream LLM agent (e.g., Claude Code) in a follow-up integration.
 - **Raw audio is deleted after a chunk is successfully transcribed** to bound disk usage, unless the user opts in to retention. Audio for failed-transcription chunks is retained until retried.
 - **LLM integration is out of scope for v1**: Querying the transcripts via an LLM, creating Todoist tasks via MCP, scheduling, etc. are explicitly future work. v1 must produce a structured output that *enables* such integrations, not implement them.
-- **Target platform is macOS 13 (Ventura) or newer on Apple Silicon**. System-audio capture uses Apple's ScreenCaptureKit framework directly — no virtual audio driver (BlackHole), no Aggregate Device, no Audio MIDI Setup. The user grants Screen Recording permission on first launch and never thinks about it again.
+- **Target platform is macOS 13 (Ventura) or newer on Apple Silicon**. System-audio capture uses Apple's built-in APIs directly — Core Audio process tap on macOS 14.4+ and ScreenCaptureKit fallback on older macOS — with no virtual audio driver (BlackHole), no Aggregate Device, and no Audio MIDI Setup. The user grants the relevant macOS capture permission on first launch and never thinks about it again.
 - **Configuration is provided via CLI flags or a small config file** read at startup. Live reconfiguration mid-session is not required for v1.

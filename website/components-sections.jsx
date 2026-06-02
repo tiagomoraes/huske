@@ -32,7 +32,7 @@ const Pillars = () => (
             is a once-a-day, opt-out version check.
           </p>
           <div className="stat">
-            <div><strong>0</strong>cloud calls</div>
+            <div><strong>0</strong>audio uploads</div>
             <div><strong>0</strong>accounts</div>
             <div><strong>~/huske/</strong>only</div>
           </div>
@@ -42,29 +42,30 @@ const Pillars = () => (
           <div className="ph">always · on</div>
           <h3>Continuous capture, no gaps.</h3>
           <p>
-            Microphone via <code>sounddevice</code>. System audio via Apple's <code>ScreenCaptureKit</code>.
-            Mixed in software, rotated into Markdown chunks every 15 minutes. SIGKILL the
+            Microphone via <code>sounddevice</code>. System audio via Core Audio process tap
+            on macOS 14.4+, with ScreenCaptureKit fallback on older macOS. Rotated into
+            Markdown chunks every 15 minutes. SIGKILL the
             process and <code>huske recover</code> reclaims orphaned audio.
           </p>
           <div className="stat">
             <div><strong>15 min</strong>default chunks</div>
             <div><strong>6 s — 60 m</strong>configurable</div>
-            <div><strong>16 kHz</strong>mono</div>
+            <div><strong>48 kHz</strong>mono wav</div>
           </div>
         </div>
 
         <div className="pillar" style={{ display: "flex", flexDirection: "column" }}>
           <div className="ph">agent · ready</div>
-          <h3>A directory your agent can read.</h3>
+          <h3>A directory your agent can read — and search.</h3>
           <p>
-            Plain Markdown, organized by date, full YAML frontmatter, day-level <code>README.md</code>.
-            Point Claude Code, codex, or any LLM agent at <code>~/huske/transcripts/</code> and ask
-            it about your day.
+            Plain Markdown, organized by date, full YAML frontmatter, root <code>README.md</code>.
+            Point Claude Code or any LLM agent at <code>~/huske/transcripts/</code>, or opt into the
+            <code>huske[mcp]</code> extra for on-device semantic <a href="#search">search over an MCP server</a>.
           </p>
           <div className="stat">
             <div><strong>md</strong>output format</div>
-            <div><strong>YAML</strong>frontmatter</div>
-            <div><strong>by date</strong>indexed</div>
+            <div><strong>vector</strong>local index</div>
+            <div><strong>mcp</strong>search + fetch</div>
           </div>
         </div>
       </div>
@@ -86,11 +87,11 @@ const HowItWorks = () => (
           <div className="n"><span className="digit">01</span></div>
           <div>
             <h4>Capture two streams.</h4>
-            <p>Microphone via <code>sounddevice</code>. System audio via Apple's <code>ScreenCaptureKit</code>. Mixed in software at 16 kHz mono so chunk boundaries never lose a sample.</p>
+            <p>Microphone via <code>sounddevice</code>. System audio via Core Audio process tap on macOS 14.4+, with ScreenCaptureKit fallback on older macOS. Each source is written as a mono WAV so chunk boundaries stay gapless.</p>
           </div>
           <div className="meta">
             <div className="row"><span className="k">backend</span><span className="v">auto · tap · sck · off</span></div>
-            <div className="row"><span className="k">permission</span><span className="v">screen recording</span></div>
+            <div className="row"><span className="k">permission</span><span className="v">audio capture · screen recording</span></div>
             <div className="row"><span className="k">prompted</span><span className="v">first run only</span></div>
           </div>
         </div>
@@ -104,7 +105,7 @@ const HowItWorks = () => (
           <div className="meta">
             <div className="row"><span className="k">--chunk-minutes</span><span className="v">0.1 – 60.0 <span className="opt">(15 default)</span></span></div>
             <div className="row"><span className="k">audio root</span><span className="v">~/huske/audio/</span></div>
-            <div className="row"><span className="k">format</span><span className="v">wav · pcm_s16le · 16 kHz</span></div>
+            <div className="row"><span className="k">format</span><span className="v">wav · pcm_s16le · 48 kHz</span></div>
           </div>
         </div>
 
@@ -115,7 +116,7 @@ const HowItWorks = () => (
             <p><code>mlx-whisper</code> on Apple Silicon, running on the M-series GPU via MLX. Per-chunk, on-device, no cloud. Per-source segments for mic and system audio so timestamps map back to wall-clock session time.</p>
           </div>
           <div className="meta">
-            <div className="row"><span className="k">--model</span><span className="v">large-v3-turbo <span className="opt">(default)</span></span></div>
+            <div className="row"><span className="k">--model</span><span className="v">base <span className="opt">(default)</span></span></div>
             <div className="row"><span className="k">engine</span><span className="v">mlx-whisper · apple gpu</span></div>
             <div className="row"><span className="k">latency</span><span className="v">~5–7× realtime · M2</span></div>
           </div>
@@ -125,7 +126,7 @@ const HowItWorks = () => (
           <div className="n"><span className="digit">04</span></div>
           <div>
             <h4>Write a Markdown ledger.</h4>
-            <p>One Markdown file per chunk under <code>YYYY-MM-DD/HHMMSS_session_NNN.md</code>, with YAML frontmatter and per-source turns. A day-level <code>README.md</code> indexes the chunks. That's the agent's input — and the human's, too.</p>
+            <p>One Markdown file per chunk under <code>YYYY-MM-DD/HHMMSS_&lt;sessionid8&gt;_&lt;seq&gt;.md</code>, with YAML frontmatter and timestamped per-source paragraphs. A root <code>README.md</code> documents the layout. That's the agent's input — and the human's, too.</p>
           </div>
           <div className="meta">
             <div className="row"><span className="k">--output-root</span><span className="v">~/huske/transcripts/</span></div>
@@ -160,6 +161,7 @@ const OutputPreview = () => {
         <div className="ledger">
           <div className="tree">
             <div className="head">~/huske/transcripts/</div>
+            <div className="item"><span className="glyph">├─</span> README.md</div>
             <div className="item root"><span className="glyph">▾</span> 2026-05-07/</div>
             {FILES.map((f, i) => (
               <div
@@ -172,11 +174,9 @@ const OutputPreview = () => {
                 {f.name}
               </div>
             ))}
-            <div className="item"><span className="glyph">└─</span> README.md</div>
             <div style={{ height: 12 }}/>
             <div className="item root"><span className="glyph">▸</span> 2026-05-06/</div>
             <div className="item root"><span className="glyph">▸</span> 2026-05-05/</div>
-            <div className="item"><span className="glyph">└─</span> README.md</div>
           </div>
           <div className="doc">
             <div className="crumb">
@@ -194,13 +194,19 @@ const OutputPreview = () => {
             </div>
             <div className="frontmatter">
               <div><span className="delim">---</span></div>
-              <div><span className="key">session_id:</span>      <span className="str">"8a3f2c19-08d2-4f29-b71e-1c204aa5a1f0"</span></div>
-              <div><span className="key">chunk:</span>            <span className="val">1</span></div>
-              <div><span className="key">started_at:</span>       <span className="str">2026-05-07T09:15:00-03:00</span></div>
+              <div><span className="key">session_id:</span>      <span className="str">"20260507T091500_8a3f"</span></div>
+              <div><span className="key">chunk_seq:</span>       <span className="val">1</span></div>
+              <div><span className="key">date:</span>            <span className="str">2026-05-07</span></div>
+              <div><span className="key">start_time:</span>      <span className="str">2026-05-07T09:15:00-03:00</span></div>
+              <div><span className="key">end_time:</span>        <span className="str">2026-05-07T09:30:00-03:00</span></div>
               <div><span className="key">duration_seconds:</span> <span className="val">900</span></div>
-              <div><span className="key">model:</span>            <span className="val">mlx-whisper:large-v3-turbo</span></div>
-              <div><span className="key">sources:</span>          <span className="val">[mic, system]</span></div>
-              <div><span className="key">host:</span>             <span className="str">"macbook-pro · darwin 24.0.0"</span></div>
+              <div><span className="key">duration_actual_seconds:</span> <span className="val">900.0</span></div>
+              <div><span className="key">gap_seconds:</span>     <span className="val">0.0</span></div>
+              <div><span className="key">model:</span>            <span className="val">mlx-whisper:base</span></div>
+              <div><span className="key">audio_sources:</span>    <span className="val">[microphone, system]</span></div>
+              <div><span className="key">language:</span>         <span className="str">auto</span></div>
+              <div><span className="key">incomplete:</span>       <span className="val">false</span></div>
+              <div><span className="key">huske_version:</span>    <span className="str">0.5.0</span></div>
               <div><span className="delim">---</span></div>
             </div>
 
@@ -238,11 +244,138 @@ const OutputPreview = () => {
   );
 };
 
+const RECALL_RESULTS = [
+  {
+    when: "2026-05-07 · 09:15",
+    srcs: ["mic", "system"],
+    score: 0.92,
+    snippet: <>every failure is within 80&nbsp;ms of the cookie write returning — <mark>pin the auth header in the same hop.</mark></>,
+    full: "the timing is interesting — every failure is within 80 ms of the cookie write returning. … the middleware reads from the request before the response cookie has flushed. easy fix — we can pin the auth header in the same hop.",
+    cite: { session: "20260507T091500_8a3f", range: "09:15:38 – 09:15:54", sources: "mic · system" },
+  },
+  {
+    when: "2026-05-06 · 14:30",
+    srcs: ["system"],
+    score: 0.81,
+    snippet: <>staging logs confirmed the race; agreed to ship the header fix <mark>before the refactor.</mark></>,
+    full: "staging logs confirmed the race under load. we agreed to ship the small header fix this week and hold the broader session refactor until after the release.",
+    cite: { session: "20260506T142955_b71e", range: "14:31:10 – 14:32:02", sources: "system" },
+  },
+  {
+    when: "2026-05-05 · 11:00",
+    srcs: ["mic"],
+    score: 0.74,
+    snippet: <>flagged the token refresh as flaky on slow links — <mark>needs a repro.</mark></>,
+    full: "i flagged the token refresh as flaky on slow links during the demo. no repro yet — let's instrument it and pick it up next standup.",
+    cite: { session: "20260505T110000_c0a8", range: "11:02:40 – 11:03:09", sources: "mic" },
+  },
+];
+
+const MCP_CMD = 'claude mcp add --transport http huske \\\n  http://127.0.0.1:7641/mcp \\\n  --header "Authorization: Bearer hsk_…"';
+
+const SearchRecall = () => {
+  const [active, setActive] = React.useState(0);
+  const [copied, setCopied] = React.useState(false);
+  return (
+    <section id="search">
+      <div className="page">
+        <SectionHead
+          num="04"
+          label="search"
+          lead={<>Recall, not just <span className="accent">storage.</span></>}
+          sub={<>Opt into the <code>huske[mcp]</code> extra and every transcript becomes searchable by <em>meaning</em> — on-device embeddings, a local vector index, and an MCP server your chat model queries directly. The whole index is built and served without a byte leaving the machine.</>}
+        />
+        <div className="recall">
+          <div className="panel query-panel">
+            <div className="qbar">
+              <span className="prefix">query:</span>
+              <span className="q">what did we decide about the auth bug?</span>
+              <span className="caret" aria-hidden="true"/>
+            </div>
+            <div className="filters">
+              <span className="chip"><span className="k">source</span><span className="v">any</span></span>
+              <span className="chip"><span className="k">from</span><span className="v">2026-05-01</span></span>
+              <span className="chip"><span className="k">to</span><span className="v">2026-05-07</span></span>
+              <span className="chip"><span className="k">k</span><span className="v">8</span></span>
+            </div>
+            <div className="results">
+              {RECALL_RESULTS.map((r, i) => (
+                <div
+                  key={i}
+                  className={`result ${i === active ? "active" : ""}`}
+                  onClick={() => setActive(i)}
+                >
+                  <div className="rank">{String(i + 1).padStart(2, "0")}</div>
+                  <div className="main">
+                    <div className="title">
+                      <span>{r.when}</span>
+                      {r.srcs.map((s) => (
+                        <span key={s} className={`src ${s === "mic" ? "mic" : "sys"}`}>
+                          {s === "mic" ? "mic" : "sys"}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="snippet">{r.snippet}</div>
+                    {i === active && (
+                      <div className="detail">
+                        <div className="full">{r.full}</div>
+                        <div className="cite">
+                          <span><b>session</b> {r.cite.session}</span>
+                          <span><b>range</b> {r.cite.range}</span>
+                          <span><b>sources</b> {r.cite.sources}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="score">
+                    <span>{r.score.toFixed(2)}</span>
+                    <span className="meter"><span className="fill" style={{ width: `${r.score * 100}%` }}/></span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="panel wiring">
+            <div className="whead"><span className="dot"/> mcp · loopback</div>
+            <div className="cmd">
+              <button
+                className={`copy ${copied ? "copied" : ""}`}
+                onClick={() => {
+                  navigator.clipboard?.writeText(MCP_CMD.replace(/\\\n\s*/g, " "));
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1200);
+                }}
+              >
+                {copied ? <CheckGlyph/> : <CopyGlyph/>}
+                {copied ? "copied" : "copy"}
+              </button>
+              <div><span className="prompt">$ </span>claude mcp add <span className="flag">--transport</span> http huske</div>
+              <div>{"  "}http://127.0.0.1:7641/mcp</div>
+              <div>{"  "}<span className="flag">--header</span> "Authorization: Bearer hsk_…"</div>
+            </div>
+            <div className="wmeta">
+              <div className="row"><span className="k">endpoint</span><span className="v">127.0.0.1:7641/mcp</span></div>
+              <div className="row"><span className="k">auth</span><span className="v">bearer · origin-checked</span></div>
+              <div className="row"><span className="k">model</span><span className="v">multilingual-e5-base · 768d</span></div>
+              <div className="row"><span className="k">index</span><span className="v">3,184 passages · 212 days</span></div>
+            </div>
+            <div className="wnote">
+              <div className="ln"><span className="tick">✓</span><span>Claude Code &amp; Desktop connect direct — loopback, no tunnel.</span></div>
+              <div className="ln"><span className="warn">⚠</span><span>ChatGPT needs an HTTPS tunnel to reach it (opt-in).</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+};
+
 const Privacy = () => (
   <section id="privacy">
     <div className="page">
       <SectionHead
-        num="04"
+        num="05"
         label="privacy"
         lead={<>Local-first isn't a vibe. <span className="accent">It's the architecture.</span></>}
       />
@@ -307,7 +440,18 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.5.0", date: "2026-05-09", tag: "latest",
+    ver: "0.6.0", date: "2026-06-02", tag: "latest",
+    items: [
+      { kind: "changed", text: <>Release process collapses into three scripts under <code>scripts/</code>: <code>release.py</code>, <code>release-finalize.py</code>, and <code>update-homebrew-tap.py</code>. The short operational checklist is <code>docs/RELEASE_PLAYBOOK.md</code>; <code>docs/releasing.md</code> remains as the deep reference.</> },
+      { kind: "changed", text: <><code>huske/__init__.py</code> now reads the version from <code>pyproject.toml</code> when the package source is adjacent (dev checkout / editable install) and falls back to <code>importlib.metadata</code> for installed wheels. The two hardcoded versions could no longer drift the way <code>0.3.1</code> had to be hotfixed for.</> },
+      { kind: "added", text: <><code>.github/workflows/back-merge.yml</code> automatically opens the <code>chore/sync-main-after-vX.Y.Z</code> (or <code>chore/sync-main-hotfix-…</code>) PR when a <code>release: v*</code> / <code>hotfix:*</code> PR merges into <code>main</code>, so the back-merge step no longer relies on the maintainer remembering to open it.</> },
+      { kind: "added", text: <>**Local semantic search** (opt-in <code>huske[mcp]</code> extra). <code>huske index</code> builds or refreshes a local <code>sqlite-vec</code> passage store from transcripts. Each finalized transcript is embedded via <code>mlx-embeddings</code> (<code>multilingual-e5-base</code>) in an isolated subprocess so the audio drainer is never starved. <code>huske run</code> can continuously index during recording when <code>indexing_enabled = true</code> in config. See <code>docs/adr/0002</code> and <code>CONTEXT.md</code> for the Passage model.</> },
+      { kind: "added", text: <>**<code>huske mcp</code> daemon** exposes <code>search</code> and <code>fetch</code> over a loopback HTTP MCP endpoint (bearer token + Origin/Host validation). Works with any MCP client (Claude Desktop, ChatGPT, etc.). See <code>docs/adr/0001</code>.</> },
+      { kind: "added", text: <><code>index_root</code>, <code>indexing_enabled</code>, <code>embedding_model</code>, <code>mcp_host</code>, and <code>mcp_port</code> config keys for the search subsystem.</> },
+    ],
+  },
+  {
+    ver: "0.5.0", date: "2026-05-09",
     items: [
       { kind: "added", text: <><code>huske autostart</code> subcommand group to manage a macOS LaunchAgent that runs <code>huske run --no-ui</code> at every login. Verbs: <code>install</code>, <code>uninstall</code>, <code>status</code>, <code>start</code>, <code>stop</code>. Logs at <code>~/Library/Logs/huske/agent.&#123;out,err&#125;.log</code>. Default restart policy is restart-on-crash only.</> },
     ],
@@ -353,7 +497,7 @@ const Releases = () => (
   <section id="releases">
     <div className="page">
       <SectionHead
-        num="05"
+        num="06"
         label="releases"
         lead={<>A short, public <span className="accent">changelog.</span></>}
         sub={<>Semantic versioning after 0.1.0. Patch notes are written in plain English and live in the repo. Install with <code>uv tool upgrade huske</code>, <code>pipx upgrade huske</code>, or <code>brew upgrade huske</code>.</>}
@@ -390,7 +534,7 @@ const Community = () => (
   <section id="community">
     <div className="page">
       <SectionHead
-        num="06"
+        num="07"
         label="community"
         lead={<>Open source. <span className="accent">Calmly maintained.</span></>}
         sub="huske is a small project. Contributions are welcome, issues are triaged in the open, and there's a clear PR template. Read the contributing guide before opening anything bigger than a typo fix."
@@ -432,7 +576,7 @@ const FAQ = () => (
   <section id="faq" className="faq-section">
     <div className="page page-narrow">
       <SectionHead
-        num="07"
+        num="08"
         label="faq"
         lead={<>The questions that actually <span className="accent">come up.</span></>}
       />
@@ -441,13 +585,13 @@ const FAQ = () => (
           <summary>Does any audio leave my machine? <span className="chev">→</span></summary>
           <div className="answer">
             <p>No. Capture and transcription both run locally — <code>mlx-whisper</code> on Apple Silicon. The only network call huske makes is a once-a-day, opt-out version check against PyPI.</p>
-            <p>If you want to verify, <code>HUSKE_NO_UPDATE_CHECK=1</code> turns even that off, and <code>huske doctor</code> shows you which sockets are open.</p>
+            <p>If you want to keep it fully offline, <code>HUSKE_NO_UPDATE_CHECK=1</code> turns even that off. <code>huske doctor</code> validates local setup without uploading recordings.</p>
           </div>
         </details>
         <details>
           <summary>What permissions does it need on macOS? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>Microphone permission for your terminal, and Screen Recording permission for system-audio capture via <code>ScreenCaptureKit</code>. macOS prompts for both on first run. Run <code>huske doctor</code> first — it checks both and explains what's missing.</p>
+            <p>Microphone permission for your terminal, plus Audio Capture for the Core Audio tap on macOS 14.4+ or Screen Recording for the ScreenCaptureKit fallback. Screenshots also use Screen Recording. Run <code>huske doctor</code> first — it checks the effective backend and explains what's missing.</p>
           </div>
         </details>
         <details>
@@ -459,20 +603,27 @@ const FAQ = () => (
         <details>
           <summary>Can I use it with Claude Code or another agent? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>Yes — that's the design target. Files under <code>~/huske/transcripts/</code> are plain Markdown, dated, with frontmatter. Point your agent at the directory and ask. The day-level <code>README.md</code> is auto-generated to be a useful entry point.</p>
-            <p>Common pattern: a daily standup recap, a "what did we decide about X this week" query, a search-then-quote across the whole month.</p>
+            <p>Yes — that's the design target. Files under <code>~/huske/transcripts/</code> are plain Markdown, dated, with frontmatter. Point your agent at the directory and ask. The root <code>README.md</code> is auto-generated to be a useful entry point.</p>
+            <p>For semantic recall across months — "what did we decide about X this week" — install the <code>huske[mcp]</code> extra and run <code>huske mcp</code>. Your agent then searches by meaning over a local index instead of grepping filenames. See <a href="#search">search</a>.</p>
+          </div>
+        </details>
+        <details>
+          <summary>How does the semantic search / MCP server work? <span className="chev">→</span></summary>
+          <div className="answer">
+            <p><code>pip install 'huske[mcp]'</code> adds two subcommands. <code>huske index</code> embeds every transcript into a single local <code>sqlite-vec</code> file with a multilingual model running on the Apple GPU via MLX — the same stack as transcription, so nothing leaves the machine. Set <code>indexing_enabled = true</code> to keep it fresh automatically as you record.</p>
+            <p><code>huske mcp</code> serves a loopback HTTP MCP endpoint (bearer token + Origin checks) exposing <code>search</code> and <code>fetch</code>. Claude Code and Claude Desktop connect directly with no tunnel; ChatGPT can reach it through an HTTPS tunnel. Answering still happens in whichever chat model you connect, so result snippets reach that provider when it reads them — the indexing and the index itself stay on-device.</p>
           </div>
         </details>
         <details>
           <summary>Is this only for Apple Silicon? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>Yes. The transcription engine (<code>mlx-whisper</code>) runs on the M-series GPU via MLX, and the system-audio capture path uses <code>ScreenCaptureKit</code>, which is macOS-only. Intel Macs and Linux/Windows are not supported in 0.3.</p>
+            <p>Apple Silicon Mac is the supported target in 0.5.0. The transcription engine (<code>mlx-whisper</code>) runs on the M-series GPU via MLX, and system-audio capture uses macOS-only Core Audio / ScreenCaptureKit APIs.</p>
           </div>
         </details>
         <details>
           <summary>How do I configure chunk length, model, output path? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>Flags: <code>--chunk-minutes</code> (0.1–60), <code>--model</code> (default <code>large-v3-turbo</code>), <code>--output-root</code> (default <code>~/huske/transcripts</code>), <code>--audio-root</code>. Or set them in <code>~/.config/huske/config.toml</code>.</p>
+            <p>Flags: <code>--chunk-minutes</code> (0.1–60), <code>--model</code> (default <code>base</code>; choices <code>tiny</code>, <code>base</code>, <code>small</code>, <code>medium</code>, <code>large-v3</code>), <code>--output-root</code>, <code>--audio-root</code>, and <code>--system-audio-backend</code> (<code>auto</code>, <code>tap</code>, <code>sck</code>, <code>off</code>). Or set them in <code>~/.config/huske/config.toml</code>.</p>
           </div>
         </details>
         <details>
@@ -488,5 +639,5 @@ const FAQ = () => (
 );
 
 Object.assign(window, {
-  SectionHead, Pillars, HowItWorks, OutputPreview, Privacy, Releases, Community, FAQ,
+  SectionHead, Pillars, HowItWorks, OutputPreview, SearchRecall, Privacy, Releases, Community, FAQ,
 });

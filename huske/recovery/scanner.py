@@ -13,7 +13,6 @@ import soundfile as sf
 from huske.config import RuntimeConfig
 from huske.session import is_lock_alive
 
-
 # Per-source filename: ``<seq>_<HHMMSS>_<source>.wav``. The unsuffixed legacy
 # form (``<seq>_<HHMMSS>.wav``) is still accepted so sessions captured before
 # the source-split change can be recovered.
@@ -60,7 +59,7 @@ def _parse_session_start(session_id: str) -> datetime | None:
 def _wav_duration_seconds(path: Path) -> float | None:
     try:
         info = sf.info(str(path))
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
     if info.frames <= 0 or info.samplerate <= 0:
         return None

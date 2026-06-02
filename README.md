@@ -25,10 +25,11 @@ it about your day.
 
 ## Features
 
-- **Continuous capture** — mic (sounddevice) + system audio (Apple ScreenCaptureKit),
-  mixed in software, no gaps at chunk boundaries.
+- **Continuous capture** — mic (sounddevice) + system audio (Core Audio process tap
+  on macOS 14.4+, ScreenCaptureKit fallback on older macOS), source-tagged and
+  gapless at chunk boundaries.
 - **No drivers, no Audio MIDI Setup** — system audio comes through Apple's
-  modern ScreenCaptureKit framework. Just grant Screen Recording permission once.
+  built-in capture APIs. Grant the macOS audio/screen capture permission once.
 - **Local transcription** — `mlx-whisper`, default `base` model, runs on the
   Apple Silicon GPU via MLX. Audio never leaves your machine.
 - **Configurable chunk size** — default 15 minutes, anything from 6 s to 60 min.
@@ -40,6 +41,10 @@ it about your day.
 - **LLM-ready output** — every transcript is a single Markdown file with full
   YAML frontmatter; the directory layout is documented in
   `~/huske/transcripts/README.md` (auto-generated).
+- **Local semantic search (opt-in MCP server)** — `huske[mcp]` adds on-device
+  embedding + a local vector index so Claude Code, Claude Desktop, or ChatGPT
+  can search your transcripts by meaning. Embeddings and the index never leave
+  your machine; see [Search your transcripts from Claude / ChatGPT](#search-your-transcripts-from-claude--chatgpt-opt-in).
 - **Optional periodic screenshots** — opt in with `--screenshots` to also
   capture a JPEG of every attached display every 10 s, stored under
   `~/huske/screenshots/YYYY-MM-DD/<session>/HHMMSS_dN.jpg` for downstream
@@ -47,7 +52,9 @@ it about your day.
 
 ## Requirements
 
-- macOS 13 (Ventura) or newer. Apple Silicon is the primary target.
+- macOS 13 (Ventura) or newer. macOS 14.4+ is recommended for system audio
+  capture that keeps working while another app is sharing your screen. Apple
+  Silicon is the primary target.
 - Python 3.11, 3.12, or 3.13.
 
 ## Quickstart
@@ -56,7 +63,7 @@ it about your day.
 # 1. Install
 uv tool install huske
 
-# 2. Validate setup (will prompt for Screen Recording permission on first run)
+# 2. Validate setup (will prompt for macOS capture permission on first run)
 huske doctor
 
 # 3. Record (Ctrl+C to stop)
@@ -77,9 +84,14 @@ brew tap tiagomoraes/huske
 brew install huske
 ```
 
-On first launch macOS will prompt you to grant **Screen Recording** permission
-to your Python interpreter — that's what ScreenCaptureKit needs to capture
-system audio. After approving once, it's silent forever.
+On macOS 14.4+, Huske uses a Core Audio process tap for system audio so Google
+Meet, Zoom, and similar screen sharing do not interrupt capture. macOS may
+prompt for **Audio Capture** or a screen-recording-adjacent permission for your
+Python interpreter or launcher. On older macOS versions, or when
+`--system-audio-backend sck` is set, Huske falls back to ScreenCaptureKit, which
+requires **Screen Recording** permission and can be interrupted by another app's
+screen share. Run `huske doctor --system-audio-backend tap` if the system level
+meter goes silent during screen sharing.
 
 Runtime controls in the live UI:
 
@@ -89,6 +101,7 @@ Runtime controls in the live UI:
 Inside controls:
 p       pause or resume audio recording
 s       enable or disable periodic screenshots
+i       choose microphone input device
 q       graceful stop
 Esc     close controls
 
@@ -102,7 +115,7 @@ screenshots directory and interval.
 For prerelease builds or exact GitHub tags, install directly from the repository:
 
 ```bash
-uv tool install "git+https://github.com/tiagomoraes/huske.git@v0.1.0"
+uv tool install "git+https://github.com/tiagomoraes/huske.git@v0.5.0"
 ```
 
 See [quickstart.md](specs/001-huske-recorder/quickstart.md) for the full setup.
@@ -137,9 +150,9 @@ exits cleanly, it stays stopped until next login. Pass `--no-keep-alive` to
 disable auto-restart on crash too.
 
 **Permissions.** The first time the agent records, macOS will prompt for
-**Microphone** and **Screen Recording** permissions for the resolved `huske`
-binary (or its Python interpreter). Approve both in System Settings →
-Privacy & Security. If the prompts don't appear after login, run
+**Microphone** and the relevant audio/screen capture permission for the
+resolved `huske` binary (or its Python interpreter). Approve them in System
+Settings → Privacy & Security. If the prompts don't appear after login, run
 `huske autostart start` once from the terminal so they fire while you're
 present.
 
@@ -182,8 +195,9 @@ timestamped so a downstream multimodal LLM can correlate each screenshot
 with that day's transcripts.
 
 Capture uses macOS's built-in `screencapture`, so no extra dependency is
-needed and the same Screen Recording permission you've already granted for
-system audio is reused.
+needed. It uses Screen Recording permission; if system audio is using the Core
+Audio tap, macOS may prompt for this separately when screenshots are first
+enabled.
 
 Flags:
 
@@ -201,6 +215,62 @@ The screenshot interval must be at least 1 second.
 > `~/huske/screenshots/` exactly like the audio and transcript directories:
 > never commit it, share with care, and review the
 > [Privacy and consent](#privacy-and-consent) section before enabling.
+
+## Search your transcripts from Claude / ChatGPT (opt-in)
+
+The base install gives any LLM agent file access to `~/huske/transcripts/`. For
+*semantic* search — "what did we decide about the pricing model last week?"
+across months of calls — install the optional extra:
+
+```bash
+pip install 'huske[mcp]'   # mlx-embeddings + sqlite-vec + the MCP SDK
+```
+
+This adds two subcommands and one config flag:
+
+1. **Build the index.** `huske index` embeds every transcript under
+   `output_root` into a single local vector file (`~/huske/index/passages.db`)
+   using a multilingual model that runs on the Apple Silicon GPU via MLX —
+   the same Metal stack `mlx-whisper` already uses. Nothing leaves your machine.
+
+   ```bash
+   huske index                 # backfill your whole history (incremental)
+   huske index --rebuild       # after changing the embedding model
+   ```
+
+   To keep the index fresh automatically, set `indexing_enabled = true` in
+   `~/.config/huske/config.toml`; `huske run` then embeds each finalized
+   transcript in the background, in an isolated subprocess that never blocks
+   audio capture.
+
+2. **Serve it over MCP.** `huske mcp` runs a small always-on HTTP server
+   (loopback-only, guarded by an auto-generated bearer token and Origin/Host
+   validation) that exposes `search` and `fetch` tools.
+
+   ```bash
+   huske mcp
+   # prints the endpoint, token, and a ready-to-paste registration command
+   ```
+
+   **Claude Code / Claude Desktop** connect directly — no tunnel:
+
+   ```bash
+   claude mcp add --transport http huske http://127.0.0.1:7641/mcp \
+     --header "Authorization: Bearer <token from the banner>"
+   ```
+
+   **ChatGPT** can only reach a public HTTPS endpoint, so it additionally needs
+   you to expose the local server through a tunnel (OpenAI's secure tunnel,
+   `cloudflared`, etc.). That sends transcript snippets through a public
+   endpoint to OpenAI — opt in deliberately.
+
+> **Privacy.** Embedding and indexing are fully on-device, but *answering*
+> happens in whichever chat model you connect — so transcript snippets are
+> sent to that model's provider (Anthropic for Claude, OpenAI for ChatGPT)
+> when it reads a result, exactly as if you had pasted them in. The local
+> endpoint is loopback-bound and token-guarded; only the ChatGPT-via-tunnel
+> path widens that surface. The design rationale lives in
+> [docs/adr/0001-http-only-mcp-daemon.md](docs/adr/0001-http-only-mcp-daemon.md).
 
 ## Privacy and consent
 
@@ -231,6 +301,9 @@ metadata can contain private or legally sensitive information.
 - [CLI contract](specs/001-huske-recorder/contracts/cli.md) — flags, exit codes.
 - [Transcript format contract](specs/001-huske-recorder/contracts/transcript-format.md) — the LLM-consumer interface.
 - [Quickstart](specs/001-huske-recorder/quickstart.md) — end-to-end setup.
+- [Glossary](CONTEXT.md) — domain language (Chunk, Segment, Passage, …).
+- [Architecture decisions](docs/adr/) — why the MCP daemon, search stack, and
+  embed-worker isolation are built the way they are.
 
 ## Community
 

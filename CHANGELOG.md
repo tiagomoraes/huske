@@ -6,6 +6,39 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.6.0 - 2026-06-02
+
+### Changed
+
+- Release process collapses into three scripts under `scripts/`:
+  `release.py`, `release-finalize.py`, and `update-homebrew-tap.py`. The
+  short operational checklist is `docs/RELEASE_PLAYBOOK.md`;
+  `docs/releasing.md` remains as the deep reference.
+- `huske/__init__.py` now reads the version from `pyproject.toml` when
+  the package source is adjacent (dev checkout / editable install) and
+  falls back to `importlib.metadata` for installed wheels. The two
+  hardcoded versions could no longer drift the way `0.3.1` had to be
+  hotfixed for.
+
+### Added
+
+- `.github/workflows/back-merge.yml` automatically opens the
+  `chore/sync-main-after-vX.Y.Z` (or `chore/sync-main-hotfix-…`) PR when
+  a `release: v*` / `hotfix:*` PR merges into `main`, so the back-merge
+  step no longer relies on the maintainer remembering to open it.
+- **Local semantic search** (opt-in `huske[mcp]` extra). `huske index`
+  builds or refreshes a local `sqlite-vec` passage store from transcripts.
+  Each finalized transcript is embedded via `mlx-embeddings`
+  (`multilingual-e5-base`) in an isolated subprocess so the audio drainer
+  is never starved. `huske run` can continuously index during recording
+  when `indexing_enabled = true` in config. See `docs/adr/0002` and
+  `CONTEXT.md` for the Passage model.
+- **`huske mcp` daemon** exposes `search` and `fetch` over a loopback HTTP
+  MCP endpoint (bearer token + Origin/Host validation). Works with any MCP
+  client (Claude Desktop, ChatGPT, etc.). See `docs/adr/0001`.
+- `index_root`, `indexing_enabled`, `embedding_model`, `mcp_host`, and
+  `mcp_port` config keys for the search subsystem.
+
 ## 0.5.0 - 2026-05-09
 
 ### Added
