@@ -427,4 +427,14 @@ def autostart_stop() -> None:
 
 
 def _collect_overrides(**kwargs: object) -> dict[str, object]:
-    return {k: v for k, v in kwargs.items() if v is not None}
+    # When `ctx.invoke(run)` is used as a default subcommand, Typer passes the
+    # raw OptionInfo descriptor objects instead of resolved values for parameters
+    # the user did not explicitly set. These must be treated as "not provided" —
+    # the same as None — so the config file and field defaults win.
+    from typer.models import ArgumentInfo, OptionInfo
+
+    return {
+        k: v
+        for k, v in kwargs.items()
+        if v is not None and not isinstance(v, (OptionInfo, ArgumentInfo))
+    }

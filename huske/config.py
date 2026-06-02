@@ -173,6 +173,11 @@ def load_config(
     if absent). `cli_overrides` are applied last and win on conflict.
     """
 
+    # Typer's ctx.invoke passes raw OptionInfo objects for unset params instead
+    # of None. Accept only actual Path values; treat anything else as "not set".
+    if not isinstance(config_path, Path):
+        config_path = None
+
     file_path = config_path or default_user_config_path()
     file_data = _read_toml(file_path) if file_path.exists() else {}
     overrides = {k: v for k, v in (cli_overrides or {}).items() if v is not None}
