@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -26,6 +30,31 @@ class Check:
     ok: bool
     detail: str
     hint: str | None = None
+
+
+@contextmanager
+def _suppress_native_output(enabled: bool) -> Iterator[None]:
+    """Suppress C-extension writes while building machine-readable JSON output."""
+    if not enabled:
+        yield
+        return
+
+    sys.stdout.flush()
+    sys.stderr.flush()
+    saved_stdout = os.dup(1)
+    saved_stderr = os.dup(2)
+    try:
+        with open(os.devnull, "wb") as devnull:
+            os.dup2(devnull.fileno(), 1)
+            os.dup2(devnull.fileno(), 2)
+            yield
+            sys.stdout.flush()
+            sys.stderr.flush()
+    finally:
+        os.dup2(saved_stdout, 1)
+        os.dup2(saved_stderr, 2)
+        os.close(saved_stdout)
+        os.close(saved_stderr)
 
 
 def _peak_levels(device_index: int, channels: int, seconds: float) -> tuple[float, ...]:
@@ -85,6 +114,24 @@ def _screen_capturekit_check(*, label: str = "system audio") -> Check:
         )
 
 
+def _screen_capturekit_available_check(*, label: str = "system audio") -> Check:
+    try:
+        import ScreenCaptureKit as _sck  # noqa: F401
+    except ImportError:
+        return Check(
+            label,
+            False,
+            "ScreenCaptureKit framework unavailable",
+            "Requires macOS 13+. Install pyobjc-framework-ScreenCaptureKit.",
+        )
+    return Check(
+        label,
+        True,
+        "ScreenCaptureKit available; permission not probed",
+        "Run `huske doctor --system-audio-backend sck` to validate Screen Recording permission.",
+    )
+
+
 def _core_audio_tap_check(cfg: RuntimeConfig) -> Check:
     try:
         from huske.capture.system_audio_tap import CoreAudioTapStream, is_supported
@@ -105,10 +152,38 @@ def _core_audio_tap_check(cfg: RuntimeConfig) -> Check:
             "or set system_audio_backend = 'sck' for the legacy backend.",
         )
 
-    stream = CoreAudioTapStream(sample_rate=cfg.sample_rate)
-    try:
-        stream.start()
-    except Exception as exc:
+    done = threading.Event()
+    errors: list[BaseException] = []
+
+    def probe() -> None:
+        stream = CoreAudioTapStream(sample_rate=cfg.sample_rate)
+        try:
+            stream.start()
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            try:
+                stream.stop()
+            finally:
+                done.set()
+
+    thread = threading.Thread(
+        target=probe,
+        name="huske-doctor-core-audio-tap-probe",
+        daemon=True,
+    )
+    thread.start()
+    if not done.wait(5.0):
+        return Check(
+            "system audio",
+            False,
+            "Core Audio process tap probe timed out",
+            "macOS may be waiting for capture permission. Grant Audio Capture / "
+            "Screen Recording permission if prompted, then restart huske.",
+        )
+
+    if errors:
+        exc = errors[0]
         return Check(
             "system audio",
             False,
@@ -116,8 +191,6 @@ def _core_audio_tap_check(cfg: RuntimeConfig) -> Check:
             "Grant Audio Capture / Screen Recording permission if macOS prompts, "
             "then restart huske. ScreenCaptureKit fallback can stop during screen sharing.",
         )
-    finally:
-        stream.stop()
 
     return Check("system audio", True, "Core Audio process tap usable")
 
@@ -138,12 +211,16 @@ def _system_audio_checks(cfg: RuntimeConfig) -> list[Check]:
         effective = "Core Audio tap" if tap_available else "ScreenCaptureKit"
         checks = [Check("system backend", True, f"auto -> {effective}")]
         if tap_available:
-            tap_check = _core_audio_tap_check(cfg)
-            checks.append(tap_check)
-            if not tap_check.ok:
-                checks.append(_screen_capturekit_check(label="system fallback"))
+            checks.append(
+                Check(
+                    "system audio",
+                    True,
+                    "Core Audio process tap available; permission not probed",
+                    "Run `huske doctor --system-audio-backend tap` to validate capture permission.",
+                )
+            )
             return checks
-        checks.append(_screen_capturekit_check())
+        checks.append(_screen_capturekit_available_check())
         return checks
 
     if backend == "tap":
@@ -208,7 +285,8 @@ def run_doctor(
 
     # sounddevice working.
     try:
-        host_apis = list(sd.query_hostapis())
+        with _suppress_native_output(json_output):
+            host_apis = list(sd.query_hostapis())
         checks.append(
             Check("sounddevice", True, f"{len(host_apis)} host API(s) detected")
         )
@@ -223,8 +301,9 @@ def run_doctor(
         )
 
     # Resolve + validate microphone.
-    devices = list_input_devices()
-    device_resolution = resolve_input_device_with_fallback(cfg.input_device)
+    with _suppress_native_output(json_output):
+        devices = list_input_devices()
+        device_resolution = resolve_input_device_with_fallback(cfg.input_device)
     device = device_resolution.device
     if device is None:
         if device_resolution.warning:
@@ -250,7 +329,8 @@ def run_doctor(
     # Mic sample.
     if device is not None and device.max_input_channels >= 1:
         try:
-            peaks = _peak_levels(device.index, 1, 1.0)
+            with _suppress_native_output(json_output):
+                peaks = _peak_levels(device.index, 1, 1.0)
             peak_str = ", ".join(f"{p:.1f} dB" for p in peaks)
             audible = any(p > -50 for p in peaks)
             checks.append(
@@ -272,7 +352,9 @@ def run_doctor(
 
     # System-audio backend. Core Audio tap is preferred because ScreenCaptureKit
     # can be interrupted when another app starts screen sharing.
-    checks.extend(_system_audio_checks(cfg))
+    with _suppress_native_output(json_output):
+        system_audio_checks = _system_audio_checks(cfg)
+    checks.extend(system_audio_checks)
 
     # Output paths writable.
     for label, path in [("output root", cfg.output_root), ("audio root", cfg.audio_root)]:
