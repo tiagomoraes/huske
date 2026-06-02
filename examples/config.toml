@@ -54,3 +54,22 @@ no_ui = false
 # screenshots_interval_seconds = 10.0
 # screenshots_root = "~/huske/screenshots"
 # screenshots_max_displays = 4
+
+# --- Local semantic search + MCP server (opt-in) ---
+# Requires the extra: pip install 'huske[mcp]'. When enabled, `huske run`
+# embeds each finalized transcript (in an isolated subprocess, off the audio
+# hot path) into a local vector index so chat models can search your history
+# via `huske mcp`. Off by default — recording pays no embedding cost unless
+# you opt in. See README.md → "Search your transcripts from Claude / ChatGPT".
+# indexing_enabled = true
+
+# Where the passage index (a single sqlite-vec file) lives.
+# index_root = "~/huske/index"
+
+# Local embedding model id (multilingual). Changing this invalidates the index
+# — run `huske index --rebuild` afterwards.
+# embedding_model = "mlx-community/multilingual-e5-base"
+
+# `huske mcp` daemon bind address. Loopback-only + bearer token by default.
+# mcp_host = "127.0.0.1"
+# mcp_port = 7641

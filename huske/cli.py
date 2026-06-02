@@ -179,6 +179,56 @@ def doctor(
 
 
 # ---------------------------------------------------------------------------
+# Local semantic search + MCP server (huske[mcp] extra)
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def index(
+    output_root: Path | None = typer.Option(None, "--output-root"),
+    rebuild: bool = typer.Option(
+        False, "--rebuild", help="Drop and rebuild the entire index (e.g. after a model change)."
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Re-embed even transcripts whose content is unchanged."
+    ),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Build or refresh the local semantic search index from transcripts."""
+    from huske.search.runner import run_index
+
+    cli_overrides = _collect_overrides(output_root=output_root)
+    raise typer.Exit(
+        run_index(
+            config_path=config_path,
+            cli_overrides=cli_overrides,
+            rebuild=rebuild,
+            force=force,
+        )
+    )
+
+
+@app.command()
+def mcp(
+    host: str | None = typer.Option(
+        None, "--host", help="Bind address (default 127.0.0.1, loopback-only)."
+    ),
+    port: int | None = typer.Option(None, "--port", min=1, max=65535, help="Port (default 7641)."),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Serve huske's transcript search over a local MCP (HTTP) endpoint."""
+    from huske.config import load_config
+    from huske.mcp.server import run as run_mcp
+
+    try:
+        cfg = load_config(config_path=config_path)
+    except ValueError as exc:
+        typer.secho(f"config: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
+    raise typer.Exit(run_mcp(cfg, host=host, port=port))
+
+
+# ---------------------------------------------------------------------------
 # Autostart (macOS LaunchAgent)
 # ---------------------------------------------------------------------------
 

@@ -116,6 +116,46 @@ def run_session(
         screenshots_enabled=False,
     )
 
+    # Optional: background embedding worker for local semantic search. Started
+    # non-blocking — capture never waits on the embedding model to load, and an
+    # init failure degrades to "recording continues, no indexing". See
+    # docs/adr/0003-embed-worker-isolation.md.
+    embed_worker = None
+    if cfg.indexing_enabled:
+        from huske.search.worker import EmbedWorker
+
+        try:
+            cfg.index_root.mkdir(parents=True, exist_ok=True)
+            embed_worker = EmbedWorker(str(paths.index_db_path(cfg)), cfg.embedding_model)
+            embed_worker.start()
+            _print("[huske] indexing enabled — transcripts will be embedded in background")
+        except Exception as exc:
+            log.warning("embed_worker_start_failed", error=str(exc))
+            embed_worker = None
+
+    def _on_written(path: Path) -> None:
+        if embed_worker is not None:
+            embed_worker.submit(str(path))
+
+    def _drain_embed() -> None:
+        if embed_worker is None:
+            return
+        while True:
+            msg = embed_worker.poll_result(timeout=0.0)
+            if msg is None:
+                break
+            if "ready" in msg:
+                if msg.get("ready"):
+                    on_event("info", "indexing ready — transcripts will be embedded")
+                else:
+                    detail = str(msg.get("error", "")).splitlines()[0]
+                    on_event("warn", f"indexing unavailable: {detail}")
+            elif not msg.get("ok"):
+                detail = str(msg.get("error", "")).splitlines()[0]
+                on_event("warn", f"indexing failed: {detail}")
+            else:
+                log.info("indexed", path=msg.get("path"), passages=msg.get("passages"))
+
     # Recovery before starting new capture.
     rec_report = _do_recovery(cfg, worker, log)
     if rec_report.chunks_valid:
@@ -453,6 +493,8 @@ def run_session(
             screenshot_status=_screenshot_status,
             pump_commands=_pump_commands,
             publish_state=_publish_state,
+            on_written=_on_written,
+            on_tick=_drain_embed,
         )
 
         # Phase 2: stopping. Keep the UI alive while we drain.
@@ -492,11 +534,10 @@ def run_session(
                 seq = result["chunk_seq"]
                 on_result(seq)
                 if result["ok"]:
-                    state.update(last_saved=Path(result["transcript_path"]))
-                    on_event(
-                        "info",
-                        f"chunk {seq:03d} → {Path(result['transcript_path']).name}",
-                    )
+                    tp = Path(result["transcript_path"])
+                    state.update(last_saved=tp)
+                    on_event("info", f"chunk {seq:03d} → {tp.name}")
+                    _on_written(tp)
                 else:
                     on_event(
                         "error",
@@ -508,6 +549,7 @@ def run_session(
 
             now = time.monotonic()
             if now - last_ui_update >= 0.25:
+                _drain_embed()
                 state.update(queue_depth=worker.queue_depth)
                 _publish_state()
                 if ui is not None:
@@ -541,6 +583,10 @@ def run_session(
                 helper_proc.kill()
         if screenshotter is not None and screenshotter.alive:
             screenshotter.stop(timeout=1.0)
+        if embed_worker is not None:
+            # SENTINEL is FIFO after queued paths, so any transcripts written
+            # during drain still get indexed before the worker exits.
+            embed_worker.stop(drain_timeout=10.0)
         worker.stop(drain_timeout=5.0)
         session.release_lock()
         cleanup_session_dir(session.audio_root)
@@ -565,6 +611,8 @@ def _main_loop(
     screenshot_status: Callable[[], tuple[bool, int, datetime | None]] | None = None,
     pump_commands: Callable[[], None] | None = None,
     publish_state: Callable[[], None] | None = None,
+    on_written: Callable[[Path], None] | None = None,
+    on_tick: Callable[[], None] | None = None,
 ) -> None:
     """Run the asyncio-free main loop. Updates UI, polls worker results, watches heartbeat."""
     while not stop_flag.is_set():
@@ -605,11 +653,16 @@ def _main_loop(
                 tp = Path(result["transcript_path"])
                 state.update(last_saved=tp, queue_depth=worker.queue_depth)
                 state.push_event("info", f"chunk {seq:03d} → {tp.name}")
+                if on_written is not None:
+                    on_written(tp)
             else:
                 state.push_event(
                     "error",
                     f"chunk {seq:03d} failed: {result['error'].splitlines()[0]}",
                 )
+
+        if on_tick is not None:
+            on_tick()
 
         # UI render-state refresh.
         peaks = capture.peak_levels_db()
