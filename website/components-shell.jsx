@@ -82,7 +82,7 @@ const Nav = ({ theme, setTheme }) => (
     <a href="#" className="brand">
       <Mark/>
       <span className="word">huske</span>
-      <span className="ver">v0.5.0</span>
+      <span className="ver">v0.6.0</span>
     </a>
     <div className="links">
       <a href="#why">why</a>
@@ -153,7 +153,7 @@ const Footer = () => (
       <div className="meta">
         <div className="left">
           <Mark size={18}/>
-          <span>huske v0.5.0</span>
+          <span>huske v0.6.0</span>
           <span style={{ color: "var(--fg-faint)" }}>·</span>
           <span>built by tiagomoraes</span>
           <span style={{ color: "var(--fg-faint)" }}>·</span>
