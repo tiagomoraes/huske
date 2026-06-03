@@ -557,7 +557,13 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.7.1", date: "2026-06-03", tag: "latest",
+    ver: "0.7.2", date: "2026-06-03", tag: "latest",
+    items: [
+      { kind: "changed", text: <>Website docs page now lives at <code>/docs/</code> (clean URL) instead of <code>/docs.html</code>. In-page nav links no longer expose <code>index.html</code> in the URL.</> },
+    ],
+  },
+  {
+    ver: "0.7.1", date: "2026-06-03",
     items: [
       { kind: "added", text: <>Idle whisper-model unload (<code>--idle-unload</code> / <code>whisper_idle_unload = true</code>, off by default). The transcription worker drops the model weights after <code>whisper_idle_unload_seconds</code> of inactivity (default 120 s) and reloads lazily on the next chunk, freeing up to ~3 GB of resident RAM during long recording gaps. Reloads resolve from a pinned local snapshot directory, so they are network-free.</> },
       { kind: "added", text: <><code>--no-menu-bar</code> (<code>menu_bar_enabled = false</code>) now also skips the IPC control socket and its accept thread, cutting an additional ~50–80 MB of idle RSS when the menu-bar helper is disabled.</> },
