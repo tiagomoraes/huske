@@ -205,6 +205,15 @@ def index(
     force: bool = typer.Option(
         False, "--force", help="Re-embed even transcripts whose content is unchanged."
     ),
+    low_impact: bool | None = typer.Option(
+        None,
+        "--low-impact/--fast",
+        help=(
+            "Throttle the backfill (lower CPU priority, smaller batches, capped "
+            "MLX memory) so it can't hog the machine. On by default; use --fast "
+            "to run at full speed."
+        ),
+    ),
     config_path: Path | None = typer.Option(None, "--config"),
 ) -> None:
     """Build or refresh the local semantic search index from transcripts."""
@@ -217,6 +226,7 @@ def index(
             cli_overrides=cli_overrides,
             rebuild=rebuild,
             force=force,
+            low_impact=low_impact,
         )
     )
 

@@ -26,6 +26,16 @@ def test_build_hashing_variants() -> None:
     assert build_embedder("hashing:128").dim == 128
 
 
+def test_build_embedder_accepts_tuning_kwargs() -> None:
+    # The dependency-free backend ignores the batch/memory knobs but must accept
+    # them so callers (`huske index`, the embed worker) can pass tuning uniformly.
+    emb = build_embedder("hashing", batch_size=4, cache_limit_mb=64, memory_limit_mb=128)
+    assert isinstance(emb, HashingEmbedder)
+    # Every backend exposes a release() hook the backfill can call between files.
+    assert callable(getattr(emb, "release", None))
+    emb.release()  # no-op on the hashing backend; must not raise
+
+
 def test_fastembed_routing_when_missing_raises_unavailable() -> None:
     try:
         import fastembed  # noqa: F401

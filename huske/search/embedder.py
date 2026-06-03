@@ -73,6 +73,9 @@ class HashingEmbedder:
     def count_tokens(self, text: str) -> int:
         return max(1, round(len(text.split()) * 1.5))
 
+    def release(self) -> None:
+        """No-op: the hashing embedder holds no reclaimable buffers."""
+
 
 class FastEmbedE5Embedder:
     """multilingual-e5 via ``fastembed`` (onnxruntime, CPU).
@@ -124,6 +127,9 @@ class FastEmbedE5Embedder:
         # over-counting only makes Passages a touch smaller, which is safe.
         return max(1, round(len(_TOKEN_RE.findall(text)) * 1.3))
 
+    def release(self) -> None:  # pragma: no cover - on-server
+        """No-op: onnxruntime manages its own memory."""
+
 
 class MlxE5Embedder:
     """multilingual-e5 via mlx-embeddings (Apple Silicon / Metal).
@@ -132,7 +138,14 @@ class MlxE5Embedder:
     prefixed ``passage: `` and queries ``query: ``.
     """
 
-    def __init__(self, model_id: str, *, batch_size: int = 16) -> None:
+    def __init__(
+        self,
+        model_id: str,
+        *,
+        batch_size: int = 16,
+        cache_limit_mb: int | None = None,
+        memory_limit_mb: int | None = None,
+    ) -> None:
         try:
             from mlx_embeddings.utils import load
         except ImportError as exc:  # pragma: no cover - exercised on-device
@@ -140,6 +153,18 @@ class MlxE5Embedder:
                 "mlx-embeddings is not installed. Install the search extra:\n"
                 "  pip install 'huske[mcp]'"
             ) from exc
+
+        import mlx.core as mx
+
+        # Bound the MLX/Metal footprint *before* loading weights. MLX's reusable
+        # buffer cache is what makes resident (unified) memory climb across a
+        # long backfill; capping it here and releasing it between files (via
+        # ``release()``) keeps the working set flat so `huske index` can't
+        # swap-storm the Mac. ``memory_limit_mb`` is an optional hard ceiling.
+        if memory_limit_mb is not None:
+            mx.set_memory_limit(memory_limit_mb * 1024 * 1024)
+        if cache_limit_mb is not None:
+            mx.set_cache_limit(cache_limit_mb * 1024 * 1024)
 
         self.model_id = model_id
         self.batch_size = batch_size
@@ -184,6 +209,12 @@ class MlxE5Embedder:
     def count_tokens(self, text: str) -> int:  # pragma: no cover - on-device
         return len(self._tokenizer.encode(text))
 
+    def release(self) -> None:  # pragma: no cover - on-device
+        """Return MLX's reusable buffer cache to the OS (called between files)."""
+        import mlx.core as mx
+
+        mx.clear_cache()
+
 
 def embedder_backend(model_id: str) -> str:
     """Map a model id to its backend: ``hashing`` | ``fastembed`` | ``mlx``.
@@ -197,12 +228,23 @@ def embedder_backend(model_id: str) -> str:
     return "mlx"
 
 
-def build_embedder(model_id: str) -> Embedder:
+def build_embedder(
+    model_id: str,
+    *,
+    batch_size: int = 16,
+    cache_limit_mb: int | None = None,
+    memory_limit_mb: int | None = None,
+) -> Embedder:
     """Construct the embedder for ``model_id``.
 
     - ``hashing`` / ``hashing:<dim>`` / ``fake`` → dependency-free test embedder.
     - ``fastembed:<hf-id>`` → CPU onnxruntime e5 (the off-device server).
     - anything else → MLX/Metal e5 (the local Mac).
+
+    ``batch_size`` bounds passages per forward pass; ``cache_limit_mb`` /
+    ``memory_limit_mb`` cap the MLX/Metal working set. The dependency-free and
+    CPU backends ignore the memory knobs (they manage their own memory) but
+    accept them so callers can pass the same tuning uniformly.
     """
     backend = embedder_backend(model_id)
     if backend == "hashing":
@@ -210,5 +252,10 @@ def build_embedder(model_id: str) -> Embedder:
             return HashingEmbedder(model_id=model_id, dim=int(model_id.split(":", 1)[1]))
         return HashingEmbedder(model_id=model_id)
     if backend == "fastembed":
-        return FastEmbedE5Embedder(model_id)
-    return MlxE5Embedder(model_id)
+        return FastEmbedE5Embedder(model_id, batch_size=batch_size)
+    return MlxE5Embedder(
+        model_id,
+        batch_size=batch_size,
+        cache_limit_mb=cache_limit_mb,
+        memory_limit_mb=memory_limit_mb,
+    )

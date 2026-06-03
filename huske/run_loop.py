@@ -126,7 +126,11 @@ def run_session(
 
         try:
             cfg.index_root.mkdir(parents=True, exist_ok=True)
-            embed_worker = EmbedWorker(str(paths.index_db_path(cfg)), cfg.embedding_model)
+            embed_worker = EmbedWorker(
+                str(paths.index_db_path(cfg)),
+                cfg.embedding_model,
+                batch_size=cfg.embed_batch_size,
+            )
             embed_worker.start()
             _print("[huske] indexing enabled — transcripts will be embedded in background")
         except Exception as exc:

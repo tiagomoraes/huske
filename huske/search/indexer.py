@@ -32,6 +32,19 @@ def _content_hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _release_embedder(embedder: Embedder) -> None:
+    """Best-effort release of an embedder's reclaimable memory (e.g. the MLX
+    buffer cache) between files, so a long backfill keeps a flat footprint.
+    Tolerant of embedders/test doubles that don't implement ``release``.
+    """
+    release = getattr(embedder, "release", None)
+    if callable(release):
+        try:
+            release()
+        except Exception:
+            pass
+
+
 class Indexer:
     def __init__(self, store: PassageStore, embedder: Embedder) -> None:
         self._store = store
@@ -59,7 +72,13 @@ class Indexer:
         embeddings = self._embedder.embed_passages([p.text for p in passages])
         return self._store.upsert(key, digest, passages, embeddings)
 
-    def index_paths(self, paths: Iterable[Path], *, force: bool = False) -> IndexSummary:
+    def index_paths(
+        self,
+        paths: Iterable[Path],
+        *,
+        force: bool = False,
+        release_between_files: bool = False,
+    ) -> IndexSummary:
         summary = IndexSummary()
         for path in paths:
             summary.files_seen += 1
@@ -73,6 +92,9 @@ class Indexer:
                 summary.files_failed += 1
                 summary.errors.append(f"{path}: {exc}")
                 continue
+            finally:
+                if release_between_files:
+                    _release_embedder(self._embedder)
             if n > 0:
                 summary.files_indexed += 1
                 summary.passages += n
@@ -80,9 +102,19 @@ class Indexer:
                 summary.files_skipped += 1
         return summary
 
-    def backfill(self, output_root: Path, *, force: bool = False) -> IndexSummary:
+    def backfill(
+        self,
+        output_root: Path,
+        *,
+        force: bool = False,
+        release_between_files: bool = False,
+    ) -> IndexSummary:
         """Index every transcript under ``output_root`` (``YYYY-MM-DD/*.md``)."""
-        return self.index_paths(iter_transcripts(output_root), force=force)
+        return self.index_paths(
+            iter_transcripts(output_root),
+            force=force,
+            release_between_files=release_between_files,
+        )
 
 
 def iter_transcripts(output_root: Path) -> list[Path]:

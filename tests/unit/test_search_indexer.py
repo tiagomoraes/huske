@@ -85,6 +85,44 @@ def test_incremental_skips_unchanged(tmp_path: Path, emb: HashingEmbedder) -> No
     store.close()
 
 
+class _SpyEmbedder(HashingEmbedder):
+    """Hashing embedder that counts ``release()`` calls."""
+
+    def __init__(self) -> None:
+        super().__init__(dim=64)
+        self.releases = 0
+
+    def release(self) -> None:
+        self.releases += 1
+
+
+def test_backfill_releases_buffers_between_files(tmp_path: Path) -> None:
+    out = tmp_path / "transcripts"
+    day = out / "2026-05-07"
+    _make_transcript(day, chunk_seq=1, phrase="primeiro arquivo de teste")
+    _make_transcript(day, chunk_seq=2, phrase="segundo arquivo de teste")
+
+    emb = _SpyEmbedder()
+    store = PassageStore.open(tmp_path / "index" / "passages.db", embedding_model="hashing", dim=emb.dim)
+    indexer = Indexer(store, emb)
+
+    summary = indexer.backfill(out, release_between_files=True)
+    assert summary.files_seen == 2
+    assert emb.releases == 2  # released once per file, regardless of outcome
+    store.close()
+
+
+def test_backfill_does_not_release_by_default(tmp_path: Path) -> None:
+    out = tmp_path / "transcripts"
+    _make_transcript(out / "2026-05-07", chunk_seq=1, phrase="arquivo único")
+
+    emb = _SpyEmbedder()
+    store = PassageStore.open(tmp_path / "index" / "passages.db", embedding_model="hashing", dim=emb.dim)
+    Indexer(store, emb).backfill(out)  # release_between_files defaults False
+    assert emb.releases == 0
+    store.close()
+
+
 def test_iter_transcripts_excludes_readme(tmp_path: Path) -> None:
     out = tmp_path / "transcripts"
     (out / "2026-05-07").mkdir(parents=True)

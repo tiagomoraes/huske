@@ -27,7 +27,9 @@ _ctx = mp.get_context("spawn")
 _SENTINEL = "__STOP__"
 
 
-def _embed_worker_main(in_q: Any, out_q: Any, db_path: str, model_id: str) -> None:
+def _embed_worker_main(
+    in_q: Any, out_q: Any, db_path: str, model_id: str, batch_size: int
+) -> None:
     """Subprocess entry point: load embedder + store, then index submitted paths."""
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
@@ -42,7 +44,7 @@ def _embed_worker_main(in_q: Any, out_q: Any, db_path: str, model_id: str) -> No
         from huske.search.indexer import Indexer
         from huske.search.store import PassageStore
 
-        embedder = build_embedder(model_id)
+        embedder = build_embedder(model_id, batch_size=batch_size)
         store = PassageStore.open(_Path(db_path), embedding_model=model_id, dim=embedder.dim)
         indexer = Indexer(store, embedder)
     except Exception as exc:
@@ -77,9 +79,10 @@ class EmbedWorker:
 
     SENTINEL = _SENTINEL
 
-    def __init__(self, db_path: str, model_id: str) -> None:
+    def __init__(self, db_path: str, model_id: str, *, batch_size: int = 16) -> None:
         self._db_path = db_path
         self._model_id = model_id
+        self._batch_size = batch_size
         self._in_q: Any = _ctx.Queue()
         self._out_q: Any = _ctx.Queue()
         self._proc: Any = None
@@ -89,7 +92,7 @@ class EmbedWorker:
             return
         self._proc = _ctx.Process(
             target=_embed_worker_main,
-            args=(self._in_q, self._out_q, self._db_path, self._model_id),
+            args=(self._in_q, self._out_q, self._db_path, self._model_id, self._batch_size),
             name="huske-embed-worker",
         )
         self._proc.start()
