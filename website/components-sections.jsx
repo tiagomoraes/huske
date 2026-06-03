@@ -557,7 +557,13 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.6.0", date: "2026-06-02", tag: "latest",
+    ver: "0.7.0", date: "2026-06-03", tag: "latest",
+    items: [
+      { kind: "added", text: <>Off-device replication (opt-in; see <code>docs/adr/0004-off-device-huske-server.md</code> and <code>docs/server.md</code>). <code>huske serve</code> runs a single-tenant huske server on a box you control (e.g. a VPS): it receives finalized transcripts pushed from a recording Mac, stores and indexes them with a CPU (<code>fastembed</code>) embedder, and serves the existing <code>search</code>/<code>fetch</code> MCP over loopback to a co-located agent. When <code>sync_endpoint</code> is configured, <code>huske run</code> replicates each finalized transcript live — dependency-free and off the audio hot path, reconciling after the Mac has been offline — and <code>huske sync</code> backfills on demand. Only a write-only ingest endpoint is network-exposed; the read MCP stays loopback-only. Adds the <code>huske[server]</code> extra; the send side ships in the base install.</> },
+    ],
+  },
+  {
+    ver: "0.6.0", date: "2026-06-02",
     items: [
       { kind: "changed", text: <>Release process collapses into three scripts under <code>scripts/</code>: <code>release.py</code>, <code>release-finalize.py</code>, and <code>update-homebrew-tap.py</code>. The short operational checklist is <code>docs/RELEASE_PLAYBOOK.md</code>; <code>docs/releasing.md</code> remains as the deep reference.</> },
       { kind: "changed", text: <><code>huske/__init__.py</code> now reads the version from <code>pyproject.toml</code> when the package source is adjacent (dev checkout / editable install) and falls back to <code>importlib.metadata</code> for installed wheels. The two hardcoded versions could no longer drift the way <code>0.3.1</code> had to be hotfixed for.</> },

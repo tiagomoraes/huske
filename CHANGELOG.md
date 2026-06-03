@@ -6,6 +6,8 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.7.0 - 2026-06-03
+
 ### Added
 
 - Off-device replication (opt-in; see
