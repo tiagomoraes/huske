@@ -10,10 +10,13 @@ What it does (one command, mechanical only):
   2. Bumps `version =` in `pyproject.toml`.
   3. Moves the `## Unreleased` section in `CHANGELOG.md` into
      `## X.Y.Z - YYYY-MM-DD` and leaves a fresh `## Unreleased` on top.
-  4. Updates `website/components-shell.jsx` (Nav + Footer version strings)
-     and `website/components-sections.jsx` (new RELEASES entry with
-     `tag: "latest"`, demoted from the previous top entry; bullets
-     converted from the just-moved CHANGELOG section).
+  4. Updates the website: bumps the single `window.HUSKE_VERSION` in
+     `website/version.js` (every JSX component reads it, so the whole site
+     updates at once), bumps the README install-pin, and inserts a new
+     `website/components-sections.jsx` RELEASES entry with `tag: "latest"`
+     (demoted from the previous top entry; bullets from the moved CHANGELOG
+     section). Then scans the site and fails if any copy still mentions the
+     previous version.
   5. Runs `pytest tests/unit` and the smoke integration tests.
   6. Creates branch `release/vX.Y.Z`, commits, pushes, opens the PR
      `chore: release vX.Y.Z` to `develop`.
@@ -38,8 +41,10 @@ from typing import NoReturn
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 CHANGELOG = REPO_ROOT / "CHANGELOG.md"
-WEBSITE_SHELL = REPO_ROOT / "website" / "components-shell.jsx"
-WEBSITE_SECTIONS = REPO_ROOT / "website" / "components-sections.jsx"
+README = REPO_ROOT / "README.md"
+WEBSITE_DIR = REPO_ROOT / "website"
+WEBSITE_VERSION_JS = WEBSITE_DIR / "version.js"
+WEBSITE_SECTIONS = WEBSITE_DIR / "components-sections.jsx"
 
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.\-+]+)?$")
 
@@ -158,12 +163,42 @@ def move_changelog_unreleased(new_version: str, today: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def update_shell_version(new_version: str) -> None:
-    text = WEBSITE_SHELL.read_text(encoding="utf-8")
-    new_text, n = re.subn(r"v\d+\.\d+\.\d+", f"v{new_version}", text)
+def update_version_js(new_version: str) -> None:
+    """Patch the single source of truth for the site's version string.
+
+    ``website/version.js`` defines ``window.HUSKE_VERSION``; every JSX component
+    reads it as a global, so this one edit updates the version everywhere on the
+    site at once (Nav, Footer, hero eyebrow, live-demo header, sample
+    transcript frontmatter, the "supported target" FAQ). The historical
+    ``RELEASES`` timeline is updated separately, in ``update_sections_releases``.
+    """
+    text = WEBSITE_VERSION_JS.read_text(encoding="utf-8")
+    new_text, n = re.subn(
+        r'(window\.HUSKE_VERSION\s*=\s*")[^"]+(")',
+        rf"\g<1>{new_version}\g<2>",
+        text,
+        count=1,
+    )
+    if n != 1:
+        die('failed to patch website/version.js (no `window.HUSKE_VERSION = "..."` line found)')
+    WEBSITE_VERSION_JS.write_text(new_text, encoding="utf-8")
+
+
+def update_readme_pin(new_version: str) -> None:
+    """Bump the example ``git+...@vX.Y.Z`` install-pin in the README to the new tag.
+
+    Soft: not every README revision keeps the pinned-install example, so a
+    missing pin is a warning, not a failure."""
+    text = README.read_text(encoding="utf-8")
+    new_text, n = re.subn(
+        r"(github\.com/tiagomoraes/huske\.git@v)\d+\.\d+\.\d+",
+        rf"\g<1>{new_version}",
+        text,
+    )
     if n == 0:
-        die("failed to bump version in website/components-shell.jsx (no vX.Y.Z found)")
-    WEBSITE_SHELL.write_text(new_text, encoding="utf-8")
+        print("warn: no README install-pin (git+...@vX.Y.Z) to bump (skipping)")
+        return
+    README.write_text(new_text, encoding="utf-8")
 
 
 def _markdown_text_to_jsx(line: str) -> str:
@@ -299,6 +334,139 @@ def update_sections_releases(new_version: str, today: str, body: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Version-drift guard
+# ---------------------------------------------------------------------------
+
+# A semver token (optionally ``v``-prefixed). The lookbehind/lookahead keep it
+# from matching inside an IPv4 literal (``127.0.0.1``) or a 4+-component version.
+# Group 1 is the bare ``X.Y.Z``. Two-component numbers like Python ``3.14`` do
+# not match, so the supported-Python list never trips this.
+_SEMVER_RE = re.compile(r"(?<![\w.])v?(\d+\.\d+\.\d+)(?!\.?\d)")
+
+
+def _releases_block_span(text: str) -> tuple[int, int] | None:
+    """Character span of the ``const RELEASES = [ ... ]`` array in
+    components-sections.jsx, or None if absent. Versions inside this span are
+    the intentional historical timeline and are exempt from the drift check."""
+    start = text.find("const RELEASES = [")
+    if start == -1:
+        return None
+    i = text.index("[", start)
+    depth = 0
+    for j in range(i, len(text)):
+        if text[j] == "[":
+            depth += 1
+        elif text[j] == "]":
+            depth -= 1
+            if depth == 0:
+                return (start, j + 1)
+    return (start, len(text))
+
+
+def _rel(path: Path) -> str:
+    """Repo-relative path for messages, tolerant of paths outside the repo
+    (e.g. a tmp tree under test)."""
+    try:
+        return str(path.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _release_versions(sections_text: str) -> list[str]:
+    """The ``ver: "X.Y.Z"`` values inside the RELEASES block, newest first."""
+    span = _releases_block_span(sections_text)
+    if span is None:
+        return []
+    return re.findall(r'ver:\s*"(\d+\.\d+\.\d+)"', sections_text[span[0] : span[1]])
+
+
+def scan_stale_website_versions(
+    new_version: str, prev_version: str | None = None
+) -> list[str]:
+    """Confirm the site reads ``new_version`` and no longer mentions the version
+    it replaced anywhere a reader would see it.
+
+    Two kinds of check:
+
+    * **Positive** — the single source of truth (``website/version.js``), the
+      newest ``RELEASES`` entry, and the README install-pin must all equal
+      ``new_version``.
+    * **Negative** — ``prev_version`` (the version being replaced) must not
+      appear outside the historical ``RELEASES`` timeline. This is the "sweep
+      for the previous version everywhere" guard the release process needs.
+      Searching for the *specific* prior version (not a generic semver) means
+      CDN dependency versions, SVG path data, and version-policy prose never
+      trip it. When ``prev_version`` is omitted (e.g. the standalone checker),
+      it is taken from the second-newest ``RELEASES`` entry.
+
+    Returns human-readable ``file:line`` problems; an empty list means in sync."""
+    problems: list[str] = []
+
+    sections_text = (
+        WEBSITE_SECTIONS.read_text(encoding="utf-8") if WEBSITE_SECTIONS.exists() else ""
+    )
+    span = _releases_block_span(sections_text)
+    releases = _release_versions(sections_text)
+
+    # --- Positive: version.js is the bumped source of truth. ---
+    vjs = WEBSITE_DIR / "version.js"
+    if vjs.exists():
+        m = re.search(r'window\.HUSKE_VERSION\s*=\s*"([^"]+)"', vjs.read_text(encoding="utf-8"))
+        if m is None:
+            problems.append('website/version.js: no `window.HUSKE_VERSION = "..."` line')
+        elif m.group(1) != new_version:
+            problems.append(
+                f"website/version.js: HUSKE_VERSION is {m.group(1)}, expected {new_version}"
+            )
+
+    # --- Positive: the newest RELEASES entry is the released version. ---
+    if releases and releases[0] != new_version:
+        problems.append(
+            f"website/components-sections.jsx: newest RELEASES entry is "
+            f"{releases[0]}, expected {new_version}"
+        )
+
+    # --- Positive: the README install-pin points at the new tag. ---
+    if README.exists():
+        for i, line in enumerate(README.read_text(encoding="utf-8").splitlines(), start=1):
+            if "github.com/tiagomoraes/huske.git@" in line:
+                for m in _SEMVER_RE.finditer(line):
+                    if m.group(1) != new_version:
+                        problems.append(
+                            f"README.md:{i}: install-pin {m.group(0)!r}, expected {new_version}"
+                        )
+
+    # --- Negative: the replaced version must not linger outside RELEASES. ---
+    prev = prev_version or (releases[1] if len(releases) > 1 else None)
+    if prev and prev != new_version:
+        needle = re.compile(rf"(?<![\w.]){re.escape(prev)}(?![\w.])")
+        targets = [
+            WEBSITE_DIR / "version.js",
+            WEBSITE_DIR / "components-shell.jsx",
+            WEBSITE_DIR / "components-hero.jsx",
+            WEBSITE_DIR / "components-docs.jsx",
+            WEBSITE_SECTIONS,
+            WEBSITE_DIR / "index.html",
+            WEBSITE_DIR / "docs" / "index.html",
+            README,
+        ]
+        for path in targets:
+            if not path.exists():
+                continue
+            text = path.read_text(encoding="utf-8")
+            is_sections = path.name == "components-sections.jsx"
+            for m in needle.finditer(text):
+                if is_sections and span and span[0] <= m.start() < span[1]:
+                    continue  # historical RELEASES entry — allowed
+                line = text.count("\n", 0, m.start()) + 1
+                problems.append(
+                    f"{_rel(path)}:{line}: still mentions previous version {prev}"
+                )
+
+    return problems
+
+
+# ---------------------------------------------------------------------------
 # Tests + git + PR
 # ---------------------------------------------------------------------------
 
@@ -336,7 +504,8 @@ def commit_and_push(branch: str, new_version: str, force: bool) -> None:
         "add",
         "pyproject.toml",
         "CHANGELOG.md",
-        "website/components-shell.jsx",
+        "README.md",
+        "website/version.js",
         "website/components-sections.jsx",
     )
     run("git", "commit", "-m", f"chore: release v{new_version}")
@@ -348,7 +517,9 @@ def open_pr(branch: str, new_version: str) -> str:
         f"Prepares huske v{new_version} for release.\n\n"
         f"- Bumps `pyproject.toml` (and `huske/__init__.py` reads it dynamically).\n"
         f"- Moves the autostart entry from `CHANGELOG.md` `Unreleased` into `## {new_version}`.\n"
-        f"- Updates the website timeline + Nav/Footer version strings.\n\n"
+        f"- Updates the website RELEASES timeline, the single `website/version.js` "
+        f"version source (Nav, Footer, hero, sample transcript all read it), and the "
+        f"README install-pin.\n\n"
         f"## Test plan\n\n"
         f"- [x] `pytest tests/unit` + smoke integration suite pass\n"
         f"- [x] `git diff --check` clean\n\n"
@@ -411,8 +582,17 @@ def main() -> int:
     preflight()
     bump_pyproject(new_version)
     body = move_changelog_unreleased(new_version, today)
-    update_shell_version(new_version)
+    update_version_js(new_version)
     update_sections_releases(new_version, today, body)
+    update_readme_pin(new_version)
+
+    # Confirm the bump landed everywhere and nothing still points at the previous version.
+    stale = scan_stale_website_versions(new_version, prev_version=current)
+    if stale:
+        die(
+            "stale version references remain after the bump — the site still "
+            "mentions another version:\n  " + "\n  ".join(stale)
+        )
 
     if not args.skip_tests:
         run_tests()

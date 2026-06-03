@@ -186,35 +186,37 @@ python scripts/update-homebrew-tap.py X.Y.Z  # refreshes the brew tap formula
 ```
 
 The scripts handle the version bump, CHANGELOG move, website updates
-(`components-shell.jsx` Nav/Footer + `components-sections.jsx` RELEASES
-with `tag: "latest"` rotation), and PR creation. `huske/__init__.py`
-reads the version from `pyproject.toml` so there is only one source of
-truth — do not hardcode version strings.
+(`website/version.js` `HUSKE_VERSION` — the single string the whole site
+reads — plus the README install-pin and a new `components-sections.jsx`
+RELEASES entry with `tag: "latest"` rotation), and PR creation. Both the
+package (`huske/__init__.py` reads `pyproject.toml`) and the website
+(`website/version.js`) have a single source of truth — **do not hardcode
+version strings anywhere else.** Every component renders `v{HUSKE_VERSION}`,
+so the Nav, Footer, hero eyebrow, live-demo header, sample transcript
+frontmatter, and "supported target" FAQ all move together; the historical
+`RELEASES` timeline is the one intentional place older versions live.
 
-**Every release, deep-check the `website/` against the just-released
-version — the scripts only touch Nav/Footer + RELEASES, so other spots
-drift.** Confirm the whole site matches `pyproject.toml` before the
-release-prep PR is finalized:
+**The release-prep script verifies the site itself**: after the bump it runs
+`scan_stale_website_versions` and fails the release if any page still mentions
+the previous version. Run the same sweep by hand any time:
 
-- Version string: it appears in more places than the scripts patch — the
-  hero eyebrow and live-demo header (`components-hero.jsx`) and the sample
-  transcript frontmatter (`components-sections.jsx`), in addition to
-  Nav/Footer. They must all read the new `version`. Leave historical
-  `RELEASES` entries alone.
-- Supported Python versions in `components-hero.jsx` (install foot +
-  install-section sub copy) must match `requires-python` in
-  `pyproject.toml`.
-- Any other shipped-behavior copy (commands, flags, defaults, config keys,
+```bash
+python scripts/check-website-version.py        # checks the site against pyproject.toml
+```
+
+It looks **everywhere** on the site (and the README install-pin) for the
+previous version — ignoring only the historical `RELEASES` timeline — and
+confirms `HUSKE_VERSION`, the newest `RELEASES` entry, and the install-pin all
+match `pyproject.toml`. A non-zero exit lists every offending `file:line`.
+
+Still confirm by hand each release:
+
+- **Supported Python versions** live in `HUSKE_PYTHONS` (`website/version.js`)
+  and must match `requires-python` in `pyproject.toml`; they render in the
+  hero install foot, install-section sub copy, and docs facts list.
+- **Any other shipped-behavior copy** (commands, flags, defaults, config keys,
   feature claims) touched by the release must be reflected on the site.
-- Sweep for stragglers and fix anything that isn't a historical
-  changelog/date entry:
-
-  ```bash
-  V=$(grep -E '^version' pyproject.toml | head -1)   # current version
-  grep -rnE "0\.[0-9]+\.[0-9]+|python 3|3\.1[0-9]" website/*.jsx website/*.html
-  ```
-
-  Then add a RELEASES entry in `components-sections.jsx` and load the page
+- After the `RELEASES` entry is added, load the page
   (`python -m http.server --directory website`) to confirm it renders.
 
 When the playbook does not fit (manual debugging, partial release, etc.),

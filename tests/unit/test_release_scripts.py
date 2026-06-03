@@ -164,18 +164,117 @@ def test_move_changelog_unreleased_dies_when_empty(
         release_script.move_changelog_unreleased("0.5.0", "2026-05-10")
 
 
-def test_update_shell_version_replaces_all_occurrences(
+def test_update_version_js_patches_single_global(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    shell = _write(
-        tmp_path / "shell.jsx",
-        '<span className="ver">v0.4.0</span>\n<span>huske v0.4.0</span>\n',
+    vjs = _write(
+        tmp_path / "version.js",
+        'window.HUSKE_VERSION = "0.4.0";\nwindow.HUSKE_PYTHONS = ["3.11"];\n',
     )
-    monkeypatch.setattr(release_script, "WEBSITE_SHELL", shell)
-    release_script.update_shell_version("0.5.0")
-    text = shell.read_text(encoding="utf-8")
-    assert text.count("v0.5.0") == 2
+    monkeypatch.setattr(release_script, "WEBSITE_VERSION_JS", vjs)
+    release_script.update_version_js("0.5.0")
+    text = vjs.read_text(encoding="utf-8")
+    assert 'window.HUSKE_VERSION = "0.5.0";' in text
+    assert "0.4.0" not in text
+    # The unrelated supported-Python line is left untouched.
+    assert 'window.HUSKE_PYTHONS = ["3.11"];' in text
+
+
+def test_update_readme_pin_bumps_install_tag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    readme = _write(
+        tmp_path / "README.md",
+        'uv tool install "git+https://github.com/tiagomoraes/huske.git@v0.4.0"\n',
+    )
+    monkeypatch.setattr(release_script, "README", readme)
+    release_script.update_readme_pin("0.5.0")
+    text = readme.read_text(encoding="utf-8")
+    assert "huske.git@v0.5.0" in text
     assert "v0.4.0" not in text
+
+
+def _seed_website(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Create a minimal website/ tree and point the release module at it."""
+    web = tmp_path / "website"
+    (web / "docs").mkdir(parents=True)
+    monkeypatch.setattr(release_script, "WEBSITE_DIR", web)
+    monkeypatch.setattr(release_script, "WEBSITE_SECTIONS", web / "components-sections.jsx")
+    monkeypatch.setattr(release_script, "README", tmp_path / "README.md")
+    return web
+
+
+def test_scan_stale_website_versions_clean_site_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    web = _seed_website(tmp_path, monkeypatch)
+    (web / "version.js").write_text('window.HUSKE_VERSION = "0.5.0";\n', encoding="utf-8")
+    (web / "components-hero.jsx").write_text("<span>v{HUSKE_VERSION}</span>\n", encoding="utf-8")
+    (web / "components-shell.jsx").write_text("huske v{HUSKE_VERSION}\n", encoding="utf-8")
+    (web / "components-docs.jsx").write_text('{HUSKE_PYTHONS.join(" / ")}\n', encoding="utf-8")
+    (web / "index.html").write_text("<html></html>\n", encoding="utf-8")
+    (web / "docs" / "index.html").write_text("<html></html>\n", encoding="utf-8")
+    (web / "components-sections.jsx").write_text(
+        'const MCP = "127.0.0.1:7641";\n'
+        "const RELEASES = [\n"
+        '  { ver: "0.5.0", tag: "latest" },\n'
+        '  { ver: "0.4.0" },\n'
+        "];\n",
+        encoding="utf-8",
+    )
+    assert release_script.scan_stale_website_versions("0.5.0") == []
+
+
+def test_scan_stale_website_versions_flags_previous_version_outside_releases(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    web = _seed_website(tmp_path, monkeypatch)
+    (web / "version.js").write_text('window.HUSKE_VERSION = "0.5.0";\n', encoding="utf-8")
+    # A component still hardcodes the PREVIOUS version outside RELEASES -> flagged.
+    (web / "components-hero.jsx").write_text(
+        '<span className="name">huske 0.4.0</span>\n', encoding="utf-8"
+    )
+    (web / "components-shell.jsx").write_text("huske v{HUSKE_VERSION}\n", encoding="utf-8")
+    (web / "components-docs.jsx").write_text('{HUSKE_PYTHONS.join(" / ")}\n', encoding="utf-8")
+    # A React CDN pin: looks version-ish, must NEVER be flagged.
+    (web / "index.html").write_text(
+        '<script src="https://unpkg.com/react@18.3.1/react.js"></script>\n', encoding="utf-8"
+    )
+    (web / "components-sections.jsx").write_text(
+        'const MCP = "127.0.0.1:7641";\n'  # IPv4 -> never a version
+        "<p>Semantic versioning after 0.1.0.</p>\n"  # policy prose -> not the prev version
+        "const RELEASES = [\n"
+        '  { ver: "0.5.0", tag: "latest" },\n'
+        '  { ver: "0.4.0" },\n'  # historical previous -> allowed
+        "];\n",
+        encoding="utf-8",
+    )
+    problems = release_script.scan_stale_website_versions("0.5.0", prev_version="0.4.0")
+    joined = "\n".join(problems)
+    assert "components-hero.jsx" in joined and "previous version 0.4.0" in joined
+    # The historical RELEASES 0.4.0, the CDN pin, the IPv4 literal, and the
+    # 0.1.0 version-policy prose are all left alone — searching for the specific
+    # previous version is what keeps those out.
+    assert "components-sections.jsx" not in joined
+    assert "index.html" not in joined
+    assert "18.3.1" not in joined
+
+
+def test_scan_stale_website_versions_flags_outdated_latest_release(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    web = _seed_website(tmp_path, monkeypatch)
+    (web / "version.js").write_text('window.HUSKE_VERSION = "0.5.0";\n', encoding="utf-8")
+    (web / "components-hero.jsx").write_text("v{HUSKE_VERSION}\n", encoding="utf-8")
+    (web / "components-shell.jsx").write_text("v{HUSKE_VERSION}\n", encoding="utf-8")
+    (web / "components-docs.jsx").write_text("ok\n", encoding="utf-8")
+    # version.js is current, but nobody added the new RELEASES entry.
+    (web / "components-sections.jsx").write_text(
+        "const RELEASES = [\n  { ver: \"0.4.0\", tag: \"latest\" },\n];\n",
+        encoding="utf-8",
+    )
+    problems = release_script.scan_stale_website_versions("0.5.0")
+    assert any("newest RELEASES entry" in p for p in problems)
 
 
 def test_update_sections_releases_inserts_new_entry_and_demotes_latest(

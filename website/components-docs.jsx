@@ -138,7 +138,7 @@ const InstallDoc = () => (
     </p>
     <ul className="docs-facts">
       <li><span className="k">os</span><span className="v">macOS 13+ (14.4+ recommended — the Core Audio tap survives screen sharing)</span></li>
-      <li><span className="k">python</span><span className="v">3.11, 3.12, 3.13, or 3.14</span></li>
+      <li><span className="k">python</span><span className="v">{HUSKE_PYTHONS.slice(0, -1).join(", ")}, or {HUSKE_PYTHONS[HUSKE_PYTHONS.length - 1]}</span></li>
       <li><span className="k">disk</span><span className="v">~3 GB for the default <code>base</code> model (downloaded on first run)</span></li>
       <li><span className="k">audio</span><span className="v">no BlackHole, Aggregate Device, or Audio MIDI Setup — Apple's built-in capture is used</span></li>
     </ul>

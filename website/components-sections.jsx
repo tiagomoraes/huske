@@ -206,7 +206,7 @@ const OutputPreview = () => {
               <div><span className="key">audio_sources:</span>    <span className="val">[microphone, system]</span></div>
               <div><span className="key">language:</span>         <span className="str">auto</span></div>
               <div><span className="key">incomplete:</span>       <span className="val">false</span></div>
-              <div><span className="key">huske_version:</span>    <span className="str">0.7.1</span></div>
+              <div><span className="key">huske_version:</span>    <span className="str">{HUSKE_VERSION}</span></div>
               <div><span className="delim">---</span></div>
             </div>
 
@@ -758,7 +758,7 @@ const FAQ = () => (
         <details>
           <summary>Is this only for Apple Silicon? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>Apple Silicon Mac is the supported target in 0.7.1. The transcription engine (<code>mlx-whisper</code>) runs on the M-series GPU via MLX, and system-audio capture uses macOS-only Core Audio / ScreenCaptureKit APIs.</p>
+            <p>Apple Silicon Mac is the supported target in {HUSKE_VERSION}. The transcription engine (<code>mlx-whisper</code>) runs on the M-series GPU via MLX, and system-audio capture uses macOS-only Core Audio / ScreenCaptureKit APIs.</p>
           </div>
         </details>
         <details>
