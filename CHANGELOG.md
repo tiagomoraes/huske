@@ -6,6 +6,11 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+### Changed
+
+- Website docs page now lives at `/docs/` (clean URL) instead of `/docs.html`.
+  In-page nav links no longer expose `index.html` in the URL.
+
 ## 0.7.1 - 2026-06-03
 
 ### Added

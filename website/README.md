@@ -14,6 +14,11 @@ python -m http.server 8000 --directory website
 ## Stack
 
 - Plain HTML + CSS in `index.html`, `site.css`, `colors_and_type.css`
+- Two pages: the landing `index.html` (served at `/`) and the docs page
+  `docs/index.html` (served at `/docs/` — a directory index is what gives the
+  clean URL, since GitHub Pages has no rewrite engine and `.nojekyll` is set).
+  The docs page links to shared assets with `../` so it resolves both locally
+  and under the `/huske/` project base.
 - React 18 (UMD) + Babel Standalone via unpkg, JSX compiled in the browser
 - IBM Plex (Sans / Mono / Serif) bundled under `fonts/`
 - Logo assets under `assets/`
