@@ -557,7 +557,14 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.7.2", date: "2026-06-03", tag: "latest",
+    ver: "0.7.3", date: "2026-06-03", tag: "latest",
+    items: [
+      { kind: "fixed", text: <>The <code>huske run</code> startup log now records the running version instead of a stale <code>v0.1.0</code> placeholder.</> },
+      { kind: "changed", text: <>The website reads its version from a single source (<code>website/version.js</code>), and the release tooling now verifies every page matches the released version, so the public site no longer drifts to an older version between releases.</> },
+    ],
+  },
+  {
+    ver: "0.7.2", date: "2026-06-03",
     items: [
       { kind: "changed", text: <>Website docs page now lives at <code>/docs/</code> (clean URL) instead of <code>/docs.html</code>. In-page nav links no longer expose <code>index.html</code> in the URL.</> },
     ],
