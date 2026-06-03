@@ -191,6 +191,32 @@ with `tag: "latest"` rotation), and PR creation. `huske/__init__.py`
 reads the version from `pyproject.toml` so there is only one source of
 truth — do not hardcode version strings.
 
+**Every release, deep-check the `website/` against the just-released
+version — the scripts only touch Nav/Footer + RELEASES, so other spots
+drift.** Confirm the whole site matches `pyproject.toml` before the
+release-prep PR is finalized:
+
+- Version string: it appears in more places than the scripts patch — the
+  hero eyebrow and live-demo header (`components-hero.jsx`) and the sample
+  transcript frontmatter (`components-sections.jsx`), in addition to
+  Nav/Footer. They must all read the new `version`. Leave historical
+  `RELEASES` entries alone.
+- Supported Python versions in `components-hero.jsx` (install foot +
+  install-section sub copy) must match `requires-python` in
+  `pyproject.toml`.
+- Any other shipped-behavior copy (commands, flags, defaults, config keys,
+  feature claims) touched by the release must be reflected on the site.
+- Sweep for stragglers and fix anything that isn't a historical
+  changelog/date entry:
+
+  ```bash
+  V=$(grep -E '^version' pyproject.toml | head -1)   # current version
+  grep -rnE "0\.[0-9]+\.[0-9]+|python 3|3\.1[0-9]" website/*.jsx website/*.html
+  ```
+
+  Then add a RELEASES entry in `components-sections.jsx` and load the page
+  (`python -m http.server --directory website`) to confirm it renders.
+
 When the playbook does not fit (manual debugging, partial release, etc.),
 fall back to the steps in [docs/releasing.md](docs/releasing.md).
 - Right after the promotion PR merges to `main`, back-merge `main` into
