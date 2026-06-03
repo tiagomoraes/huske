@@ -34,7 +34,15 @@ def main(
     ),
 ) -> None:
     """huske — always-on audio recorder + local transcription."""
+    from huske.proctitle import set_process_title
     from huske.update_check import notify_if_outdated
+
+    # Name the OS process "huske" (Activity Monitor / ps) instead of the bare
+    # Python interpreter. The menu bar helper names itself "huske-menubar" in its
+    # own command, and the worker subprocesses set their titles in their
+    # entrypoints, so they are skipped here.
+    if ctx.invoked_subcommand != "menubar":
+        set_process_title("huske")
 
     notify_if_outdated()
     if ctx.invoked_subcommand is None:
@@ -118,6 +126,11 @@ def menubar(
 ) -> None:
     """Render the menu bar helper attached to a running huske session (macOS only)."""
     from huske.menubar import run_helper
+    from huske.proctitle import set_process_title
+
+    # The callback skips this subcommand, so name the helper here instead — it
+    # coexists with the accessory NSApplication / status-bar item (verified).
+    set_process_title("huske-menubar")
 
     if style not in {"text", "icon"}:
         typer.secho(f"invalid --style: {style!r} (expected 'text' or 'icon')", fg=typer.colors.RED, err=True)

@@ -176,6 +176,10 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
     """Subprocess entry point. Loops on jobs until sentinel arrives."""
     _configure_worker_signal_handlers()
 
+    from huske.proctitle import set_process_title
+
+    set_process_title("huske-whisper")
+
     # Defer heavy imports until inside the subprocess.
     from datetime import datetime as _dt
     from pathlib import Path as _Path

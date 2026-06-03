@@ -34,6 +34,9 @@ dependencies = [
     "structlog>=24.1",
     "pyyaml>=6.0",
     "tomli-w>=1.0",
+    # Show the process as "huske" in Activity Monitor / ps instead of "Python".
+    # >=1.3.5 carries the macOS Dock-icon / fork-after fixes (see huske/proctitle.py).
+    "setproctitle>=1.3.5",
     # System audio capture on macOS via ScreenCaptureKit (macOS 13+).
     "pyobjc-framework-ScreenCaptureKit>=10; sys_platform == 'darwin'",
     "pyobjc-framework-CoreMedia>=10; sys_platform == 'darwin'",
