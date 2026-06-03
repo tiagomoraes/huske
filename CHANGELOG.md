@@ -6,6 +6,27 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+### Added
+
+- Idle whisper-model unload (`--idle-unload` / `whisper_idle_unload = true`, off
+  by default). The transcription worker drops the model weights after
+  `whisper_idle_unload_seconds` of inactivity (default 120 s) and reloads
+  lazily on the next chunk, freeing up to ~3 GB of resident RAM during long
+  recording gaps. Reloads resolve from a pinned local snapshot directory, so
+  they are network-free.
+- `--no-menu-bar` (`menu_bar_enabled = false`) now also skips the IPC control
+  socket and its accept thread, cutting an additional ~50–80 MB of idle RSS
+  when the menu-bar helper is disabled.
+- `huske doctor` reports the autostart LaunchAgent state: whether the agent
+  is installed, loaded, its running PID, and a pointer to any crash log.
+  Informational only; never fails the command; skipped on non-macOS.
+- New website docs page covering install, macOS permissions, autostart on
+  login, full config reference, and MCP setup for Claude Desktop, Gemini CLI,
+  ChatGPT, and other clients.
+- `examples/config.toml` now documents every current `RuntimeConfig` key,
+  including the new `whisper_idle_unload` and `menu_bar_enabled` footprint
+  knobs.
+
 ## 0.7.0 - 2026-06-03
 
 ### Added
