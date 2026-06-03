@@ -206,7 +206,7 @@ const OutputPreview = () => {
               <div><span className="key">audio_sources:</span>    <span className="val">[microphone, system]</span></div>
               <div><span className="key">language:</span>         <span className="str">auto</span></div>
               <div><span className="key">incomplete:</span>       <span className="val">false</span></div>
-              <div><span className="key">huske_version:</span>    <span className="str">0.6.0</span></div>
+              <div><span className="key">huske_version:</span>    <span className="str">0.7.0</span></div>
               <div><span className="delim">---</span></div>
             </div>
 
@@ -559,7 +559,9 @@ const RELEASES = [
   {
     ver: "0.7.0", date: "2026-06-03", tag: "latest",
     items: [
-      { kind: "added", text: <>Off-device replication (opt-in; see <code>docs/adr/0004-off-device-huske-server.md</code> and <code>docs/server.md</code>). <code>huske serve</code> runs a single-tenant huske server on a box you control (e.g. a VPS): it receives finalized transcripts pushed from a recording Mac, stores and indexes them with a CPU (<code>fastembed</code>) embedder, and serves the existing <code>search</code>/<code>fetch</code> MCP over loopback to a co-located agent. When <code>sync_endpoint</code> is configured, <code>huske run</code> replicates each finalized transcript live — dependency-free and off the audio hot path, reconciling after the Mac has been offline — and <code>huske sync</code> backfills on demand. Only a write-only ingest endpoint is network-exposed; the read MCP stays loopback-only. Adds the <code>huske[server]</code> extra; the send side ships in the base install.</> },
+      { kind: "added", text: <>Off-device replication (opt-in <code>huske[server]</code> extra). <code>huske serve</code> runs a single-tenant huske server on a box you control — it receives finalized transcripts pushed from a recording Mac, indexes them with a CPU (<code>fastembed</code>) embedder, and serves the existing <code>search</code>/<code>fetch</code> MCP over loopback to a co-located agent. <code>huske run</code> replicates live when <code>sync_endpoint</code> is set; <code>huske sync</code> backfills. Only the write-only ingest endpoint is network-exposed. See <code>docs/server.md</code>.</> },
+      { kind: "added", text: <>huske now sets its OS process title, so it shows as <code>huske</code> (and <code>huske-whisper</code> / <code>huske-embed</code> for its workers) in Activity Monitor, <code>ps</code>, and <code>top</code> instead of a bare Python interpreter.</> },
+      { kind: "changed", text: <>Python 3.14 is now supported — <code>requires-python</code> is <code>&gt;=3.11,&lt;3.15</code>, and CI tests against it.</> },
     ],
   },
   {
@@ -740,7 +742,7 @@ const FAQ = () => (
         <details>
           <summary>Is this only for Apple Silicon? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>Apple Silicon Mac is the supported target in 0.6.0. The transcription engine (<code>mlx-whisper</code>) runs on the M-series GPU via MLX, and system-audio capture uses macOS-only Core Audio / ScreenCaptureKit APIs.</p>
+            <p>Apple Silicon Mac is the supported target in 0.7.0. The transcription engine (<code>mlx-whisper</code>) runs on the M-series GPU via MLX, and system-audio capture uses macOS-only Core Audio / ScreenCaptureKit APIs.</p>
           </div>
         </details>
         <details>
