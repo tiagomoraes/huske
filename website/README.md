@@ -47,16 +47,27 @@ The page is composed from three component files loaded via
 - `components-sections.jsx` — `Pillars`, `HowItWorks`, `OutputPreview`,
   `Privacy`, `Releases`, `Community`, `FAQ`
 
-Hardcoded copy that's worth keeping in sync with the rest of the repo (the
-release checklist in the root `CLAUDE.md` requires a deep pass over all of this
-on every release):
+### Version — single source of truth
 
-- Version string appears in `Nav` + `Footer` (`components-shell.jsx`), the hero
-  eyebrow + live-demo header (`components-hero.jsx`), and the sample frontmatter
-  (`components-sections.jsx`) — update them all to match `pyproject.toml`
-  `version`. Leave the historical `RELEASES` entries untouched.
-- Supported Python versions (`components-hero.jsx`) must match
-  `requires-python` in `pyproject.toml`.
+`version.js` defines `window.HUSKE_VERSION` (and `HUSKE_PYTHONS`). It loads as a
+plain `<script>` before React on both `index.html` and `docs/index.html`, so
+every component reads it as a global — `v{HUSKE_VERSION}` — exactly like
+`React` / `ReactDOM` from the UMD bundles. **Change the one line in `version.js`
+to update the version everywhere**: Nav, Footer, hero eyebrow, live-demo header,
+sample transcript frontmatter, and the "supported target" FAQ. `HUSKE_PYTHONS`
+likewise drives the hero install foot, the install-section sub copy, and the
+docs facts list — update that array when `requires-python` changes.
+
+Never hardcode a version in a component; the historical `RELEASES` timeline in
+`components-sections.jsx` is the one intentional exception. `scripts/release.py`
+patches `version.js` automatically, and `python scripts/check-website-version.py`
+confirms the whole site (plus the README install-pin) is in sync and no page
+still mentions a previous version.
+
+Other hardcoded copy worth keeping in sync with the rest of the repo (the
+release checklist in the root `CLAUDE.md` requires a deep pass on every
+release):
+
 - Release timeline data lives in `RELEASES` in `components-sections.jsx`
 - GitHub star count in `Nav` (`gh-pill .num`) is live — fetched from the GitHub
   API at runtime via `useGitHubStars`, cached in `localStorage` for 5 minutes,

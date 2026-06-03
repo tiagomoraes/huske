@@ -163,7 +163,7 @@ const Nav = ({ theme, setTheme, base = "", docsHref = "docs/" }) => {
       <a href={base || "#"} className="brand">
         <Mark/>
         <span className="word">huske</span>
-        <span className="ver">v0.7.2</span>
+        <span className="ver">v{HUSKE_VERSION}</span>
       </a>
       <div className="links">
         <a href={at("why")}>why</a>
@@ -237,7 +237,7 @@ const Footer = ({ base = "", docsHref = "docs/" }) => (
       <div className="meta">
         <div className="left">
           <Mark size={18}/>
-          <span>huske v0.7.2</span>
+          <span>huske v{HUSKE_VERSION}</span>
           <span style={{ color: "var(--fg-faint)" }}>·</span>
           <span>built by tiagomoraes</span>
           <span style={{ color: "var(--fg-faint)" }}>·</span>

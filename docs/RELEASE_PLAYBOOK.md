@@ -59,9 +59,12 @@ The script:
   there is **only one source of truth**).
 - Moves `## Unreleased` content to `## $VERSION - YYYY-MM-DD` in
   `CHANGELOG.md`.
-- Mechanically updates `website/components-shell.jsx` (Nav + Footer) and
-  inserts a new `RELEASES` entry in `website/components-sections.jsx` with
-  bullets converted from the moved CHANGELOG section.
+- Mechanically bumps `website/version.js` (`HUSKE_VERSION`, the single string
+  the whole site reads) and the README install-pin, inserts a new `RELEASES`
+  entry in `website/components-sections.jsx` (bullets converted from the moved
+  CHANGELOG section), then runs the version-drift guard and **fails the release
+  if any page still mentions the previous version**. Run the same sweep by hand
+  any time with `python scripts/check-website-version.py`.
 - Runs unit tests + the smoke integration suite.
 - Pushes `release/v$VERSION` and opens the PR via `gh pr create`.
 

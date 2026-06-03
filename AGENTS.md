@@ -123,12 +123,13 @@ Agent-safe release workflow:
 
 1. Prepare a release branch from an up-to-date `develop`.
 2. Update `pyproject.toml` version and `CHANGELOG.md`.
-3. Update the website release timeline and version strings: add a new entry
-   to the `RELEASES` array in `website/components-sections.jsx` (move the
-   `tag: "latest"` to the new entry), and bump the hardcoded version string
-   in `website/components-shell.jsx` (both the Nav `<span className="ver">`
-   and the Footer `huske vX.Y.Z` line). Mirror the `CHANGELOG.md` entry
-   content as JSX `items` on the new release.
+3. Update the website: bump `HUSKE_VERSION` in `website/version.js` — the
+   single string every component reads, so Nav, Footer, hero, sample
+   transcript, and FAQ all update at once — add a new entry to the `RELEASES`
+   array in `website/components-sections.jsx` (move `tag: "latest"` to it,
+   mirroring the `CHANGELOG.md` content as JSX `items`), and bump the README
+   install-pin. Then run `python scripts/check-website-version.py` to confirm
+   no page still mentions the previous version.
 4. Run the CI baseline and any relevant manual checks.
 5. Open a release-prep PR back to `develop`.
 6. After that PR merges, create a promotion PR from `develop` to `main`.
