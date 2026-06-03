@@ -206,7 +206,7 @@ const OutputPreview = () => {
               <div><span className="key">audio_sources:</span>    <span className="val">[microphone, system]</span></div>
               <div><span className="key">language:</span>         <span className="str">auto</span></div>
               <div><span className="key">incomplete:</span>       <span className="val">false</span></div>
-              <div><span className="key">huske_version:</span>    <span className="str">0.5.0</span></div>
+              <div><span className="key">huske_version:</span>    <span className="str">0.7.0</span></div>
               <div><span className="delim">---</span></div>
             </div>
 
@@ -244,125 +244,242 @@ const OutputPreview = () => {
   );
 };
 
-const RECALL_RESULTS = [
+const MCP_ENDPOINT = "http://127.0.0.1:7641/mcp";
+const MCP_TOKEN_PATH = "~/.config/huske/mcp_token";
+
+const SETUP_STEPS = [
+  { cmd: "uv tool install 'huske[mcp]'", note: "add the on-device search + MCP extra" },
+  { cmd: "huske index", note: "embed your transcripts locally · one-time backfill" },
+  { cmd: "huske mcp", note: "serve search + fetch · prints your endpoint + token" },
+];
+
+// Per-agent native config. The paste-prompt (below) is the primary path; this is
+// the "wire it yourself" fallback. Configs verified against each tool's docs.
+const AGENTS = [
   {
-    when: "2026-05-07 · 09:15",
-    srcs: ["mic", "system"],
-    score: 0.92,
-    snippet: <>every failure is within 80&nbsp;ms of the cookie write returning — <mark>pin the auth header in the same hop.</mark></>,
-    full: "the timing is interesting — every failure is within 80 ms of the cookie write returning. … the middleware reads from the request before the response cookie has flushed. easy fix — we can pin the auth header in the same hop.",
-    cite: { session: "20260507T091500_8a3f", range: "09:15:38 – 09:15:54", sources: "mic · system" },
+    id: "claude-code",
+    label: "Claude Code",
+    lang: "shell",
+    path: "or edit ~/.claude.json",
+    code:
+`claude mcp add --transport http huske \\
+  ${MCP_ENDPOINT} \\
+  --header "Authorization: Bearer $(cat ${MCP_TOKEN_PATH})"`,
   },
   {
-    when: "2026-05-06 · 14:30",
-    srcs: ["system"],
-    score: 0.81,
-    snippet: <>staging logs confirmed the race; agreed to ship the header fix <mark>before the refactor.</mark></>,
-    full: "staging logs confirmed the race under load. we agreed to ship the small header fix this week and hold the broader session refactor until after the release.",
-    cite: { session: "20260506T142955_b71e", range: "14:31:10 – 14:32:02", sources: "system" },
+    id: "codex",
+    label: "Codex",
+    lang: "toml",
+    path: "~/.codex/config.toml",
+    code:
+`# first: export HUSKE_MCP_TOKEN=$(cat ${MCP_TOKEN_PATH})
+[mcp_servers.huske]
+url = "${MCP_ENDPOINT}"
+bearer_token_env_var = "HUSKE_MCP_TOKEN"`,
   },
   {
-    when: "2026-05-05 · 11:00",
-    srcs: ["mic"],
-    score: 0.74,
-    snippet: <>flagged the token refresh as flaky on slow links — <mark>needs a repro.</mark></>,
-    full: "i flagged the token refresh as flaky on slow links during the demo. no repro yet — let's instrument it and pick it up next standup.",
-    cite: { session: "20260505T110000_c0a8", range: "11:02:40 – 11:03:09", sources: "mic" },
+    id: "cursor",
+    label: "Cursor",
+    lang: "json",
+    path: "~/.cursor/mcp.json",
+    code:
+`{
+  "mcpServers": {
+    "huske": {
+      "url": "${MCP_ENDPOINT}",
+      "headers": { "Authorization": "Bearer \${env:HUSKE_MCP_TOKEN}" }
+    }
+  }
+}`,
+  },
+  {
+    id: "vscode",
+    label: "VS Code",
+    lang: "json",
+    path: ".vscode/mcp.json",
+    code:
+`{
+  "servers": {
+    "huske": {
+      "type": "http",
+      "url": "${MCP_ENDPOINT}",
+      "headers": { "Authorization": "Bearer \${env:HUSKE_MCP_TOKEN}" }
+    }
+  }
+}`,
+  },
+  {
+    id: "opencode",
+    label: "opencode",
+    lang: "json",
+    path: "opencode.json",
+    code:
+`{
+  "mcp": {
+    "huske": {
+      "type": "remote",
+      "url": "${MCP_ENDPOINT}",
+      "enabled": true,
+      "headers": { "Authorization": "Bearer <token>" }
+    }
+  }
+}`,
+  },
+  {
+    id: "hermes",
+    label: "Hermes",
+    lang: "yaml",
+    path: "~/.hermes/config.yaml",
+    code:
+`mcp_servers:
+  huske:
+    url: "${MCP_ENDPOINT}"
+    headers:
+      Authorization: "Bearer <token>"`,
+  },
+  {
+    id: "openclaw",
+    label: "OpenClaw",
+    lang: "json",
+    path: "~/.openclaw/openclaw.json",
+    code:
+`{
+  "mcp": {
+    "servers": {
+      "huske": {
+        "url": "${MCP_ENDPOINT}",
+        "transport": "streamable-http",
+        "headers": { "Authorization": "Bearer <token>" }
+      }
+    }
+  }
+}`,
   },
 ];
 
-const MCP_CMD = 'claude mcp add --transport http huske \\\n  http://127.0.0.1:7641/mcp \\\n  --header "Authorization: Bearer hsk_…"';
+// The Composio-style instruction: paste it into the agent and it wires itself up.
+// Plain string for the clipboard; PromptText renders the same words with the
+// literal values syntax-highlighted so the code block reads as fill-in-the-values.
+const agentPrompt = (label) =>
+`Add an MCP server named "huske" to ${label}. Use HTTP (streamable) transport at ${MCP_ENDPOINT}, with the header "Authorization: Bearer <TOKEN>", where <TOKEN> is the contents of ${MCP_TOKEN_PATH} on this machine. It exposes "search" and "fetch" over my local huske transcripts. Start "huske mcp" first, then confirm by calling its search tool.`;
+
+const PromptText = ({ label }) => (
+  <>
+    Add an MCP server named <span className="lit">huske</span> to {label}. Use HTTP
+    (streamable) transport at <span className="lit">{MCP_ENDPOINT}</span>, with the
+    header <span className="lit">"Authorization: Bearer &lt;TOKEN&gt;"</span>, where{" "}
+    <span className="lit">&lt;TOKEN&gt;</span> is the contents of{" "}
+    <span className="lit">{MCP_TOKEN_PATH}</span> on this machine. It exposes{" "}
+    <span className="lit">search</span> and <span className="lit">fetch</span> over my
+    local huske transcripts. Start <span className="lit">huske mcp</span> first, then
+    confirm by calling its search tool.
+  </>
+);
 
 const SearchRecall = () => {
-  const [active, setActive] = React.useState(0);
-  const [copied, setCopied] = React.useState(false);
+  const [agentId, setAgentId] = React.useState("claude-code");
+  const [showNative, setShowNative] = React.useState(false);
+  const agent = AGENTS.find((a) => a.id === agentId) || AGENTS[0];
+  const prompt = agentPrompt(agent.label);
   return (
     <section id="search">
       <div className="page">
         <SectionHead
           num="04"
-          label="search"
-          lead={<>Recall, not just <span className="accent">storage.</span></>}
-          sub={<>Opt into the <code>huske[mcp]</code> extra and every transcript becomes searchable by <em>meaning</em> — on-device embeddings, a local vector index, and an MCP server your chat model queries directly. The whole index is built and served without a byte leaving the machine.</>}
+          label="search · mcp"
+          lead={<>Recall over <span className="accent">MCP.</span></>}
+          sub={<>Opt into the <code>huske[mcp]</code> extra and every transcript becomes searchable by <em>meaning</em>: on-device embeddings, a local vector index, and an MCP server your agent queries directly. Run it, paste one prompt into Claude Code, Codex, Cursor, or any MCP client, and it wires itself up. Nothing but the answer ever leaves your machine.</>}
         />
-        <div className="recall">
-          <div className="panel query-panel">
-            <div className="qbar">
-              <span className="prefix">query:</span>
-              <span className="q">what did we decide about the auth bug?</span>
-              <span className="caret" aria-hidden="true"/>
-            </div>
-            <div className="filters">
-              <span className="chip"><span className="k">source</span><span className="v">any</span></span>
-              <span className="chip"><span className="k">from</span><span className="v">2026-05-01</span></span>
-              <span className="chip"><span className="k">to</span><span className="v">2026-05-07</span></span>
-              <span className="chip"><span className="k">k</span><span className="v">8</span></span>
-            </div>
-            <div className="results">
-              {RECALL_RESULTS.map((r, i) => (
-                <div
-                  key={i}
-                  className={`result ${i === active ? "active" : ""}`}
-                  onClick={() => setActive(i)}
-                >
-                  <div className="rank">{String(i + 1).padStart(2, "0")}</div>
-                  <div className="main">
-                    <div className="title">
-                      <span>{r.when}</span>
-                      {r.srcs.map((s) => (
-                        <span key={s} className={`src ${s === "mic" ? "mic" : "sys"}`}>
-                          {s === "mic" ? "mic" : "sys"}
-                        </span>
-                      ))}
-                    </div>
-                    <div className="snippet">{r.snippet}</div>
-                    {i === active && (
-                      <div className="detail">
-                        <div className="full">{r.full}</div>
-                        <div className="cite">
-                          <span><b>session</b> {r.cite.session}</span>
-                          <span><b>range</b> {r.cite.range}</span>
-                          <span><b>sources</b> {r.cite.sources}</span>
-                        </div>
-                      </div>
-                    )}
+        <div className="recall connect-grid">
+          <div className="panel connect">
+            <div className="cstep">
+              <div className="cstep-head"><span className="cnum">01</span> run the server</div>
+              <div className="setup">
+                {SETUP_STEPS.map((s) => (
+                  <div className="sline" key={s.cmd}>
+                    <code className="sc"><span className="sp">$</span> {s.cmd}</code>
+                    <span className="snote"># {s.note}</span>
+                    <CopyButton text={s.cmd} className="copy ghost mini" withLabel={false}/>
                   </div>
-                  <div className="score">
-                    <span>{r.score.toFixed(2)}</span>
-                    <span className="meter"><span className="fill" style={{ width: `${r.score * 100}%` }}/></span>
+                ))}
+              </div>
+            </div>
+
+            <div className="cstep">
+              <div className="cstep-head"><span className="cnum">02</span> connect your agent</div>
+              <div className="agent-tabs" role="tablist" aria-label="Select your agent">
+                {AGENTS.map((a) => (
+                  <button
+                    key={a.id}
+                    role="tab"
+                    aria-selected={a.id === agentId}
+                    className={`atab ${a.id === agentId ? "active" : ""}`}
+                    onClick={() => setAgentId(a.id)}
+                  >
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="prompt-block">
+                <div className="pb-head">
+                  <span className="pb-label">paste into {agent.label}</span>
+                  <CopyButton text={prompt} className="copy ghost" />
+                </div>
+                <div className="pb-code"><PromptText label={agent.label}/></div>
+                <div className="pb-foot">the agent reads your token and registers the server itself. no secret is shown on this page.</div>
+              </div>
+
+              <div className={`native ${showNative ? "open" : ""}`}>
+                <button
+                  type="button"
+                  className="native-toggle"
+                  aria-expanded={showNative}
+                  onClick={() => setShowNative((v) => !v)}
+                >
+                  <span className="chev" aria-hidden="true">›</span>
+                  rather wire it up yourself? {agent.label} config
+                </button>
+                <div className="native-wrap">
+                  <div className="native-inner">
+                    <div className="native-body">
+                      <div className="nb-head">
+                        <span className="nb-path">{agent.path}</span>
+                        <span className="nb-lang">{agent.lang}</span>
+                        <CopyButton text={agent.code} className="copy ghost"/>
+                      </div>
+                      <pre className="nb-code"><code>{agent.code}</code></pre>
+                    </div>
                   </div>
                 </div>
-              ))}
+              </div>
             </div>
           </div>
 
           <div className="panel wiring">
             <div className="whead"><span className="dot"/> mcp · loopback</div>
-            <div className="cmd">
-              <button
-                className={`copy ${copied ? "copied" : ""}`}
-                onClick={() => {
-                  navigator.clipboard?.writeText(MCP_CMD.replace(/\\\n\s*/g, " "));
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 1200);
-                }}
-              >
-                {copied ? <CheckGlyph/> : <CopyGlyph/>}
-                {copied ? "copied" : "copy"}
-              </button>
-              <div><span className="prompt">$ </span>claude mcp add <span className="flag">--transport</span> http huske</div>
-              <div>{"  "}http://127.0.0.1:7641/mcp</div>
-              <div>{"  "}<span className="flag">--header</span> "Authorization: Bearer hsk_…"</div>
-            </div>
             <div className="wmeta">
               <div className="row"><span className="k">endpoint</span><span className="v">127.0.0.1:7641/mcp</span></div>
-              <div className="row"><span className="k">auth</span><span className="v">bearer · origin-checked</span></div>
+              <div className="row"><span className="k">transport</span><span className="v">http · streamable</span></div>
+              <div className="row"><span className="k">tools</span><span className="v">search · fetch</span></div>
               <div className="row"><span className="k">model</span><span className="v">multilingual-e5-base · 768d</span></div>
-              <div className="row"><span className="k">index</span><span className="v">3,184 passages · 212 days</span></div>
+              <div className="row"><span className="k">index</span><span className="v">on-device · sqlite-vec</span></div>
+            </div>
+            <div className="auth">
+              <div className="auth-head"><KeyGlyph/> authentication</div>
+              <p className="auth-p">
+                Every request carries a bearer token. huske generates one on first run,
+                prints it in the <code>huske mcp</code> banner, and stores it at
+                {" "}<code>{MCP_TOKEN_PATH}</code> (mode <code>0600</code>).
+              </p>
+              <p className="auth-p">
+                Reference it with <code>$(cat …)</code> or an env var so the secret stays out
+                of committed config, and off this page.
+              </p>
             </div>
             <div className="wnote">
-              <div className="ln"><span className="tick">✓</span><span>Claude Code &amp; Desktop connect direct — loopback, no tunnel.</span></div>
-              <div className="ln"><span className="warn">⚠</span><span>ChatGPT needs an HTTPS tunnel to reach it (opt-in).</span></div>
+              <div className="ln"><span className="tick">✓</span><span>Claude Code, Codex, Cursor &amp; more connect direct over loopback. No tunnel.</span></div>
+              <div className="ln"><span className="warn">⚠</span><span>ChatGPT needs a public HTTPS tunnel to reach it (opt-in).</span></div>
             </div>
           </div>
         </div>
@@ -440,7 +557,15 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.6.0", date: "2026-06-02", tag: "latest",
+    ver: "0.7.0", date: "2026-06-03", tag: "latest",
+    items: [
+      { kind: "added", text: <>Off-device replication (opt-in <code>huske[server]</code> extra). <code>huske serve</code> runs a single-tenant huske server on a box you control — it receives finalized transcripts pushed from a recording Mac, indexes them with a CPU (<code>fastembed</code>) embedder, and serves the existing <code>search</code>/<code>fetch</code> MCP over loopback to a co-located agent. <code>huske run</code> replicates live when <code>sync_endpoint</code> is set; <code>huske sync</code> backfills. Only the write-only ingest endpoint is network-exposed. See <code>docs/server.md</code>.</> },
+      { kind: "added", text: <>huske now sets its OS process title, so it shows as <code>huske</code> (and <code>huske-whisper</code> / <code>huske-embed</code> for its workers) in Activity Monitor, <code>ps</code>, and <code>top</code> instead of a bare Python interpreter.</> },
+      { kind: "changed", text: <>Python 3.14 is now supported — <code>requires-python</code> is <code>&gt;=3.11,&lt;3.15</code>, and CI tests against it.</> },
+    ],
+  },
+  {
+    ver: "0.6.0", date: "2026-06-02",
     items: [
       { kind: "changed", text: <>Release process collapses into three scripts under <code>scripts/</code>: <code>release.py</code>, <code>release-finalize.py</code>, and <code>update-homebrew-tap.py</code>. The short operational checklist is <code>docs/RELEASE_PLAYBOOK.md</code>; <code>docs/releasing.md</code> remains as the deep reference.</> },
       { kind: "changed", text: <><code>huske/__init__.py</code> now reads the version from <code>pyproject.toml</code> when the package source is adjacent (dev checkout / editable install) and falls back to <code>importlib.metadata</code> for installed wheels. The two hardcoded versions could no longer drift the way <code>0.3.1</code> had to be hotfixed for.</> },
@@ -617,7 +742,7 @@ const FAQ = () => (
         <details>
           <summary>Is this only for Apple Silicon? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>Apple Silicon Mac is the supported target in 0.5.0. The transcription engine (<code>mlx-whisper</code>) runs on the M-series GPU via MLX, and system-audio capture uses macOS-only Core Audio / ScreenCaptureKit APIs.</p>
+            <p>Apple Silicon Mac is the supported target in 0.7.0. The transcription engine (<code>mlx-whisper</code>) runs on the M-series GPU via MLX, and system-audio capture uses macOS-only Core Audio / ScreenCaptureKit APIs.</p>
           </div>
         </details>
         <details>

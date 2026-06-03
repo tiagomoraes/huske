@@ -42,9 +42,17 @@ The page is composed from three component files loaded via
 - `components-sections.jsx` — `Pillars`, `HowItWorks`, `OutputPreview`,
   `Privacy`, `Releases`, `Community`, `FAQ`
 
-Hardcoded copy that's worth keeping in sync with the rest of the repo:
+Hardcoded copy that's worth keeping in sync with the rest of the repo (the
+release checklist in the root `CLAUDE.md` requires a deep pass over all of this
+on every release):
 
-- Version string (`v0.5.0`) appears in `Nav` and `Footer` — update on each
-  release (see `pyproject.toml` `version`)
+- Version string appears in `Nav` + `Footer` (`components-shell.jsx`), the hero
+  eyebrow + live-demo header (`components-hero.jsx`), and the sample frontmatter
+  (`components-sections.jsx`) — update them all to match `pyproject.toml`
+  `version`. Leave the historical `RELEASES` entries untouched.
+- Supported Python versions (`components-hero.jsx`) must match
+  `requires-python` in `pyproject.toml`.
 - Release timeline data lives in `RELEASES` in `components-sections.jsx`
-- GitHub star count in `Nav` (`gh-pill .num`) is a static placeholder
+- GitHub star count in `Nav` (`gh-pill .num`) is live — fetched from the GitHub
+  API at runtime via `useGitHubStars`, cached in `localStorage` for 5 minutes,
+  and falls back to `—` if the API is unreachable.

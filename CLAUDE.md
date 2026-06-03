@@ -76,6 +76,35 @@ The three load-bearing decisions are recorded in `docs/adr/0001-0003`. Keep the
 ADR 0002. The base recording pipeline must not import this subsystem eagerly —
 all heavy deps are lazily imported.
 
+## Off-device server (opt-in `huske[server]` extra)
+
+A second, separate opt-in subsystem replicates transcripts to a single-tenant
+remote server (a VPS) so an always-on, co-located agent can query them while the
+recording Mac is offline. Off by default; the send side adds no dependencies.
+See `docs/adr/0004-off-device-huske-server.md` and `docs/server.md`.
+
+- `sync/` is the **client** (base install, dependency-free): `outbox.py` is a
+  durable stdlib-`sqlite3` record of what the server has acknowledged,
+  `client.py` does `POST /ingest` over stdlib `urllib`, and `worker.py` is a
+  background *thread* — not a subprocess, because network I/O releases the GIL
+  and cannot starve the ~50 ms audio drainer — that pushes finalized transcripts
+  off the hot path and reconciles on reconnect. `run_loop.py` feeds it from the
+  same `_on_written` hook as the embed worker, inert unless `sync_endpoint` is
+  set.
+- `server/` is the **serve side** (`huske[server]`, on the VPS): `ingest.py` is
+  the pure, hostile-input-validated store logic (strict `YYYY-MM-DD/<name>.md`
+  rel-paths, sha256 verification, idempotent atomic writes), `app.py` is the
+  write-token ASGI ingest endpoint, and `serve.py` wires them to the existing
+  `Indexer`/`PassageStore` with a CPU (`fastembed`) embedder. The read side is
+  the unchanged loopback `huske mcp`, run as a second process; both share the one
+  `sqlite-vec` file via WAL.
+
+Security invariant (ADR 0004): only the write-only ingest endpoint is
+network-exposed (a TLS reverse proxy fronts it); the read MCP stays
+loopback-only. The send transport ships in the base install — keep it
+dependency-free; never import the heavy `huske.search` / `huske.mcp` paths from
+`huske.sync`.
+
 ## Core Commands
 
 ```bash
@@ -161,6 +190,32 @@ The scripts handle the version bump, CHANGELOG move, website updates
 with `tag: "latest"` rotation), and PR creation. `huske/__init__.py`
 reads the version from `pyproject.toml` so there is only one source of
 truth — do not hardcode version strings.
+
+**Every release, deep-check the `website/` against the just-released
+version — the scripts only touch Nav/Footer + RELEASES, so other spots
+drift.** Confirm the whole site matches `pyproject.toml` before the
+release-prep PR is finalized:
+
+- Version string: it appears in more places than the scripts patch — the
+  hero eyebrow and live-demo header (`components-hero.jsx`) and the sample
+  transcript frontmatter (`components-sections.jsx`), in addition to
+  Nav/Footer. They must all read the new `version`. Leave historical
+  `RELEASES` entries alone.
+- Supported Python versions in `components-hero.jsx` (install foot +
+  install-section sub copy) must match `requires-python` in
+  `pyproject.toml`.
+- Any other shipped-behavior copy (commands, flags, defaults, config keys,
+  feature claims) touched by the release must be reflected on the site.
+- Sweep for stragglers and fix anything that isn't a historical
+  changelog/date entry:
+
+  ```bash
+  V=$(grep -E '^version' pyproject.toml | head -1)   # current version
+  grep -rnE "0\.[0-9]+\.[0-9]+|python 3|3\.1[0-9]" website/*.jsx website/*.html
+  ```
+
+  Then add a RELEASES entry in `components-sections.jsx` and load the page
+  (`python -m http.server --directory website`) to confirm it renders.
 
 When the playbook does not fit (manual debugging, partial release, etc.),
 fall back to the steps in [docs/releasing.md](docs/releasing.md).

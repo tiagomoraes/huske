@@ -53,6 +53,80 @@ const CheckGlyph = () => (
   </svg>
 );
 
+const KeyGlyph = ({ size = 13 }) => (
+  <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="5.5" cy="5.5" r="3"/>
+    <path d="M7.7 7.7l5 5M11 11l1.5-1.5M9.5 9.5L11 8"/>
+  </svg>
+);
+
+// ---- Reusable copy-to-clipboard button ----
+const CopyButton = ({ text, className = "copy", withLabel = true }) => {
+  const [copied, setCopied] = React.useState(false);
+  return (
+    <button
+      type="button"
+      className={`${className} ${copied ? "copied" : ""}`}
+      onClick={() => {
+        navigator.clipboard?.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1400);
+      }}
+      aria-label={copied ? "Copied" : "Copy to clipboard"}
+    >
+      {copied ? <CheckGlyph/> : <CopyGlyph/>}
+      {withLabel && <span>{copied ? "copied" : "copy"}</span>}
+    </button>
+  );
+};
+
+// ---- Live GitHub star count (cached, fails quiet) ----
+const STARS_CACHE_KEY = "huske-stars";
+const STARS_TTL_MS = 5 * 60 * 1000; // refetch at most every 5 min per visitor
+
+function formatStars(n) {
+  if (n >= 1000) {
+    const k = n / 1000;
+    return `${k >= 10 ? Math.round(k) : k.toFixed(1).replace(/\.0$/, "")}k`;
+  }
+  return String(n);
+}
+
+function useGitHubStars(repo = "tiagomoraes/huske") {
+  const [stars, setStars] = React.useState(() => {
+    try {
+      const raw = localStorage.getItem(STARS_CACHE_KEY);
+      if (!raw) return null;
+      const { n } = JSON.parse(raw);
+      return typeof n === "number" ? n : null;
+    } catch (e) { return null; }
+  });
+  React.useEffect(() => {
+    let fresh = false;
+    try {
+      const raw = localStorage.getItem(STARS_CACHE_KEY);
+      if (raw) {
+        const { t } = JSON.parse(raw);
+        fresh = typeof t === "number" && Date.now() - t < STARS_TTL_MS;
+      }
+    } catch (e) {}
+    if (fresh) return;
+    let alive = true;
+    fetch(`https://api.github.com/repos/${repo}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((d) => {
+        if (!alive || typeof d.stargazers_count !== "number") return;
+        setStars(d.stargazers_count);
+        try {
+          localStorage.setItem(STARS_CACHE_KEY, JSON.stringify({ n: d.stargazers_count, t: Date.now() }));
+        } catch (e) {}
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [repo]);
+  return stars;
+}
+
 // ---- Theme ----
 function useTheme() {
   const [theme, setTheme] = React.useState(() => {
@@ -77,34 +151,37 @@ const ThemeToggle = ({ theme, setTheme }) => (
   </button>
 );
 
-const Nav = ({ theme, setTheme }) => (
-  <nav className="nav">
-    <a href="#" className="brand">
-      <Mark/>
-      <span className="word">huske</span>
-      <span className="ver">v0.6.0</span>
-    </a>
-    <div className="links">
-      <a href="#why">why</a>
-      <a href="#how">how</a>
-      <a href="#output">output</a>
-      <a href="#search">search</a>
-      <a href="#privacy">privacy</a>
-      <a href="#releases">releases</a>
-      <a href="#faq">faq</a>
-    </div>
-    <div className="right">
-      <ThemeToggle theme={theme} setTheme={setTheme}/>
-      <a className="gh-pill" href="https://github.com/tiagomoraes/huske" target="_blank" rel="noopener">
-        <GhGlyph size={13}/>
-        <span>github</span>
-        <span className="sep"/>
-        <span className="star"><StarGlyph/></span>
-        <span className="num">412</span>
+const Nav = ({ theme, setTheme }) => {
+  const stars = useGitHubStars();
+  return (
+    <nav className="nav">
+      <a href="#" className="brand">
+        <Mark/>
+        <span className="word">huske</span>
+        <span className="ver">v0.7.0</span>
       </a>
-    </div>
-  </nav>
-);
+      <div className="links">
+        <a href="#why">why</a>
+        <a href="#how">how</a>
+        <a href="#output">output</a>
+        <a href="#search">search</a>
+        <a href="#privacy">privacy</a>
+        <a href="#releases">releases</a>
+        <a href="#faq">faq</a>
+      </div>
+      <div className="right">
+        <ThemeToggle theme={theme} setTheme={setTheme}/>
+        <a className="gh-pill" href="https://github.com/tiagomoraes/huske" target="_blank" rel="noopener" title="Star huske on GitHub">
+          <GhGlyph size={13}/>
+          <span>github</span>
+          <span className="sep"/>
+          <span className="star"><StarGlyph/></span>
+          <span className={`num ${stars == null ? "loading" : ""}`}>{stars == null ? "—" : formatStars(stars)}</span>
+        </a>
+      </div>
+    </nav>
+  );
+};
 
 const Footer = () => (
   <footer className="foot">
@@ -153,7 +230,7 @@ const Footer = () => (
       <div className="meta">
         <div className="left">
           <Mark size={18}/>
-          <span>huske v0.6.0</span>
+          <span>huske v0.7.0</span>
           <span style={{ color: "var(--fg-faint)" }}>·</span>
           <span>built by tiagomoraes</span>
           <span style={{ color: "var(--fg-faint)" }}>·</span>
@@ -170,6 +247,7 @@ const Footer = () => (
 );
 
 Object.assign(window, {
-  Mark, ArrowRight, SunIcon, MoonIcon, GhGlyph, StarGlyph, CopyGlyph, CheckGlyph,
+  Mark, ArrowRight, SunIcon, MoonIcon, GhGlyph, StarGlyph, CopyGlyph, CheckGlyph, KeyGlyph,
+  CopyButton, useGitHubStars, formatStars,
   useTheme, ThemeToggle, Nav, Footer,
 });

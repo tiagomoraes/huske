@@ -34,7 +34,15 @@ def main(
     ),
 ) -> None:
     """huske — always-on audio recorder + local transcription."""
+    from huske.proctitle import set_process_title
     from huske.update_check import notify_if_outdated
+
+    # Name the OS process "huske" (Activity Monitor / ps) instead of the bare
+    # Python interpreter. The menu bar helper names itself "huske-menubar" in its
+    # own command, and the worker subprocesses set their titles in their
+    # entrypoints, so they are skipped here.
+    if ctx.invoked_subcommand != "menubar":
+        set_process_title("huske")
 
     notify_if_outdated()
     if ctx.invoked_subcommand is None:
@@ -118,6 +126,11 @@ def menubar(
 ) -> None:
     """Render the menu bar helper attached to a running huske session (macOS only)."""
     from huske.menubar import run_helper
+    from huske.proctitle import set_process_title
+
+    # The callback skips this subcommand, so name the helper here instead — it
+    # coexists with the accessory NSApplication / status-bar item (verified).
+    set_process_title("huske-menubar")
 
     if style not in {"text", "icon"}:
         typer.secho(f"invalid --style: {style!r} (expected 'text' or 'icon')", fg=typer.colors.RED, err=True)
@@ -226,6 +239,56 @@ def mcp(
         typer.secho(f"config: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(2) from exc
     raise typer.Exit(run_mcp(cfg, host=host, port=port))
+
+
+# ---------------------------------------------------------------------------
+# Off-device huske server: replication client + serve side (huske[server])
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def serve(
+    ingest_host: str | None = typer.Option(
+        None, "--ingest-host", help="Bind address (default 127.0.0.1, behind a TLS reverse proxy)."
+    ),
+    ingest_port: int | None = typer.Option(
+        None, "--ingest-port", min=1, max=65535, help="Port (default 7642)."
+    ),
+    public_host: str | None = typer.Option(
+        None, "--public-host", help="Public hostname the reverse proxy serves (validates Host)."
+    ),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Run the off-device huske server: receive pushed transcripts and index them.
+
+    Single-tenant. Pair with `huske mcp` (the loopback read side) on the same
+    host for your co-located agent. See docs/server.md and
+    docs/adr/0004-off-device-huske-server.md.
+    """
+    from huske.config import load_config
+    from huske.server.serve import run as run_serve
+
+    overrides = _collect_overrides(
+        ingest_host=ingest_host, ingest_port=ingest_port, public_host=public_host
+    )
+    try:
+        cfg = load_config(config_path=config_path, cli_overrides=overrides)
+    except ValueError as exc:
+        typer.secho(f"config: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
+    raise typer.Exit(run_serve(cfg))
+
+
+@app.command()
+def sync(
+    output_root: Path | None = typer.Option(None, "--output-root"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Push every not-yet-replicated transcript to your huske server, then exit."""
+    from huske.sync.runner import run_sync
+
+    overrides = _collect_overrides(output_root=output_root)
+    raise typer.Exit(run_sync(config_path=config_path, cli_overrides=overrides))
 
 
 # ---------------------------------------------------------------------------
@@ -377,4 +440,14 @@ def autostart_stop() -> None:
 
 
 def _collect_overrides(**kwargs: object) -> dict[str, object]:
-    return {k: v for k, v in kwargs.items() if v is not None}
+    # When `ctx.invoke(run)` is used as a default subcommand, Typer passes the
+    # raw OptionInfo descriptor objects instead of resolved values for parameters
+    # the user did not explicitly set. These must be treated as "not provided" —
+    # the same as None — so the config file and field defaults win.
+    from typer.models import ArgumentInfo, OptionInfo
+
+    return {
+        k: v
+        for k, v in kwargs.items()
+        if v is not None and not isinstance(v, (OptionInfo, ArgumentInfo))
+    }

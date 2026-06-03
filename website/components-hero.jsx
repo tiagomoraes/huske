@@ -42,7 +42,7 @@ const InstallTabs = () => {
       <div className="foot">
         <strong>requires</strong> macOS 13+
         <span className="sep">·</span>
-        <span>python 3.11 / 3.12 / 3.13</span>
+        <span>python 3.11 / 3.12 / 3.13 / 3.14</span>
         <span className="sep">·</span>
         <span>{tab.note}</span>
       </div>
@@ -113,7 +113,7 @@ const LiveDemo = () => {
       <div className="body">
         <div className="head">
           <Mark size={16}/>
-        <span className="name">huske 0.5.0</span>
+        <span className="name">huske 0.7.0</span>
           <span className="meta">
             session <code>4f9c2a31-08d2</code>
             <span className="arrow">→</span>
@@ -169,7 +169,7 @@ const Hero = () => (
       <div className="hero-stack">
         <div className="eyebrow">
           <span className="dot"/>
-          <span className="ver">v0.5.0</span>
+          <span className="ver">v0.7.0</span>
           <span className="sep">·</span>
           <span>macOS · apple silicon</span>
           <span className="sep">·</span>
@@ -219,7 +219,7 @@ const InstallSection = () => (
         </div>
         <div>
           <h2 className="lead">One command. <span style={{ color: "var(--brand-amber)" }}>Three flavors.</span></h2>
-          <p className="sub">Pick your package manager. huske ships as a single Python tool — uv is recommended for its speed and isolated install. macOS 13+ on Apple Silicon, Python 3.11–3.13.</p>
+          <p className="sub">Pick your package manager. huske ships as a single Python tool — uv is recommended for its speed and isolated install. macOS 13+ on Apple Silicon, Python 3.11–3.14.</p>
         </div>
       </div>
       <div className="install-block"><InstallTabs/></div>
