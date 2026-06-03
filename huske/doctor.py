@@ -330,6 +330,43 @@ def _search_checks(cfg: RuntimeConfig) -> list[Check]:
     return checks
 
 
+def _autostart_check() -> Check | None:
+    """Report the macOS login LaunchAgent state — opt-in, informational only.
+
+    Returns ``None`` off macOS so non-Darwin runs aren't cluttered with an
+    inapplicable line. Always ``ok=True``: autostart is opt-in, and the
+    exit-code rule treats any failing check as a hard failure — a "not
+    installed" line must not flip ``huske doctor`` to exit 1 for the majority
+    who never enabled it. State (and any crash pointer) lives in ``detail``,
+    since text mode hides hints on passing checks.
+    """
+    try:
+        from huske.agent import UnsupportedPlatformError, agent_status
+    except ImportError:
+        return None
+
+    try:
+        status = agent_status()
+    except UnsupportedPlatformError:
+        return None
+
+    if not status.installed:
+        return Check(
+            "autostart",
+            True,
+            "not installed (opt-in: run `huske autostart install`)",
+        )
+    if status.loaded:
+        detail = f"installed and running → {status.plist_path}"
+        if status.pid is not None:
+            detail += f" (pid {status.pid})"
+        return Check("autostart", True, detail)
+    detail = f"installed but not loaded → {status.plist_path}"
+    if status.last_exit_code:
+        detail += f"; last exit {status.last_exit_code} — see {status.log_err}"
+    return Check("autostart", True, detail)
+
+
 def run_doctor(
     config_path: Path | None = None,
     cli_overrides: dict[str, Any] | None = None,
@@ -464,6 +501,12 @@ def run_doctor(
                     "Choose a writable --output-root / --audio-root.",
                 )
             )
+
+    # Autostart LaunchAgent (macOS-only, opt-in). Informational — skipped
+    # entirely off macOS so it never affects the exit code there.
+    autostart_check = _autostart_check()
+    if autostart_check is not None:
+        checks.append(autostart_check)
 
     # Local semantic search + MCP (optional subsystem).
     checks.extend(_search_checks(cfg))

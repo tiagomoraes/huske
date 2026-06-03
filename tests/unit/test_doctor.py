@@ -8,10 +8,11 @@ from types import SimpleNamespace
 
 import pytest
 
+from huske import agent
 from huske.capture import system_audio as sck_mod
 from huske.capture import system_audio_tap as tap_mod
 from huske.config import RuntimeConfig
-from huske.doctor import _system_audio_checks
+from huske.doctor import _autostart_check, _system_audio_checks
 
 
 def _cfg(tmp_path: Path, system_audio_backend: str = "auto") -> RuntimeConfig:
@@ -129,3 +130,85 @@ def test_forced_sck_validates_screen_capturekit_permission(
     assert checks[0].detail == "forced ScreenCaptureKit (may stop during screen sharing)"
     assert checks[1].ok
     assert checks[1].detail == "ScreenCaptureKit usable"
+
+
+# ---------------------------------------------------------------------------
+# _autostart_check — macOS login LaunchAgent diagnostics (opt-in, informational)
+# ---------------------------------------------------------------------------
+
+
+def _status(tmp_path: Path, **overrides: object) -> agent.AgentStatus:
+    defaults: dict[str, object] = {
+        "installed": False,
+        "loaded": False,
+        "pid": None,
+        "last_exit_code": None,
+        "plist_path": tmp_path / "me.huske.plist",
+        "log_out": tmp_path / "agent.out.log",
+        "log_err": tmp_path / "agent.err.log",
+    }
+    defaults.update(overrides)
+    return agent.AgentStatus(**defaults)  # type: ignore[arg-type]
+
+
+def test_autostart_check_not_installed_is_ok(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(agent, "agent_status", lambda: _status(tmp_path))
+
+    check = _autostart_check()
+
+    assert check is not None
+    assert check.name == "autostart"
+    assert check.ok is True  # opt-in: absence must never fail doctor
+    assert "not installed" in check.detail
+
+
+def test_autostart_check_installed_and_running(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plist = tmp_path / "me.huske.plist"
+    monkeypatch.setattr(
+        agent,
+        "agent_status",
+        lambda: _status(tmp_path, installed=True, loaded=True, pid=4321, plist_path=plist),
+    )
+
+    check = _autostart_check()
+
+    assert check is not None
+    assert check.ok is True
+    assert "running" in check.detail
+    assert str(plist) in check.detail
+    assert "pid 4321" in check.detail
+
+
+def test_autostart_check_installed_not_loaded_surfaces_crash(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    err = tmp_path / "agent.err.log"
+    monkeypatch.setattr(
+        agent,
+        "agent_status",
+        lambda: _status(tmp_path, installed=True, loaded=False, last_exit_code=78, log_err=err),
+    )
+
+    check = _autostart_check()
+
+    assert check is not None
+    assert check.ok is True  # a crashed opt-in agent still must not fail doctor
+    assert "not loaded" in check.detail
+    assert "last exit 78" in check.detail
+    assert str(err) in check.detail
+
+
+def test_autostart_check_skipped_off_macos(monkeypatch: pytest.MonkeyPatch) -> None:
+    # agent_status() calls _ensure_macos() first; off Darwin it raises and the
+    # check is skipped entirely (returns None), so it never clutters output or
+    # affects the exit code on non-macOS.
+    monkeypatch.setattr(agent.platform, "system", lambda: "Linux")
+
+    assert _autostart_check() is None
