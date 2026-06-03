@@ -236,7 +236,15 @@ This adds two subcommands and one config flag:
    ```bash
    huske index                 # backfill your whole history (incremental)
    huske index --rebuild       # after changing the embedding model
+   huske index --fast          # full speed (skip the default low-impact throttle)
    ```
+
+   The backfill runs **low-impact by default** — it lowers its CPU priority,
+   shrinks the embed batch, and releases the MLX buffer cache between files so a
+   full-history backfill won't exhaust RAM or pin the GPU. It's a bit slower but
+   stays out of your way; pass `--fast` (or set `index_low_impact = false`) when
+   you'd rather it finish quickly. For finer control, tune `embed_batch_size` and
+   `index_memory_limit_mb` in `~/.config/huske/config.toml`.
 
    To keep the index fresh automatically, set `indexing_enabled = true` in
    `~/.config/huske/config.toml`; `huske run` then embeds each finalized

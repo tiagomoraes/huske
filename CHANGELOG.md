@@ -20,6 +20,16 @@ This project uses semantic versioning after the first public release.
   network-exposed; the read MCP stays loopback-only. Adds the `huske[server]`
   extra; the send side ships in the base install.
 
+### Changed
+
+- `huske index` now runs **low-impact by default**: the backfill lowers its CPU
+  priority, shrinks the embed batch, caps the MLX/Metal buffer cache, and
+  releases it between files so indexing a long history can't exhaust RAM or pin
+  the GPU. Pass `huske index --fast` (or set `index_low_impact = false`) for the
+  previous full-speed behavior. New config knobs `embed_batch_size` and
+  `index_memory_limit_mb` tune the footprint further; `embed_batch_size` also
+  applies to live indexing during `huske run`.
+
 ## 0.6.0 - 2026-06-02
 
 ### Changed

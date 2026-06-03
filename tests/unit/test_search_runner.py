@@ -96,6 +96,52 @@ def test_index_cli_builds_and_is_incremental(tmp_path: Path) -> None:
     assert "1 indexed" in r3.output, r3.output
 
 
+def test_index_runs_low_impact_by_default(tmp_path: Path, monkeypatch) -> None:
+    cfg = _config(tmp_path)
+    _make_transcript(tmp_path / "transcripts", "assunto qualquer para indexar")
+
+    import huske.search.runner as runner
+
+    renices: list[int] = []
+    monkeypatch.setattr(runner, "_lower_process_priority", lambda *a: renices.append(1))
+
+    r = _invoke(["index", "--config", str(cfg)])
+    assert r.exit_code == 0, r.output
+    assert "low-impact" in r.output
+    assert renices, "expected the default backfill to lower CPU priority"
+
+
+def test_index_fast_flag_disables_low_impact(tmp_path: Path, monkeypatch) -> None:
+    cfg = _config(tmp_path)
+    _make_transcript(tmp_path / "transcripts", "assunto qualquer para indexar")
+
+    import huske.search.runner as runner
+
+    renices: list[int] = []
+    monkeypatch.setattr(runner, "_lower_process_priority", lambda *a: renices.append(1))
+
+    r = _invoke(["index", "--config", str(cfg), "--fast"])
+    assert r.exit_code == 0, r.output
+    assert "low-impact" not in r.output
+    assert not renices, "--fast must not lower CPU priority"
+
+
+def test_index_low_impact_disabled_via_config(tmp_path: Path, monkeypatch) -> None:
+    cfg = _config(tmp_path)
+    cfg.write_text(cfg.read_text(encoding="utf-8") + "index_low_impact = false\n", encoding="utf-8")
+    _make_transcript(tmp_path / "transcripts", "assunto qualquer para indexar")
+
+    import huske.search.runner as runner
+
+    renices: list[int] = []
+    monkeypatch.setattr(runner, "_lower_process_priority", lambda *a: renices.append(1))
+
+    r = _invoke(["index", "--config", str(cfg)])
+    assert r.exit_code == 0, r.output
+    assert "low-impact" not in r.output
+    assert not renices
+
+
 def test_index_model_mismatch_is_refused(tmp_path: Path) -> None:
     cfg = _config(tmp_path)
     _make_transcript(tmp_path / "transcripts", "conteúdo qualquer")
