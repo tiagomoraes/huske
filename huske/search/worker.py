@@ -31,6 +31,10 @@ def _embed_worker_main(in_q: Any, out_q: Any, db_path: str, model_id: str) -> No
     """Subprocess entry point: load embedder + store, then index submitted paths."""
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
+    from huske.proctitle import set_process_title
+
+    set_process_title("huske-embed")
+
     from pathlib import Path as _Path
 
     try:
