@@ -17,6 +17,32 @@ def test_search_config_defaults() -> None:
     assert cfg.index_root == Path.home() / "huske" / "index"
 
 
+def test_low_impact_index_defaults() -> None:
+    cfg = RuntimeConfig()
+    assert cfg.index_low_impact is True
+    assert cfg.embed_batch_size == 16
+    assert cfg.index_memory_limit_mb is None
+
+
+def test_embed_batch_size_bounds() -> None:
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        RuntimeConfig(embed_batch_size=0)
+    with pytest.raises(ValidationError):
+        RuntimeConfig(embed_batch_size=999)
+
+
+def test_index_memory_limit_floor() -> None:
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        RuntimeConfig(index_memory_limit_mb=64)  # below the 128 MB floor
+    assert RuntimeConfig(index_memory_limit_mb=512).index_memory_limit_mb == 512
+
+
 def test_index_root_expands_user(tmp_path: Path) -> None:
     cfg = RuntimeConfig(index_root=tmp_path / "idx")
     assert paths.index_root(cfg) == tmp_path / "idx"

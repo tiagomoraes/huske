@@ -126,7 +126,11 @@ def run_session(
 
         try:
             cfg.index_root.mkdir(parents=True, exist_ok=True)
-            embed_worker = EmbedWorker(str(paths.index_db_path(cfg)), cfg.embedding_model)
+            embed_worker = EmbedWorker(
+                str(paths.index_db_path(cfg)),
+                cfg.embedding_model,
+                batch_size=cfg.embed_batch_size,
+            )
             embed_worker.start()
             _print("[huske] indexing enabled — transcripts will be embedded in background")
         except Exception as exc:
@@ -398,7 +402,11 @@ def run_session(
 
     server: ControlServer | None = None
     helper_proc: subprocess.Popen[bytes] | None = None
-    if sys.platform == "darwin":
+    # The control socket exists solely to drive the menu bar helper, so it is
+    # only started when the menu bar is enabled. With `--no-menu-bar` we skip
+    # the whole IPC server — no helper process (~50-80 MB), no accept thread,
+    # and no socket file — leaving the lightest possible recording footprint.
+    if sys.platform == "darwin" and cfg.menu_bar_enabled:
         socket_dir = Path.home() / "Library" / "Application Support" / "huske"
         socket_path = socket_dir / f"control-{paths.session_id_short(session.session_id)}.sock"
         server = ControlServer(socket_path, commands, log)
@@ -409,7 +417,7 @@ def run_session(
             log.warning("ipc_server_failed", error=str(exc))
             server = None
 
-        if server is not None and cfg.menu_bar_enabled:
+        if server is not None:
             from huske.agent import resolve_huske_binary
 
             argv = [

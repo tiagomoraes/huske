@@ -1,67 +1,120 @@
 # Example huske configuration file.
 # Copy to ~/.config/huske/config.toml to apply globally; CLI flags still win.
+#
+# Precedence: built-in defaults < this file < CLI flags.
+# The file is optional (silently ignored if absent), and unknown keys are
+# rejected — a typo'd key is a config error, not a silent no-op.
+# Every value below is shown at its default; uncomment to change it.
 
-# Chunk duration in minutes (1–60). Default: 15.
+# ============================================================
+# Recording & chunking
+# ============================================================
+
+# Chunk (rotation) duration in minutes (0.1–60). Default: 15.
 chunk_minutes = 15
 
-# Where transcripts go.
-output_root = "~/huske/transcripts"
+# Keep raw WAV chunks after successful transcription (they are deleted by
+# default once a chunk is transcribed).
+keep_audio = false
 
-# Where transient audio chunks live (deleted post-transcription unless keep_audio = true).
-audio_root = "~/huske/audio"
+# Microphone device name (substring match). Omit for the system default input.
+# Falls back to the default mic (with a warning) if unavailable. System audio
+# capture is independent of this setting.
+# input_device = "MacBook Pro Microphone"
 
-# Whisper-class model size: tiny | base | small | medium | large-v3
+# System audio backend: auto | tap | sck | off
+#   auto — Core Audio process tap on macOS 14.4+ (survives screen sharing in
+#          Meet/Zoom/etc.), ScreenCaptureKit fallback on older macOS.
+#   tap  — force the Core Audio process tap.
+#   sck  — force ScreenCaptureKit (can stop during screen sharing).
+#   off  — mic only.
+system_audio_backend = "auto"
+
+# Advanced capture knobs — rarely changed. Defaults match the recorder.
+# sample_rate = 48000   # capture sample rate (Hz)
+# block_size  = 1024    # samples per audio callback block
+# channels    = 2       # input channel count (1–2; mixed to mono internally)
+
+# ============================================================
+# Transcription (Whisper, on-device via mlx-whisper)
+# ============================================================
+
+# Model size: tiny | base | small | medium | large-v3
 # Loaded on first use from the matching mlx-community/whisper-<size>-mlx repo.
 model = "base"
 
+# Optional language hint, ISO 639-1 (e.g. "pt", "en"). Omit for auto-detect.
+# language = "pt"
+
 # Compute type — kept for back-compat; the mlx-whisper backend always uses
-# Metal. Setting "float32" disables fp16 inference (slower, more memory). Any
-# other value is treated as "use the fp16 default".
+# Metal. "float32" disables fp16 inference (slower, more memory); any other
+# value uses the fp16 default.
 compute_type = "int8"
 
 # Inference device — kept for back-compat; mlx-whisper always runs on the
 # Apple Silicon GPU. "cuda" is rejected on macOS.
 device = "auto"
 
-# Optional language hint, ISO 639-1. Omit for auto-detect.
-# language = "pt"
+# Unload the Whisper model from memory between chunks to lower idle RAM. When
+# true, the model is dropped after `whisper_idle_unload_seconds` of inactivity
+# and reloaded (from the local cache, no network) on the next chunk — freeing
+# ~150 MB for `base` up to ~3 GB for `large-v3` while idle. Off by default so
+# live transcription stays warm; the reload costs a few seconds on the first
+# chunk after an idle gap. Equivalent CLI flag: `huske run --idle-unload`.
+# whisper_idle_unload = true
+# whisper_idle_unload_seconds = 120
 
-# Microphone device name (substring match). System audio is independent of
-# this setting.
-# input_device = "MacBook Pro Microphone"
+# ============================================================
+# Output & storage paths
+# ============================================================
 
-# System audio backend: auto | tap | sck | off
-# auto uses the Core Audio process tap on macOS 14.4+ so screen sharing in
-# Google Meet/Zoom/etc. does not interrupt capture. Older macOS versions fall
-# back to ScreenCaptureKit.
-system_audio_backend = "auto"
+# Day-organized Markdown transcripts.
+output_root = "~/huske/transcripts"
 
-# Keep raw WAV chunks after successful transcription.
-keep_audio = false
+# Transient WAV chunks (and the incomplete/ quarantine for unrecoverable ones).
+audio_root = "~/huske/audio"
+
+# Per-session log files. Default: ~/huske/logs
+# logs_root = "~/huske/logs"
+
+# ============================================================
+# Logging & UI
+# ============================================================
 
 # Logging: DEBUG | INFO | WARNING | ERROR
 log_level = "INFO"
 
-# Run without the Rich live UI (plain log lines instead).
+# Run without the Rich live UI (plain log lines instead). Autostart uses this.
 no_ui = false
 
-# Periodic screenshots — disabled by default. Captures a JPEG of every
-# attached display every `screenshots_interval_seconds` seconds (minimum 1).
-# Files go to
-# `screenshots_root/YYYY-MM-DD/<session_id>/HHMMSS_dN.jpg`. Read the privacy
-# notes in README.md before enabling.
-# screenshots_enabled = true
-# screenshots_interval_seconds = 10.0
-# screenshots_root = "~/huske/screenshots"
-# screenshots_max_displays = 4
+# Show a macOS menu bar icon while recording (macOS only). Default: true.
+# The menu bar runs as a separate helper process (~50-80 MB RSS) plus a small
+# control socket and accept thread. Set false (or pass `huske run
+# --no-menu-bar`) to skip all of it for the lightest recording footprint when
+# you don't need the at-a-glance menu bar status.
+# menu_bar_enabled = false
+# menu_bar_label_style = "text"   # text | icon
 
-# --- Local semantic search + MCP server (opt-in) ---
-# Requires the extra: pip install 'huske[mcp]'. When enabled, `huske run`
-# embeds each finalized transcript (in an isolated subprocess, off the audio
-# hot path) into a local vector index so chat models can search your history
-# via `huske mcp`. Off by default — recording pays no embedding cost unless
-# you opt in. See README.md → "Search your transcripts from Claude / ChatGPT".
-# indexing_enabled = true
+# ============================================================
+# Screenshots (opt-in; loud — captures every display)
+# ============================================================
+# Captures a JPEG of every attached display every N seconds, written to
+# screenshots_root/YYYY-MM-DD/<session_id>/HHMMSS_dN.jpg. Off by default.
+# Read the privacy notes in README.md before enabling.
+# screenshots_enabled = false
+# screenshots_interval_seconds = 10.0   # 1–3600
+# screenshots_max_displays = 4          # 1–16
+# screenshots_root = "~/huske/screenshots"
+
+# ============================================================
+# Local semantic search + MCP server (opt-in: pip install 'huske[mcp]')
+# ============================================================
+# When enabled, `huske run` embeds each finalized transcript (in an isolated
+# subprocess, off the audio hot path) into a local vector index so chat models
+# can search your history via `huske mcp`. Off by default — recording pays no
+# embedding cost unless you opt in. Backfill existing transcripts with
+# `huske index`. See README.md → "Search your transcripts from Claude / ChatGPT".
+# indexing_enabled = false
 
 # Where the passage index (a single sqlite-vec file) lives.
 # index_root = "~/huske/index"
@@ -70,6 +123,30 @@ no_ui = false
 # — run `huske index --rebuild` afterwards.
 # embedding_model = "mlx-community/multilingual-e5-base"
 
+# Throttle the index backfill (lower CPU priority, smaller batches, capped MLX
+# memory). On by default; pass `huske index --fast` for full speed.
+# index_low_impact = true
+# embed_batch_size = 16            # passages per embedding forward pass (1–256)
+# index_memory_limit_mb = 2048     # hard MB ceiling on the MLX working set
+
 # `huske mcp` daemon bind address. Loopback-only + bearer token by default.
 # mcp_host = "127.0.0.1"
 # mcp_port = 7641
+
+# ============================================================
+# Off-device replication (opt-in: pip install 'huske[server]' on the server)
+# ============================================================
+# Replicate finalized transcripts to a huske server you control so an
+# always-on agent can query them while this Mac is offline. The send side ships
+# in the base install; set sync_endpoint to turn it on. See docs/server.md.
+
+# Client (recording Mac): push finalized transcripts here. The write token is
+# read from ~/.config/huske/sync_token (not a config key).
+# sync_endpoint = "https://huske.example.com"
+# sync_verify_tls = true           # disable only for local self-signed testing
+# sync_root = "~/huske/sync"       # durable send-outbox directory
+
+# Server (the VPS, `huske serve`): ingest endpoint behind a TLS reverse proxy.
+# ingest_host = "127.0.0.1"
+# ingest_port = 7642
+# public_host = "huske.example.com"   # validates the Host header on ingest

@@ -113,7 +113,7 @@ const LiveDemo = () => {
       <div className="body">
         <div className="head">
           <Mark size={16}/>
-        <span className="name">huske 0.7.0</span>
+        <span className="name">huske 0.7.1</span>
           <span className="meta">
             session <code>4f9c2a31-08d2</code>
             <span className="arrow">→</span>
@@ -169,7 +169,7 @@ const Hero = () => (
       <div className="hero-stack">
         <div className="eyebrow">
           <span className="dot"/>
-          <span className="ver">v0.7.0</span>
+          <span className="ver">v0.7.1</span>
           <span className="sep">·</span>
           <span>macOS · apple silicon</span>
           <span className="sep">·</span>

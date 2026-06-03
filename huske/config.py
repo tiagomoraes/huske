@@ -57,6 +57,16 @@ class RuntimeConfig(BaseModel):
     device: Device = "auto"
     language: str | None = None
 
+    # When true, the transcription worker drops the whisper model from memory
+    # after `whisper_idle_unload_seconds` of inactivity, letting the OS reclaim
+    # the resident weights (~150 MB for `base`, up to ~3 GB for `large-v3`)
+    # during the long idle gaps between chunks. The next chunk pays a one-off
+    # reload from the local model cache (a few seconds, no network). Off by
+    # default so live transcription always stays warm. See the transcribe
+    # worker's idle loop for the queue-empty/timeout guard that avoids thrash.
+    whisper_idle_unload: bool = False
+    whisper_idle_unload_seconds: float = Field(default=120.0, ge=5.0)
+
     keep_audio: bool = False
     input_device: str | None = None
 
@@ -92,6 +102,19 @@ class RuntimeConfig(BaseModel):
     # Embedding model id. Changing this invalidates the index (different vector
     # space) — the store refuses to mix spaces; run `huske index --rebuild`.
     embedding_model: str = "mlx-community/multilingual-e5-base"
+    # Passages per embedding forward pass. Lower = less peak GPU/RAM per batch
+    # (a lighter footprint); higher = more throughput on a roomy machine.
+    # Applies to both live indexing and the `huske index` backfill.
+    embed_batch_size: int = Field(default=16, ge=1, le=256)
+    # The `huske index` backfill runs in *low-impact* mode by default: it lowers
+    # its CPU priority, shrinks the embed batch, and releases the MLX buffer
+    # cache between files so a full-history backfill can't exhaust RAM or pin
+    # the GPU. Set false (or pass `huske index --fast`) to run at full speed.
+    index_low_impact: bool = True
+    # Optional hard ceiling (MB) on the MLX/Metal working set during indexing.
+    # None lets MLX use its default (~1.5x the device's recommended working
+    # set). Set this only if even low-impact mode is too heavy for your Mac.
+    index_memory_limit_mb: int | None = Field(default=None, ge=128)
     # `huske mcp` daemon bind address. Loopback-only by default; a bearer token
     # and Origin/Host validation guard it. See docs/adr/0001-http-only-mcp-daemon.md.
     mcp_host: str = "127.0.0.1"

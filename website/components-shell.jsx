@@ -151,23 +151,28 @@ const ThemeToggle = ({ theme, setTheme }) => (
   </button>
 );
 
-const Nav = ({ theme, setTheme }) => {
+// `base` prefixes the in-page anchors so the shared Nav works on a second page
+// (docs.html): on the landing page base="" → "#why"; on docs base="index.html"
+// → "index.html#why". Default "" keeps the landing page byte-for-byte the same.
+const Nav = ({ theme, setTheme, base = "" }) => {
   const stars = useGitHubStars();
+  const at = (id) => `${base}#${id}`;
   return (
     <nav className="nav">
-      <a href="#" className="brand">
+      <a href={base || "#"} className="brand">
         <Mark/>
         <span className="word">huske</span>
-        <span className="ver">v0.7.0</span>
+        <span className="ver">v0.7.1</span>
       </a>
       <div className="links">
-        <a href="#why">why</a>
-        <a href="#how">how</a>
-        <a href="#output">output</a>
-        <a href="#search">search</a>
-        <a href="#privacy">privacy</a>
-        <a href="#releases">releases</a>
-        <a href="#faq">faq</a>
+        <a href={at("why")}>why</a>
+        <a href={at("how")}>how</a>
+        <a href={at("output")}>output</a>
+        <a href={at("search")}>search</a>
+        <a href={at("privacy")}>privacy</a>
+        <a href={at("releases")}>releases</a>
+        <a href={at("faq")}>faq</a>
+        <a href="docs.html">docs</a>
       </div>
       <div className="right">
         <ThemeToggle theme={theme} setTheme={setTheme}/>
@@ -183,7 +188,7 @@ const Nav = ({ theme, setTheme }) => {
   );
 };
 
-const Footer = () => (
+const Footer = ({ base = "" }) => (
   <footer className="foot">
     <div className="page">
       <div className="grid">
@@ -198,12 +203,13 @@ const Footer = () => (
         <div className="col">
           <h5>product</h5>
           <ul>
-            <li><a href="#why">why huske</a></li>
-            <li><a href="#how">how it works</a></li>
-            <li><a href="#output">output format</a></li>
-            <li><a href="#search">search &amp; mcp</a></li>
-            <li><a href="#privacy">privacy</a></li>
-            <li><a href="#faq">faq</a></li>
+            <li><a href={`${base}#why`}>why huske</a></li>
+            <li><a href={`${base}#how`}>how it works</a></li>
+            <li><a href={`${base}#output`}>output format</a></li>
+            <li><a href={`${base}#search`}>search &amp; mcp</a></li>
+            <li><a href={`${base}#privacy`}>privacy</a></li>
+            <li><a href={`${base}#faq`}>faq</a></li>
+            <li><a href="docs.html">docs</a></li>
           </ul>
         </div>
         <div className="col">
@@ -230,7 +236,7 @@ const Footer = () => (
       <div className="meta">
         <div className="left">
           <Mark size={18}/>
-          <span>huske v0.7.0</span>
+          <span>huske v0.7.1</span>
           <span style={{ color: "var(--fg-faint)" }}>·</span>
           <span>built by tiagomoraes</span>
           <span style={{ color: "var(--fg-faint)" }}>·</span>

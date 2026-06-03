@@ -172,6 +172,77 @@ def _configure_worker_signal_handlers() -> None:
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
+def _unload_whisper_model(mx: Any) -> None:
+    """Drop the cached whisper model and release the Metal buffer pool so the
+    OS can reclaim the resident weights during long idle gaps. mlx-whisper's
+    ``ModelHolder`` reloads the model lazily on the next ``transcribe`` call.
+    Best-effort: never raises into the worker loop.
+    """
+    try:
+        from mlx_whisper.transcribe import ModelHolder
+
+        ModelHolder.model = None
+        ModelHolder.model_path = None
+    except Exception:
+        pass
+    try:
+        mx.clear_cache()
+    except Exception:
+        pass
+
+
+# Returned by ``_next_message`` when the idle window elapsed with no new job.
+_IDLE_TIMEOUT = object()
+
+
+def _next_message(
+    in_q: Any,
+    model_resident: bool,
+    idle_unload: bool,
+    idle_unload_seconds: float,
+) -> Any:
+    """Block for the next job message off ``in_q``.
+
+    When the model is resident and idle-unload is enabled, wait at most
+    ``idle_unload_seconds`` and return ``_IDLE_TIMEOUT`` if nothing arrives, so
+    the caller can drop the model and keep waiting. Otherwise block
+    indefinitely — there is no point timing out when nothing is resident to
+    free, and a queued backlog keeps the model warm by arriving in time.
+    """
+    if model_resident and idle_unload:
+        try:
+            return in_q.get(timeout=idle_unload_seconds)
+        except queue.Empty:
+            return _IDLE_TIMEOUT
+    return in_q.get()
+
+
+def _resolve_model_dir(hf_repo: str) -> str:
+    """Resolve ``hf_repo`` to a concrete on-disk snapshot directory.
+
+    mlx-whisper's ``load_model`` only calls ``snapshot_download`` when the path
+    does not exist on disk, so passing a resolved local directory makes every
+    reload after an idle unload load straight from the cache and keeps the
+    ``ModelHolder`` cache key stable across reloads.
+
+    Resolution itself stays local-only (``local_files_only=True``): it never
+    reaches the network. If the model isn't cached (or resolution otherwise
+    fails) it returns the repo id unchanged, so the *first* transcribe loads
+    it via mlx-whisper's normal download path — the one place network is
+    expected — and subsequent reloads use the now-cached dir.
+    """
+    from pathlib import Path as _Path
+
+    if _Path(hf_repo).exists():
+        return hf_repo
+    try:
+        from huggingface_hub import snapshot_download
+
+        return snapshot_download(repo_id=hf_repo, local_files_only=True)
+    except Exception:
+        return hf_repo
+
+
 def _worker_main(in_q: Any, out_q: Any) -> None:
     """Subprocess entry point. Loops on jobs until sentinel arrives."""
     _configure_worker_signal_handlers()
@@ -208,16 +279,38 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
         write_transcript,
     )
 
+    # Idle-unload state: when enabled (config `whisper_idle_unload`), the worker
+    # drops the model after `idle_unload_seconds` of no jobs so the OS reclaims
+    # the resident weights between chunks; the next job reloads it. Default off.
+    model_resident = False
+    idle_unload = False
+    idle_unload_seconds = 120.0
+    resolved_repo: dict[str, str] = {}
+
     while True:
-        msg = in_q.get()
+        msg = _next_message(in_q, model_resident, idle_unload, idle_unload_seconds)
+        if msg is _IDLE_TIMEOUT:
+            # Genuinely idle past the window — reclaim the model until the next
+            # job. Safe even if the model isn't actually loaded (no-op).
+            _unload_whisper_model(mx)
+            model_resident = False
+            continue
         if msg == _SENTINEL:
             return
         if not isinstance(msg, dict):
             continue
         job_data = msg
+        idle_unload = bool(job_data.get("whisper_idle_unload", False))
+        idle_unload_seconds = float(job_data.get("whisper_idle_unload_seconds", 120.0))
         try:
             model_size = job_data["config_model"]
             hf_repo = mlx_whisper_repo(model_size)
+            if idle_unload:
+                # Pin a concrete local snapshot dir so post-unload reloads load
+                # from disk with no network and a stable ModelHolder cache key.
+                if model_size not in resolved_repo:
+                    resolved_repo[model_size] = _resolve_model_dir(hf_repo)
+                hf_repo = resolved_repo[model_size]
             # Map legacy CTranslate2 compute_type to mlx fp16 on/off. Anything
             # other than float32 stays on the fp16 default — that's the only
             # knob mlx-whisper exposes here.
@@ -246,6 +339,12 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
 
             merged_segments: list[dict[str, Any]] = []
             detected_language: str | None = None
+            # The transcribe call below loads the model into mlx-whisper's
+            # ModelHolder. Arm the idle-unload flag *before* it runs so that if
+            # this job throws after the weights become resident, the next loop
+            # iteration still reaches the unload path (unloading a not-yet-loaded
+            # model is a harmless no-op).
+            model_resident = True
             for source in ordered_sources:
                 src_path = audio_paths[source]
                 try:
@@ -485,4 +584,6 @@ def chunk_to_job(
         "config_device": cfg.device,
         "language": cfg.language,
         "keep_audio": cfg.keep_audio,
+        "whisper_idle_unload": cfg.whisper_idle_unload,
+        "whisper_idle_unload_seconds": cfg.whisper_idle_unload_seconds,
     }

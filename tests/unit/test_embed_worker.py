@@ -56,6 +56,13 @@ def _wait_for(worker: EmbedWorker, predicate, timeout: float = 30.0):
     raise AssertionError("timed out waiting for worker message")
 
 
+def test_embed_worker_accepts_batch_size() -> None:
+    # Construction only (no subprocess): the batch size threads through to the
+    # embedder so live indexing honors `embed_batch_size`.
+    worker = EmbedWorker("/tmp/does-not-matter.db", "hashing", batch_size=4)
+    assert worker._batch_size == 4
+
+
 def test_embed_worker_indexes_submitted_path(tmp_path: Path) -> None:
     transcript = _write_transcript(tmp_path / "transcripts" / "2026-05-07")
     db_path = tmp_path / "index" / "passages.db"

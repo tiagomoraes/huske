@@ -55,7 +55,7 @@ it about your day.
 - macOS 13 (Ventura) or newer. macOS 14.4+ is recommended for system audio
   capture that keeps working while another app is sharing your screen. Apple
   Silicon is the primary target.
-- Python 3.11, 3.12, or 3.13.
+- Python 3.11, 3.12, 3.13, or 3.14.
 
 ## Quickstart
 
@@ -163,7 +163,9 @@ present.
 ~/Library/Logs/huske/agent.err.log
 ```
 
-Tail those if you suspect the agent isn't recording.
+Tail those if you suspect the agent isn't recording. `huske doctor` also
+reports the agent's state — installed, loaded, pid, and the error-log path if
+it recently crashed — so you can check on it without a separate command.
 
 `huske autostart` is macOS-only (it uses `launchd`); the commands exit with
 a friendly error on other systems.
@@ -236,7 +238,15 @@ This adds two subcommands and one config flag:
    ```bash
    huske index                 # backfill your whole history (incremental)
    huske index --rebuild       # after changing the embedding model
+   huske index --fast          # full speed (skip the default low-impact throttle)
    ```
+
+   The backfill runs **low-impact by default** — it lowers its CPU priority,
+   shrinks the embed batch, and releases the MLX buffer cache between files so a
+   full-history backfill won't exhaust RAM or pin the GPU. It's a bit slower but
+   stays out of your way; pass `--fast` (or set `index_low_impact = false`) when
+   you'd rather it finish quickly. For finer control, tune `embed_batch_size` and
+   `index_memory_limit_mb` in `~/.config/huske/config.toml`.
 
    To keep the index fresh automatically, set `indexing_enabled = true` in
    `~/.config/huske/config.toml`; `huske run` then embeds each finalized

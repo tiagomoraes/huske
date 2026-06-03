@@ -998,3 +998,273 @@ footer.foot .meta {
 footer.foot .meta .left { display: flex; align-items: center; gap: 14px; }
 footer.foot .meta .left svg { width: 18px; height: 18px; color: var(--fg); }
 footer.foot .meta .right { display: flex; align-items: center; gap: 18px; }
+
+/* ================================================================
+   Docs page (docs.html) — sticky TOC + long-form reference.
+   Reuses the same tokens, dark code blocks, and pill tabs as the
+   landing page; no new primitives.
+   ================================================================ */
+.docs-hero {
+  padding: 72px 0 40px;
+  border-top: 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.docs-hero .eyebrow {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 22px;
+}
+.docs-hero .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--brand-amber); display: inline-block; }
+.docs-hero h1 { margin: 0 0 16px; }
+.docs-hero-lede { font-size: 19px; line-height: 1.5; color: var(--fg-muted); max-width: 60ch; margin: 0; letter-spacing: -0.005em; }
+
+/* Two-column shell: sticky table of contents + content */
+.docs-shell {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 64px;
+  padding-top: 48px; padding-bottom: 96px;
+  align-items: start;
+}
+@media (max-width: 980px) {
+  .docs-shell { grid-template-columns: 1fr; gap: 0; padding-top: 36px; }
+  .docs-toc { display: none; }
+}
+
+.docs-toc-inner { position: sticky; top: 80px; }
+.docs-toc-label {
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--fg-faint); margin-bottom: 14px;
+}
+.docs-toc nav { display: flex; flex-direction: column; gap: 2px; }
+.docs-toc nav a {
+  font-family: var(--font-mono); font-size: 12.5px; color: var(--fg-muted);
+  text-decoration: none; padding: 6px 10px; border-radius: var(--radius-xs);
+  transition: color var(--dur-1) var(--ease-standard), background var(--dur-1);
+}
+.docs-toc nav a:hover { color: var(--fg); }
+.docs-toc nav a.active {
+  color: var(--brand-amber); font-weight: 500;
+  background: color-mix(in oklab, var(--brand-amber) 9%, transparent);
+}
+.docs-toc-foot {
+  margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-soft);
+  display: flex; flex-direction: column; gap: 9px;
+  font-family: var(--font-mono); font-size: 11.5px;
+}
+.docs-toc-foot a { color: var(--fg-muted); text-decoration: none; }
+.docs-toc-foot a:hover { color: var(--brand-amber); }
+
+/* Content column */
+.docs-body { min-width: 0; }
+.docs-sec { padding: 0; border-top: 0; scroll-margin-top: 80px; }
+.docs-sec + .docs-sec { margin-top: 64px; padding-top: 56px; border-top: 1px solid var(--border-soft); }
+.docs-sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 20px; }
+.docs-sec-num { font-family: var(--font-mono); font-size: 13px; color: var(--brand-amber); }
+.docs-sec-head h2 { margin: 0; font-size: clamp(26px, 3vw, 34px); }
+.docs-lead { font-size: 17px; line-height: 1.6; color: var(--fg); margin: 0 0 24px; max-width: 68ch; }
+.docs-sec p { font-size: 15px; line-height: 1.65; color: var(--fg-muted); margin: 0 0 14px; max-width: 68ch; }
+.docs-sec p strong { color: var(--fg); font-weight: 600; }
+.docs-sec h3 {
+  font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--fg-muted); font-weight: 500;
+  margin: 36px 0 14px;
+}
+
+/* Fact list (prerequisites) */
+.docs-facts {
+  list-style: none; padding: 0; margin: 0 0 28px;
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  background: var(--bg-elev); overflow: hidden;
+}
+.docs-facts li {
+  display: grid; grid-template-columns: 84px 1fr; gap: 14px;
+  padding: 12px 16px; font-size: 14px; line-height: 1.5; color: var(--fg);
+}
+.docs-facts li + li { border-top: 1px solid var(--border-soft); }
+.docs-facts .k {
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--fg-muted); padding-top: 1px;
+}
+
+/* Definition list (extras) */
+.docs-defs { margin: 0 0 8px; }
+.docs-defs dt { margin-top: 14px; }
+.docs-defs dt code { font-size: 13px; }
+.docs-defs dd { margin: 4px 0 0; font-size: 14px; line-height: 1.55; color: var(--fg-muted); max-width: 66ch; }
+
+/* Terminal block (one or more $ commands) */
+.docs-terminal {
+  background: var(--ink-900); border: 1px solid var(--ink-600);
+  border-radius: var(--radius-md); padding: 12px 14px; margin: 0 0 16px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.docs-cmd {
+  display: flex; align-items: center; gap: 12px;
+  padding: 4px 4px; border-radius: var(--radius-xs);
+  transition: background var(--dur-1) var(--ease-standard);
+}
+.docs-cmd:hover { background: rgba(255, 255, 255, 0.035); }
+.docs-cmd .dc-line {
+  flex: 0 1 auto; min-width: 0;
+  font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5;
+  color: var(--paper-100); white-space: nowrap; overflow-x: auto;
+}
+.docs-cmd .dc-prompt { color: #5BA8C9; user-select: none; }
+.docs-cmd .dc-note {
+  flex: 1 1 auto;
+  font-family: var(--font-mono); font-size: 11px; color: var(--paper-300);
+  opacity: 0.6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.docs-cmd .copy { flex: 0 0 auto; margin-left: auto; }
+.docs-cmd .copy.ghost { opacity: 0.5; }
+.docs-cmd:hover .copy.ghost, .docs-cmd .copy.ghost:focus-visible { opacity: 1; }
+@media (max-width: 620px) { .docs-cmd .dc-note { display: none; } }
+
+/* Code block (labeled, dark, copyable) */
+.docs-code {
+  border: 1px solid var(--ink-600); border-radius: var(--radius-md);
+  overflow: hidden; margin: 0 0 18px; background: var(--ink-900);
+}
+.docs-code .dc-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--ink-600);
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--paper-300);
+}
+.docs-code .dc-path { color: var(--paper-100); }
+.docs-code .dc-lang {
+  text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.7;
+  padding: 1px 7px; border-radius: var(--radius-pill); border: 1px solid var(--ink-600);
+}
+.docs-code .dc-head .copy { margin-left: auto; }
+.docs-code .dc-body {
+  margin: 0; background: var(--ink-900); color: var(--paper-100);
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.6;
+  padding: 14px 16px; overflow-x: auto; white-space: pre;
+}
+
+/* Numbered first-run steps */
+.docs-steps { list-style: none; counter-reset: step; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 30px; }
+.docs-steps > li { position: relative; padding-left: 46px; counter-increment: step; }
+.docs-steps > li::before {
+  content: counter(step, decimal-leading-zero);
+  position: absolute; left: 0; top: 1px;
+  font-family: var(--font-mono); font-size: 11px; color: var(--brand-amber);
+  border: 1px solid var(--border-soft); border-radius: var(--radius-xs);
+  padding: 3px 7px;
+}
+.docs-steps h4 { font-size: 17px; margin: 0 0 10px; }
+.docs-steps p { margin: 0 0 10px; }
+
+/* Inline bullets */
+.docs-bullets { list-style: none; padding: 0; margin: 0 0 14px; display: flex; flex-direction: column; gap: 7px; }
+.docs-bullets li { position: relative; padding-left: 18px; font-size: 14px; line-height: 1.55; color: var(--fg-muted); max-width: 66ch; }
+.docs-bullets li strong { color: var(--fg); font-weight: 600; }
+.docs-bullets li::before { content: "›"; position: absolute; left: 0; color: var(--brand-amber); }
+
+/* Quiet aside / callout */
+.docs-aside {
+  font-size: 13.5px; line-height: 1.6; color: var(--fg-muted);
+  background: var(--bg-subtle); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm); padding: 12px 14px; margin: 4px 0 16px; max-width: 72ch;
+}
+.docs-aside code { font-size: 12px; }
+
+/* Config reference table */
+.docs-table-wrap { overflow-x: auto; margin: 0 0 16px; border: 1px solid var(--border); border-radius: var(--radius-md); }
+.docs-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.docs-table th {
+  text-align: left; font-family: var(--font-mono); font-size: 10.5px;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-muted);
+  font-weight: 500; padding: 10px 14px; background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border-soft); white-space: nowrap;
+}
+.docs-table td { padding: 10px 14px; border-top: 1px solid var(--border-soft); vertical-align: top; color: var(--fg); line-height: 1.5; }
+.docs-table td code { font-size: 12px; }
+.docs-table .dt-default { font-family: var(--font-mono); font-size: 12px; color: var(--fg); white-space: nowrap; }
+.docs-table .dt-flag code { font-size: 11.5px; color: var(--fg-muted); }
+.docs-table .dt-dash { color: var(--fg-faint); }
+
+/* "All other keys" disclosure */
+.docs-details { margin: 18px 0; }
+.docs-details > summary {
+  cursor: pointer; list-style: none;
+  font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.04em;
+  color: var(--fg-muted); display: flex; align-items: center; gap: 8px; padding: 8px 0;
+}
+.docs-details > summary::-webkit-details-marker { display: none; }
+.docs-details > summary:hover { color: var(--fg); }
+.docs-details .chev { color: var(--brand-amber); display: inline-block; transition: transform var(--dur-2) var(--ease-standard); }
+.docs-details[open] > summary .chev { transform: rotate(90deg); }
+
+/* Per-agent MCP config — pill tabs + code block + caveat */
+.docs-clients { margin: 0 0 16px; }
+.docs-client-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.dtab {
+  font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.01em;
+  padding: 5px 11px; border-radius: var(--radius-pill);
+  border: 1px solid var(--border-soft); background: transparent; color: var(--fg-muted);
+  cursor: pointer;
+  transition: color var(--dur-1) var(--ease-standard), border-color var(--dur-1), background var(--dur-1);
+}
+.dtab:hover { color: var(--fg); border-color: var(--border); }
+.dtab.active { color: var(--ink-900); background: var(--brand-amber); border-color: var(--brand-amber); }
+.docs-client-note { font-size: 13px; line-height: 1.6; color: var(--fg-muted); margin: 12px 0 0; max-width: 72ch; }
+.docs-client-note code { font-size: 12px; }
+
+/* Paste-prompt (auto-setup) — the primary path per agent */
+.docs-prompt {
+  border: 1px solid var(--ink-600); border-top: 2px solid var(--brand-amber);
+  border-radius: var(--radius-md); overflow: hidden; background: var(--ink-900); margin: 0 0 12px;
+}
+.docs-prompt .dp-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 9px 14px; background: rgba(255, 255, 255, 0.03); border-bottom: 1px solid var(--ink-600);
+}
+.docs-prompt .dp-label {
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--paper-300);
+}
+.docs-prompt .dp-code {
+  padding: 16px 18px; color: var(--paper-100);
+  font-family: var(--font-mono); font-size: 12.5px; line-height: 1.75;
+  white-space: normal; word-break: break-word;
+}
+.docs-prompt .dp-code .lit { color: var(--brand-amber); }
+.docs-prompt .dp-foot {
+  padding: 9px 16px 12px; border-top: 1px dashed var(--ink-600);
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--paper-300);
+  opacity: 0.6; letter-spacing: 0.01em;
+}
+
+/* "rather wire it up yourself?" manual-config disclosure (animated reveal) */
+.docs-native { margin: 0 0 4px; }
+.docs-native-toggle {
+  display: inline-flex; align-items: center; gap: 7px; padding: 4px 0;
+  background: transparent; border: 0; cursor: pointer;
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--fg-muted);
+  transition: color var(--dur-1) var(--ease-standard);
+}
+.docs-native-toggle:hover { color: var(--fg); }
+.docs-native-toggle .chev { display: inline-block; color: var(--brand-amber); transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1); }
+.docs-native.open .docs-native-toggle .chev { transform: rotate(90deg); }
+.docs-native-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 260ms cubic-bezier(0.22, 1, 0.36, 1); }
+.docs-native.open .docs-native-wrap { grid-template-rows: 1fr; }
+.docs-native-inner { overflow: hidden; min-height: 0; }
+.docs-native-pad { padding-top: 12px; }
+
+/* Copy button on the docs page (the .recall scope doesn't reach here) */
+.docs-shell .copy {
+  font-family: var(--font-mono); font-size: 10.5px;
+  padding: 4px 9px; border-radius: var(--radius-xs);
+  background: transparent; color: var(--fg-muted);
+  border: 1px solid var(--border-soft); cursor: pointer;
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  transition: color var(--dur-1) var(--ease-standard), border-color var(--dur-1), opacity var(--dur-1);
+}
+.docs-shell .copy:hover { color: var(--fg); border-color: var(--border); }
+.docs-shell .copy.copied { color: var(--ok); border-color: var(--ok); }
+.docs-shell .copy svg { width: 12px; height: 12px; }
+.docs-shell .copy.mini { padding: 4px; gap: 0; }
+.docs-shell .copy.ghost { color: var(--paper-300); border-color: #2A2F38; }
+.docs-shell .copy.ghost:hover { color: var(--paper-100); border-color: #444a55; }
+.docs-shell .copy.ghost.copied { color: var(--ok); border-color: var(--ok); }

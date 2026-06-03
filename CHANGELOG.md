@@ -6,6 +6,29 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.7.1 - 2026-06-03
+
+### Added
+
+- Idle whisper-model unload (`--idle-unload` / `whisper_idle_unload = true`, off
+  by default). The transcription worker drops the model weights after
+  `whisper_idle_unload_seconds` of inactivity (default 120 s) and reloads
+  lazily on the next chunk, freeing up to ~3 GB of resident RAM during long
+  recording gaps. Reloads resolve from a pinned local snapshot directory, so
+  they are network-free.
+- `--no-menu-bar` (`menu_bar_enabled = false`) now also skips the IPC control
+  socket and its accept thread, cutting an additional ~50–80 MB of idle RSS
+  when the menu-bar helper is disabled.
+- `huske doctor` reports the autostart LaunchAgent state: whether the agent
+  is installed, loaded, its running PID, and a pointer to any crash log.
+  Informational only; never fails the command; skipped on non-macOS.
+- New website docs page covering install, macOS permissions, autostart on
+  login, full config reference, and MCP setup for Claude Desktop, Gemini CLI,
+  ChatGPT, and other clients.
+- `examples/config.toml` now documents every current `RuntimeConfig` key,
+  including the new `whisper_idle_unload` and `menu_bar_enabled` footprint
+  knobs.
+
 ## 0.7.0 - 2026-06-03
 
 ### Added
@@ -32,6 +55,16 @@ This project uses semantic versioning after the first public release.
 
 - Python 3.14 is now supported: `requires-python` widened to
   `>=3.11,<3.15`, and the CI test matrix runs against 3.14.
+
+### Changed
+
+- `huske index` now runs **low-impact by default**: the backfill lowers its CPU
+  priority, shrinks the embed batch, caps the MLX/Metal buffer cache, and
+  releases it between files so indexing a long history can't exhaust RAM or pin
+  the GPU. Pass `huske index --fast` (or set `index_low_impact = false`) for the
+  previous full-speed behavior. New config knobs `embed_batch_size` and
+  `index_memory_limit_mb` tune the footprint further; `embed_batch_size` also
+  applies to live indexing during `huske run`.
 
 ## 0.6.0 - 2026-06-02
 
