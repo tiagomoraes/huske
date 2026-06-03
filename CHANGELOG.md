@@ -6,6 +6,8 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.7.1 - 2026-06-03
+
 ### Added
 
 - Idle whisper-model unload (`--idle-unload` / `whisper_idle_unload = true`, off
