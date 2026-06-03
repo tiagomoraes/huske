@@ -1000,7 +1000,7 @@ footer.foot .meta .left svg { width: 18px; height: 18px; color: var(--fg); }
 footer.foot .meta .right { display: flex; align-items: center; gap: 18px; }
 
 /* ================================================================
-   Docs page (docs.html) — sticky TOC + long-form reference.
+   Docs page (docs/index.html) — sticky TOC + long-form reference.
    Reuses the same tokens, dark code blocks, and pill tabs as the
    landing page; no new primitives.
    ================================================================ */
