@@ -6,6 +6,8 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.7.0 - 2026-06-03
+
 ### Added
 
 - Off-device replication (opt-in; see
@@ -19,6 +21,17 @@ This project uses semantic versioning after the first public release.
   `huske sync` backfills on demand. Only a write-only ingest endpoint is
   network-exposed; the read MCP stays loopback-only. Adds the `huske[server]`
   extra; the send side ships in the base install.
+- huske now sets its OS process title via `setproctitle`, so it shows as
+  `huske` (and `huske-whisper` / `huske-embed` / `huske-menubar` for its
+  worker processes) in Activity Monitor, `ps`, and `top` instead of a bare
+  Python interpreter. Best-effort and cosmetic — a silent no-op if
+  `setproctitle` is unavailable, and it does not affect macOS privacy
+  prompts or the recording indicator.
+
+### Changed
+
+- Python 3.14 is now supported: `requires-python` widened to
+  `>=3.11,<3.15`, and the CI test matrix runs against 3.14.
 
 ## 0.6.0 - 2026-06-02
 
