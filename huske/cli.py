@@ -76,6 +76,13 @@ def run(
     screenshots_root: Path | None = typer.Option(
         None, "--screenshots-root", help="Where screenshots are written."
     ),
+    idle_unload: bool | None = typer.Option(
+        None,
+        "--idle-unload/--no-idle-unload",
+        help="Unload the Whisper model from memory between chunks to lower idle "
+        "RAM (frees ~150 MB to 3 GB depending on model size). The next chunk pays "
+        "a few-second reload from the local cache. Off by default.",
+    ),
     config_path: Path | None = typer.Option(None, "--config"),
     log_level: str = typer.Option("INFO", "--log-level"),
     no_ui: bool = typer.Option(False, "--no-ui"),
@@ -104,6 +111,7 @@ def run(
         language=language,
         input_device=input_device,
         keep_audio=keep_audio,
+        whisper_idle_unload=idle_unload,
         screenshots_enabled=screenshots,
         screenshots_interval_seconds=screenshot_interval,
         screenshots_root=screenshots_root,

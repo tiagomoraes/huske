@@ -23,6 +23,15 @@ compute_type = "int8"
 # Apple Silicon GPU. "cuda" is rejected on macOS.
 device = "auto"
 
+# Unload the Whisper model from memory between chunks to lower idle RAM. When
+# true, the model is dropped after `whisper_idle_unload_seconds` of inactivity
+# and reloaded (from the local cache, no network) on the next chunk — freeing
+# ~150 MB for `base` up to ~3 GB for `large-v3` while idle. Off by default so
+# live transcription stays warm; the reload costs a few seconds on the first
+# chunk after an idle gap. Equivalent CLI flag: `huske run --idle-unload`.
+# whisper_idle_unload = true
+# whisper_idle_unload_seconds = 120
+
 # Optional language hint, ISO 639-1. Omit for auto-detect.
 # language = "pt"
 
@@ -44,6 +53,13 @@ log_level = "INFO"
 
 # Run without the Rich live UI (plain log lines instead).
 no_ui = false
+
+# Show a macOS menu bar icon while recording (macOS only). Default: true.
+# The menu bar runs as a separate helper process (~50-80 MB RSS) plus a small
+# control socket and accept thread. Set false (or pass `huske run
+# --no-menu-bar`) to skip all of it for the lightest recording footprint when
+# you don't need the at-a-glance menu bar status.
+# menu_bar_enabled = false
 
 # Periodic screenshots — disabled by default. Captures a JPEG of every
 # attached display every `screenshots_interval_seconds` seconds (minimum 1).

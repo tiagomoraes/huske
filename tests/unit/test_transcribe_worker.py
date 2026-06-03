@@ -85,3 +85,107 @@ def test_audio_energy_gate_keeps_continuous_speech_like_audio(tmp_path: Path) ->
     gate = worker._AudioEnergyGate.from_path(str(path))
 
     assert gate.has_signal(0.5, 1.0)
+
+
+def _fake_chunk(tmp_path: Path) -> Any:
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    now = datetime(2026, 6, 3, 12, 0, 0)
+    return SimpleNamespace(
+        chunk_seq=1,
+        session_id="sess",
+        audio_paths={"microphone": tmp_path / "m.wav"},
+        audio_path=tmp_path / "m.wav",
+        audio_sources=["microphone"],
+        start_time=now,
+        end_time=now,
+        expected_duration_seconds=900.0,
+        actual_duration_seconds=900.0,
+        gap_seconds=0.0,
+        is_partial=False,
+    )
+
+
+def test_chunk_to_job_carries_idle_unload_config(tmp_path: Path) -> None:
+    from huske.config import RuntimeConfig
+
+    cfg = RuntimeConfig(whisper_idle_unload=True, whisper_idle_unload_seconds=45.0)
+    job = worker.chunk_to_job(_fake_chunk(tmp_path), cfg)
+
+    assert job["whisper_idle_unload"] is True
+    assert job["whisper_idle_unload_seconds"] == 45.0
+
+
+def test_chunk_to_job_idle_unload_defaults_off(tmp_path: Path) -> None:
+    from huske.config import RuntimeConfig
+
+    job = worker.chunk_to_job(_fake_chunk(tmp_path), RuntimeConfig())
+
+    assert job["whisper_idle_unload"] is False
+    assert job["whisper_idle_unload_seconds"] == 120.0
+
+
+def test_resolve_model_dir_returns_existing_path(tmp_path: Path) -> None:
+    # An on-disk path is returned unchanged, with no Hugging Face hub call —
+    # this is what keeps post-unload reloads network-free.
+    assert worker._resolve_model_dir(str(tmp_path)) == str(tmp_path)
+
+
+def test_unload_whisper_model_releases_metal_cache() -> None:
+    # mlx-whisper may be absent (non-arm CI): resetting ModelHolder is
+    # best-effort, but releasing the Metal buffer pool must always run.
+    calls: list[str] = []
+
+    class _FakeMx:
+        def clear_cache(self) -> None:
+            calls.append("clear_cache")
+
+    worker._unload_whisper_model(_FakeMx())
+
+    assert calls == ["clear_cache"]
+
+
+class _FakeQueue:
+    """Minimal in_q stand-in recording the timeout each .get() was called with."""
+
+    def __init__(self, result: Any = None, *, raise_empty: bool = False) -> None:
+        self._result = result
+        self._raise_empty = raise_empty
+        self.timeouts: list[Any] = []
+
+    def get(self, timeout: Any = None) -> Any:
+        import queue as _queue
+
+        self.timeouts.append(timeout)
+        if self._raise_empty:
+            raise _queue.Empty
+        return self._result
+
+
+def test_next_message_blocks_untimed_when_model_not_resident() -> None:
+    q = _FakeQueue(result={"job": 1})
+    msg = worker._next_message(q, model_resident=False, idle_unload=True, idle_unload_seconds=99.0)
+    assert msg == {"job": 1}
+    assert q.timeouts == [None]  # no timeout — nothing resident to reclaim
+
+
+def test_next_message_untimed_when_idle_unload_disabled() -> None:
+    q = _FakeQueue(result={"job": 2})
+    msg = worker._next_message(q, model_resident=True, idle_unload=False, idle_unload_seconds=5.0)
+    assert msg == {"job": 2}
+    assert q.timeouts == [None]
+
+
+def test_next_message_returns_job_arriving_within_idle_window() -> None:
+    q = _FakeQueue(result={"job": 3})
+    msg = worker._next_message(q, model_resident=True, idle_unload=True, idle_unload_seconds=5.0)
+    assert msg == {"job": 3}
+    assert q.timeouts == [5.0]  # waited with the idle timeout
+
+
+def test_next_message_signals_unload_when_idle_window_elapses() -> None:
+    q = _FakeQueue(raise_empty=True)
+    msg = worker._next_message(q, model_resident=True, idle_unload=True, idle_unload_seconds=0.01)
+    assert msg is worker._IDLE_TIMEOUT
+    assert q.timeouts == [0.01]

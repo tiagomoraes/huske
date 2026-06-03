@@ -57,6 +57,16 @@ class RuntimeConfig(BaseModel):
     device: Device = "auto"
     language: str | None = None
 
+    # When true, the transcription worker drops the whisper model from memory
+    # after `whisper_idle_unload_seconds` of inactivity, letting the OS reclaim
+    # the resident weights (~150 MB for `base`, up to ~3 GB for `large-v3`)
+    # during the long idle gaps between chunks. The next chunk pays a one-off
+    # reload from the local model cache (a few seconds, no network). Off by
+    # default so live transcription always stays warm. See the transcribe
+    # worker's idle loop for the queue-empty/timeout guard that avoids thrash.
+    whisper_idle_unload: bool = False
+    whisper_idle_unload_seconds: float = Field(default=120.0, ge=5.0)
+
     keep_audio: bool = False
     input_device: str | None = None
 
