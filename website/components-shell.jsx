@@ -151,10 +151,11 @@ const ThemeToggle = ({ theme, setTheme }) => (
   </button>
 );
 
-// `base` prefixes the in-page anchors so the shared Nav works on a second page
-// (docs.html): on the landing page base="" → "#why"; on docs base="index.html"
-// → "index.html#why". Default "" keeps the landing page byte-for-byte the same.
-const Nav = ({ theme, setTheme, base = "" }) => {
+// `base` prefixes the in-page anchors so the shared Nav works on the docs page
+// (docs/index.html): on the landing page base="" → "#why"; on the docs page
+// base="../" → "../#why" (i.e. /huske/#why). `docsHref` is the link to the docs
+// page itself: "docs/" from the landing root, "./" when already on the docs page.
+const Nav = ({ theme, setTheme, base = "", docsHref = "docs/" }) => {
   const stars = useGitHubStars();
   const at = (id) => `${base}#${id}`;
   return (
@@ -162,7 +163,7 @@ const Nav = ({ theme, setTheme, base = "" }) => {
       <a href={base || "#"} className="brand">
         <Mark/>
         <span className="word">huske</span>
-        <span className="ver">v0.7.1</span>
+        <span className="ver">v0.7.2</span>
       </a>
       <div className="links">
         <a href={at("why")}>why</a>
@@ -172,7 +173,7 @@ const Nav = ({ theme, setTheme, base = "" }) => {
         <a href={at("privacy")}>privacy</a>
         <a href={at("releases")}>releases</a>
         <a href={at("faq")}>faq</a>
-        <a href="docs.html">docs</a>
+        <a href={docsHref}>docs</a>
       </div>
       <div className="right">
         <ThemeToggle theme={theme} setTheme={setTheme}/>
@@ -188,7 +189,7 @@ const Nav = ({ theme, setTheme, base = "" }) => {
   );
 };
 
-const Footer = ({ base = "" }) => (
+const Footer = ({ base = "", docsHref = "docs/" }) => (
   <footer className="foot">
     <div className="page">
       <div className="grid">
@@ -209,7 +210,7 @@ const Footer = ({ base = "" }) => (
             <li><a href={`${base}#search`}>search &amp; mcp</a></li>
             <li><a href={`${base}#privacy`}>privacy</a></li>
             <li><a href={`${base}#faq`}>faq</a></li>
-            <li><a href="docs.html">docs</a></li>
+            <li><a href={docsHref}>docs</a></li>
           </ul>
         </div>
         <div className="col">
@@ -236,7 +237,7 @@ const Footer = ({ base = "" }) => (
       <div className="meta">
         <div className="left">
           <Mark size={18}/>
-          <span>huske v0.7.1</span>
+          <span>huske v0.7.2</span>
           <span style={{ color: "var(--fg-faint)" }}>·</span>
           <span>built by tiagomoraes</span>
           <span style={{ color: "var(--fg-faint)" }}>·</span>
