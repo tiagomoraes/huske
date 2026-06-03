@@ -55,7 +55,7 @@ it about your day.
 - macOS 13 (Ventura) or newer. macOS 14.4+ is recommended for system audio
   capture that keeps working while another app is sharing your screen. Apple
   Silicon is the primary target.
-- Python 3.11, 3.12, or 3.13.
+- Python 3.11, 3.12, 3.13, or 3.14.
 
 ## Quickstart
 
@@ -163,7 +163,9 @@ present.
 ~/Library/Logs/huske/agent.err.log
 ```
 
-Tail those if you suspect the agent isn't recording.
+Tail those if you suspect the agent isn't recording. `huske doctor` also
+reports the agent's state — installed, loaded, pid, and the error-log path if
+it recently crashed — so you can check on it without a separate command.
 
 `huske autostart` is macOS-only (it uses `launchd`); the commands exit with
 a friendly error on other systems.

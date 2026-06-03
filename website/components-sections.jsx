@@ -736,7 +736,7 @@ const FAQ = () => (
           <summary>How does the semantic search / MCP server work? <span className="chev">→</span></summary>
           <div className="answer">
             <p><code>pip install 'huske[mcp]'</code> adds two subcommands. <code>huske index</code> embeds every transcript into a single local <code>sqlite-vec</code> file with a multilingual model running on the Apple GPU via MLX — the same stack as transcription, so nothing leaves the machine. Set <code>indexing_enabled = true</code> to keep it fresh automatically as you record.</p>
-            <p><code>huske mcp</code> serves a loopback HTTP MCP endpoint (bearer token + Origin checks) exposing <code>search</code> and <code>fetch</code>. Claude Code and Claude Desktop connect directly with no tunnel; ChatGPT can reach it through an HTTPS tunnel. Answering still happens in whichever chat model you connect, so result snippets reach that provider when it reads them — the indexing and the index itself stay on-device.</p>
+            <p><code>huske mcp</code> serves a loopback HTTP MCP endpoint (bearer token + Origin checks) exposing <code>search</code> and <code>fetch</code>. Claude Code, Cursor, Codex, and most local agents connect directly over loopback — no tunnel. Claude Desktop connects through a small <code>mcp-remote</code> bridge, and ChatGPT needs an HTTPS tunnel; the <a href="docs.html#search">docs</a> have copy-paste config for each. Answering still happens in whichever chat model you connect, so result snippets reach that provider when it reads them — the indexing and the index itself stay on-device.</p>
           </div>
         </details>
         <details>
@@ -765,4 +765,7 @@ const FAQ = () => (
 
 Object.assign(window, {
   SectionHead, Pillars, HowItWorks, OutputPreview, SearchRecall, Privacy, Releases, Community, FAQ,
+  // Shared so the docs page (components-docs.jsx) reuses the same MCP setup
+  // data and per-agent configs — single source of truth.
+  MCP_ENDPOINT, MCP_TOKEN_PATH, SETUP_STEPS, AGENTS, agentPrompt, PromptText,
 });

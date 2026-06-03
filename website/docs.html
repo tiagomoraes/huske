@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>huske — docs: install, autostart, config & MCP</title>
+  <meta name="description" content="Set up huske: install on macOS, grant capture permissions, run it on login, tune the config (chunk size, system audio, input device), and connect any MCP agent to your on-device transcript search."/>
+  <meta property="og:title" content="huske — docs"/>
+  <meta property="og:description" content="Install, autostart on login, configuration reference, and MCP setup for Claude Code, Codex, Cursor, and more."/>
+  <meta property="og:type" content="website"/>
+  <meta name="twitter:card" content="summary"/>
+  <link rel="icon" href="assets/logo-favicon.svg"/>
+  <link rel="stylesheet" href="site.css"/>
+  <script>
+    (function() {
+      try {
+        var t = localStorage.getItem("huske-theme") || "dark";
+        document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {}
+    })();
+  </script>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+  <script type="text/babel" src="components-shell.jsx"></script>
+  <script type="text/babel" src="components-hero.jsx"></script>
+  <script type="text/babel" src="components-sections.jsx"></script>
+  <script type="text/babel" src="components-docs.jsx"></script>
+</head>
+<body data-screen-label="02 huske docs">
+  <div id="root"></div>
+  <script type="text/babel">
+    function App() {
+      const [theme, setTheme] = useTheme();
+      return (
+        <React.Fragment>
+          <Nav theme={theme} setTheme={setTheme} base="index.html"/>
+          <main>
+            <Docs/>
+          </main>
+          <Footer base="index.html"/>
+        </React.Fragment>
+      );
+    }
+    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+  </script>
+</body>
+</html>
