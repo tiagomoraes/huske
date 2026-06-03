@@ -97,12 +97,41 @@ class RuntimeConfig(BaseModel):
     mcp_host: str = "127.0.0.1"
     mcp_port: int = Field(default=7641, gt=0, le=65535)
 
+    # --- Off-device huske server (opt-in replication) ----------------------
+    # See docs/adr/0004-off-device-huske-server.md. The send side ships in the
+    # base install and is *inert* until `sync_endpoint` is set, so the 99% local
+    # case pays nothing.
+    #
+    # Client (`huske run` / `huske sync`): when set, each finalized transcript is
+    # pushed to this huske server's ingest endpoint, e.g.
+    # "https://huske.example.com". The bearer (write) token is read from
+    # ~/.config/huske/sync_token. Recording never blocks on the network — the
+    # push runs out-of-band and reconciles on reconnect.
+    sync_endpoint: str | None = None
+    # Verify the server's TLS certificate. Disable ONLY for local testing.
+    sync_verify_tls: bool = True
+    # Durable send-outbox location (records which transcripts the server has
+    # acknowledged, so an offline Mac catches up on reconnect).
+    sync_root: Path = Field(default=Path.home() / "huske" / "sync")
+
+    # Serve side (`huske serve`, on the VPS): ingest endpoint bind address.
+    # Loopback by default — a TLS-terminating reverse proxy (e.g. Caddy) fronts
+    # it and is the only public surface; the read MCP (`huske mcp`) stays
+    # loopback-only. On the VPS set `embedding_model` to a `fastembed:<hf-id>`
+    # backend (no Metal there).
+    ingest_host: str = "127.0.0.1"
+    ingest_port: int = Field(default=7642, gt=0, le=65535)
+    # Public hostname the reverse proxy serves, used to validate the Host header
+    # on ingested requests. Optional (skip the check when unset).
+    public_host: str | None = None
+
     @field_validator(
         "output_root",
         "audio_root",
         "logs_root",
         "screenshots_root",
         "index_root",
+        "sync_root",
         mode="before",
     )
     @classmethod
@@ -143,6 +172,11 @@ def load_config(
     `config_path` defaults to ``~/.config/huske/config.toml`` (silently ignored
     if absent). `cli_overrides` are applied last and win on conflict.
     """
+
+    # Typer's ctx.invoke passes raw OptionInfo objects for unset params instead
+    # of None. Accept only actual Path values; treat anything else as "not set".
+    if not isinstance(config_path, Path):
+        config_path = None
 
     file_path = config_path or default_user_config_path()
     file_data = _read_toml(file_path) if file_path.exists() else {}

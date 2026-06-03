@@ -133,9 +133,46 @@ def run_session(
             log.warning("embed_worker_start_failed", error=str(exc))
             embed_worker = None
 
+    # Optional: off-device replication to a huske server. Dependency-free,
+    # started non-blocking, and inert unless `sync_endpoint` is set — recording
+    # never waits on the network. See docs/adr/0004-off-device-huske-server.md.
+    sync_worker = None
+    sync_outbox = None
+    if cfg.sync_endpoint:
+        from huske.mcp.token import load_token, sync_token_path
+        from huske.paths import outbox_db_path
+        from huske.sync.client import IngestClient
+        from huske.sync.outbox import Outbox
+        from huske.sync.worker import SyncWorker
+
+        sync_token = load_token(sync_token_path())
+        if not sync_token:
+            _print(
+                f"[warn] sync_endpoint set but no token at {sync_token_path()} — replication off"
+            )
+            log.warning("sync_token_missing", path=str(sync_token_path()))
+        else:
+            try:
+                cfg.sync_root.mkdir(parents=True, exist_ok=True)
+                sync_outbox = Outbox(outbox_db_path(cfg))
+                sync_worker = SyncWorker(
+                    cfg.output_root,
+                    sync_outbox,
+                    IngestClient(cfg.sync_endpoint, sync_token, verify_tls=cfg.sync_verify_tls),
+                    reconcile_on_start=True,
+                )
+                sync_worker.start()
+                _print(f"[huske] replication enabled → {cfg.sync_endpoint}")
+            except Exception as exc:
+                log.warning("sync_worker_start_failed", error=str(exc))
+                sync_worker = None
+                sync_outbox = None
+
     def _on_written(path: Path) -> None:
         if embed_worker is not None:
             embed_worker.submit(str(path))
+        if sync_worker is not None:
+            sync_worker.submit(str(path))
 
     def _drain_embed() -> None:
         if embed_worker is None:
@@ -155,6 +192,26 @@ def run_session(
                 on_event("warn", f"indexing failed: {detail}")
             else:
                 log.info("indexed", path=msg.get("path"), passages=msg.get("passages"))
+
+    def _drain_sync() -> None:
+        if sync_worker is None:
+            return
+        while True:
+            evt = sync_worker.poll_event(timeout=0.0)
+            if evt is None:
+                break
+            if "reconcile" in evt:
+                pending = int(evt.get("reconcile", 0))
+                if pending:
+                    on_event("info", f"replication: catching up {pending} transcript(s)")
+            elif not evt.get("ok"):
+                on_event("warn", f"replication: {evt.get('error', 'push failed')}")
+            else:
+                log.info("replicated", rel_path=evt.get("rel_path"), status=evt.get("status"))
+
+    def _on_tick() -> None:
+        _drain_embed()
+        _drain_sync()
 
     # Recovery before starting new capture.
     rec_report = _do_recovery(cfg, worker, log)
@@ -494,7 +551,7 @@ def run_session(
             pump_commands=_pump_commands,
             publish_state=_publish_state,
             on_written=_on_written,
-            on_tick=_drain_embed,
+            on_tick=_on_tick,
         )
 
         # Phase 2: stopping. Keep the UI alive while we drain.
@@ -549,7 +606,7 @@ def run_session(
 
             now = time.monotonic()
             if now - last_ui_update >= 0.25:
-                _drain_embed()
+                _on_tick()
                 state.update(queue_depth=worker.queue_depth)
                 _publish_state()
                 if ui is not None:
@@ -587,6 +644,10 @@ def run_session(
             # SENTINEL is FIFO after queued paths, so any transcripts written
             # during drain still get indexed before the worker exits.
             embed_worker.stop(drain_timeout=10.0)
+        if sync_worker is not None:
+            sync_worker.stop(drain_timeout=10.0)
+        if sync_outbox is not None:
+            sync_outbox.close()
         worker.stop(drain_timeout=5.0)
         session.release_lock()
         cleanup_session_dir(session.audio_root)

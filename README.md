@@ -272,6 +272,31 @@ This adds two subcommands and one config flag:
 > path widens that surface. The design rationale lives in
 > [docs/adr/0001-http-only-mcp-daemon.md](docs/adr/0001-http-only-mcp-daemon.md).
 
+## Replicate to a server you control (opt-in)
+
+The local MCP only answers when your Mac is awake. If you want an always-on
+agent to query your huske context 24/7, you can run a single-tenant **huske
+server** on a box you control (e.g. a VPS). `huske run` then pushes each
+finalized transcript to it (dependency-free, out-of-band — recording never waits
+on the network); the server indexes them with a CPU embedder and serves the same
+`search`/`fetch` MCP over loopback to a co-located agent. Only a **write-only
+ingest endpoint** is exposed publicly — your transcript history is never readable
+over the network.
+
+```toml
+# ~/.config/huske/config.toml on your Mac
+sync_endpoint = "https://huske.example.com"
+```
+
+```bash
+huske sync     # one-shot backfill of your existing transcripts
+huske serve    # on the VPS: receive + index (pair with `huske mcp` for reads)
+```
+
+Full setup (server install, systemd units, Caddy, tokens) is in
+**[docs/server.md](docs/server.md)**; the rationale is in
+[docs/adr/0004-off-device-huske-server.md](docs/adr/0004-off-device-huske-server.md).
+
 ## Privacy and consent
 
 huske is local-first: audio capture and transcription run on your machine, and
@@ -282,6 +307,10 @@ metadata can contain private or legally sensitive information.
 - Get consent before recording other people or regulated conversations.
 - Do not commit generated audio, transcripts, logs, local configs, model caches,
   or screenshots containing private content.
+- If you enable replication (`sync_endpoint`), your transcripts are copied to the
+  huske server you configure. Run it only on infrastructure you control, over
+  HTTPS, and treat that box as holding your full transcript history. See
+  [docs/server.md](docs/server.md).
 - The `--screenshots` flag captures everything visible on every attached
   display every 10 s — including any password manager popovers, banking
   tabs, or private DMs that happen to be open. Leave it off unless you've
@@ -302,8 +331,10 @@ metadata can contain private or legally sensitive information.
 - [Transcript format contract](specs/001-huske-recorder/contracts/transcript-format.md) — the LLM-consumer interface.
 - [Quickstart](specs/001-huske-recorder/quickstart.md) — end-to-end setup.
 - [Glossary](CONTEXT.md) — domain language (Chunk, Segment, Passage, …).
-- [Architecture decisions](docs/adr/) — why the MCP daemon, search stack, and
-  embed-worker isolation are built the way they are.
+- [Off-device server](docs/server.md) — replicate transcripts to a VPS and serve
+  them to a co-located agent (opt-in).
+- [Architecture decisions](docs/adr/) — why the MCP daemon, search stack,
+  embed-worker isolation, and off-device server are built the way they are.
 
 ## Community
 
