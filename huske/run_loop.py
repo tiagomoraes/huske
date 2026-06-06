@@ -233,11 +233,18 @@ def run_session(
     pending_chunks: set[int] = set()
     pending_lock = threading.Lock()
 
+    def _pending_count() -> int:
+        # True in-flight depth (queued + transcribing), thread-safe. Unlike
+        # worker.queue_depth — whose mp.Queue.qsize() raises NotImplementedError
+        # on macOS and reports 0 there — this is authoritative on every platform.
+        with pending_lock:
+            return len(pending_chunks)
+
     def on_finalized(chunk: AudioChunk) -> None:
         with pending_lock:
             pending_chunks.add(chunk.chunk_seq)
         worker.submit(chunk_to_job(chunk, cfg))
-        state.update(queue_depth=worker.queue_depth)
+        state.update(queue_depth=_pending_count())
         state.push_event(
             "info",
             f"chunk {chunk.chunk_seq:03d} queued for transcription",
@@ -560,6 +567,7 @@ def run_session(
             publish_state=_publish_state,
             on_written=_on_written,
             on_tick=_on_tick,
+            pending_count=_pending_count,
         )
 
         # Phase 2: stopping. Keep the UI alive while we drain.
@@ -578,10 +586,9 @@ def run_session(
         if ui is not None:
             ui.update()
 
-        with pending_lock:
-            pending_count = len(pending_chunks)
+        pending_count = _pending_count()
         on_event("info", f"draining {pending_count} transcription(s)…")
-        state.update(queue_depth=worker.queue_depth)
+        state.update(queue_depth=pending_count)
         if ui is not None:
             ui.update()
 
@@ -615,7 +622,7 @@ def run_session(
             now = time.monotonic()
             if now - last_ui_update >= 0.25:
                 _on_tick()
-                state.update(queue_depth=worker.queue_depth)
+                state.update(queue_depth=_pending_count())
                 _publish_state()
                 if ui is not None:
                     ui.update()
@@ -682,8 +689,13 @@ def _main_loop(
     publish_state: Callable[[], None] | None = None,
     on_written: Callable[[Path], None] | None = None,
     on_tick: Callable[[], None] | None = None,
+    pending_count: Callable[[], int] | None = None,
 ) -> None:
     """Run the asyncio-free main loop. Updates UI, polls worker results, watches heartbeat."""
+
+    def _depth() -> int:
+        return pending_count() if pending_count is not None else worker.queue_depth
+
     while not stop_flag.is_set():
         if read_key is not None and on_key is not None:
             while True:
@@ -720,7 +732,7 @@ def _main_loop(
             on_result(seq)
             if result["ok"]:
                 tp = Path(result["transcript_path"])
-                state.update(last_saved=tp, queue_depth=worker.queue_depth)
+                state.update(last_saved=tp, queue_depth=_depth())
                 state.push_event("info", f"chunk {seq:03d} → {tp.name}")
                 if on_written is not None:
                     on_written(tp)
@@ -748,7 +760,7 @@ def _main_loop(
             current_chunk_seq=rotator.current_chunk_seq,
             chunk_started_at=rotator.chunk_started_at,
             next_rotation_at=rotator.next_rotation_at,
-            queue_depth=worker.queue_depth,
+            queue_depth=_depth(),
             **screenshot_fields,
         )
 
