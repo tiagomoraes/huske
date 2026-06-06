@@ -206,7 +206,7 @@ const OutputPreview = () => {
               <div><span className="key">audio_sources:</span>    <span className="val">[microphone, system]</span></div>
               <div><span className="key">language:</span>         <span className="str">auto</span></div>
               <div><span className="key">incomplete:</span>       <span className="val">false</span></div>
-              <div><span className="key">huske_version:</span>    <span className="str">0.7.1</span></div>
+              <div><span className="key">huske_version:</span>    <span className="str">{HUSKE_VERSION}</span></div>
               <div><span className="delim">---</span></div>
             </div>
 
@@ -557,7 +557,14 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.7.2", date: "2026-06-03", tag: "latest",
+    ver: "0.7.3", date: "2026-06-03", tag: "latest",
+    items: [
+      { kind: "fixed", text: <>The <code>huske run</code> startup log now records the running version instead of a stale <code>v0.1.0</code> placeholder.</> },
+      { kind: "changed", text: <>The website reads its version from a single source (<code>website/version.js</code>), and the release tooling now verifies every page matches the released version, so the public site no longer drifts to an older version between releases.</> },
+    ],
+  },
+  {
+    ver: "0.7.2", date: "2026-06-03",
     items: [
       { kind: "changed", text: <>Website docs page now lives at <code>/docs/</code> (clean URL) instead of <code>/docs.html</code>. In-page nav links no longer expose <code>index.html</code> in the URL.</> },
     ],
@@ -758,7 +765,7 @@ const FAQ = () => (
         <details>
           <summary>Is this only for Apple Silicon? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>Apple Silicon Mac is the supported target in 0.7.1. The transcription engine (<code>mlx-whisper</code>) runs on the M-series GPU via MLX, and system-audio capture uses macOS-only Core Audio / ScreenCaptureKit APIs.</p>
+            <p>Apple Silicon Mac is the supported target in {HUSKE_VERSION}. The transcription engine (<code>mlx-whisper</code>) runs on the M-series GPU via MLX, and system-audio capture uses macOS-only Core Audio / ScreenCaptureKit APIs.</p>
           </div>
         </details>
         <details>

@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from huske import logging_setup, paths
+from huske import __version__, logging_setup, paths
 from huske.capture.coordinator import CaptureCoordinator
 from huske.capture.devices import (
     list_input_devices,
@@ -71,7 +71,7 @@ def run_session(
     log_path = paths.logs_path(cfg, session.session_id)
     logging_setup.configure(log_path, level=cfg.log_level, console=cfg.no_ui)
     log = logging_setup.get_logger("huske.run")
-    log.info("starting", session_id=session.session_id, version_hint="v0.1.0")
+    log.info("starting", session_id=session.session_id, version_hint=__version__)
 
     # Resolve + validate input device.
     device_resolution = resolve_input_device_with_fallback(cfg.input_device)
