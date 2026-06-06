@@ -15,18 +15,16 @@ import threading
 from collections import deque
 from collections.abc import Callable
 from datetime import datetime
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-import objc
-import ScreenCaptureKit as SCK
-from CoreMedia import (
-    CMBlockBufferCopyDataBytes,
-    CMBlockBufferGetDataLength,
-    CMSampleBufferGetDataBuffer,
-    CMSampleBufferGetNumSamples,
-)
-from Foundation import NSObject
+
+# NOTE: the pyobjc frameworks (objc / ScreenCaptureKit / CoreMedia / Foundation)
+# are imported lazily inside the functions that use them — never at module top —
+# so importing this module (which the recording pipeline does eagerly via
+# coordinator.py) does not pull the SCK stack into memory on the common Core
+# Audio tap path or when system audio is off. Mirrors menubar.py / doctor.py.
 
 _PERMISSION_DENIED_MARKER = "permission denied"
 
@@ -42,6 +40,8 @@ def check_permission(timeout: float = 5.0) -> bool:
     returns an error and we treat that as "not granted". The first call also
     triggers macOS's prompt dialog if no decision has been recorded yet.
     """
+    import ScreenCaptureKit as SCK
+
     holder: list[tuple[object, object]] = []
     done = threading.Event()
 
@@ -58,53 +58,82 @@ def check_permission(timeout: float = 5.0) -> bool:
     return content is not None and len(content.displays()) > 0  # type: ignore[attr-defined]
 
 
-class _StreamOutput(NSObject):  # type: ignore[misc]
-    """SCStreamOutput delegate. Receives audio CMSampleBuffers."""
+_stream_output_cls: Any = None
 
-    def initWithCallback_(self, callback: Callable[[npt.NDArray[np.float32], datetime], None]):  # type: ignore[no-untyped-def]
-        self = objc.super(_StreamOutput, self).init()
-        if self is None:
-            return None
-        self._callback = callback
-        return self
 
-    # objc selector: stream:didOutputSampleBuffer:ofType:
-    def stream_didOutputSampleBuffer_ofType_(
-        self, stream: object, sample_buffer: object, sample_type: int
-    ) -> None:
-        if sample_type != SCK.SCStreamOutputTypeAudio:
-            return
-        try:
-            block_buf = CMSampleBufferGetDataBuffer(sample_buffer)
-            if block_buf is None:
+def _get_stream_output_class() -> Any:
+    """Build (once) and return the SCStreamOutput delegate class.
+
+    Defined lazily so importing this module never pulls in pyobjc: the heavy
+    ScreenCaptureKit / CoreMedia / Foundation wrappers load only when the SCK
+    path actually starts. The pyobjc symbols are captured in the class's closure
+    so the per-block audio callback pays no repeated import cost. The built class
+    is cached so a second SystemAudioStream reuses it.
+    """
+    global _stream_output_cls
+    if _stream_output_cls is not None:
+        return _stream_output_cls
+
+    import objc
+    from CoreMedia import (
+        CMBlockBufferCopyDataBytes,
+        CMBlockBufferGetDataLength,
+        CMSampleBufferGetDataBuffer,
+        CMSampleBufferGetNumSamples,
+    )
+    from Foundation import NSObject
+    from ScreenCaptureKit import SCStreamOutputTypeAudio
+
+    class _StreamOutput(NSObject):  # type: ignore[misc]
+        """SCStreamOutput delegate. Receives audio CMSampleBuffers."""
+
+        def initWithCallback_(self, callback: Callable[[npt.NDArray[np.float32], datetime], None]):  # type: ignore[no-untyped-def]
+            self = objc.super(_StreamOutput, self).init()
+            if self is None:
+                return None
+            self._callback = callback
+            return self
+
+        # objc selector: stream:didOutputSampleBuffer:ofType:
+        def stream_didOutputSampleBuffer_ofType_(
+            self, stream: object, sample_buffer: object, sample_type: int
+        ) -> None:
+            if sample_type != SCStreamOutputTypeAudio:
                 return
-            num_samples = int(CMSampleBufferGetNumSamples(sample_buffer))
-            data_len = int(CMBlockBufferGetDataLength(block_buf))
-            if num_samples == 0 or data_len == 0:
+            try:
+                block_buf = CMSampleBufferGetDataBuffer(sample_buffer)
+                if block_buf is None:
+                    return
+                num_samples = int(CMSampleBufferGetNumSamples(sample_buffer))
+                data_len = int(CMBlockBufferGetDataLength(block_buf))
+                if num_samples == 0 or data_len == 0:
+                    return
+                status, raw = CMBlockBufferCopyDataBytes(block_buf, 0, data_len, None)
+                if status != 0 or not raw:
+                    return
+                arr = np.frombuffer(raw, dtype=np.float32)
+                # SCStream emits non-interleaved: bytes are [ch0_planar, ch1_planar, ...].
+                # Layout: total floats = num_samples * channels.
+                total_floats = arr.shape[0]
+                if total_floats % num_samples != 0:
+                    return  # malformed
+                channels = total_floats // num_samples
+                if channels < 1:
+                    return
+                if channels == 1:
+                    mono = arr.copy()
+                else:
+                    # Reshape (channels, num_samples) since planar.
+                    planar = arr.reshape(channels, num_samples)
+                    mono = planar.mean(axis=0).astype(np.float32, copy=False).copy()
+                now = datetime.now().astimezone()
+                self._callback(mono, now)
+            except Exception:
+                # Never raise out of an Objective-C selector — would crash the runloop.
                 return
-            status, raw = CMBlockBufferCopyDataBytes(block_buf, 0, data_len, None)
-            if status != 0 or not raw:
-                return
-            arr = np.frombuffer(raw, dtype=np.float32)
-            # SCStream emits non-interleaved: bytes are [ch0_planar, ch1_planar, ...].
-            # Layout: total floats = num_samples * channels.
-            total_floats = arr.shape[0]
-            if total_floats % num_samples != 0:
-                return  # malformed
-            channels = total_floats // num_samples
-            if channels < 1:
-                return
-            if channels == 1:
-                mono = arr.copy()
-            else:
-                # Reshape (channels, num_samples) since planar.
-                planar = arr.reshape(channels, num_samples)
-                mono = planar.mean(axis=0).astype(np.float32, copy=False).copy()
-            now = datetime.now().astimezone()
-            self._callback(mono, now)
-        except Exception:
-            # Never raise out of an Objective-C selector — would crash the runloop.
-            return
+
+    _stream_output_cls = _StreamOutput
+    return _StreamOutput
 
 
 class SystemAudioStream:
@@ -152,6 +181,8 @@ class SystemAudioStream:
             self._cond.notify()
 
     def _get_default_display(self, timeout: float = 5.0) -> object:
+        import ScreenCaptureKit as SCK
+
         holder: list[tuple[object, object]] = []
         done = threading.Event()
 
@@ -185,6 +216,8 @@ class SystemAudioStream:
         if self._stream is not None:
             return
 
+        import ScreenCaptureKit as SCK
+
         display = self._get_default_display()
 
         filter_ = SCK.SCContentFilter.alloc().initWithDisplay_excludingApplications_exceptingWindows_(
@@ -203,7 +236,7 @@ class SystemAudioStream:
         except Exception:
             pass
 
-        output = _StreamOutput.alloc().initWithCallback_(self._ingest)
+        output = _get_stream_output_class().alloc().initWithCallback_(self._ingest)
         if output is None:
             raise RuntimeError("Failed to allocate SCStreamOutput delegate")
 

@@ -449,6 +449,17 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
                     "error": f"{exc}\n{tb}",
                 }
             )
+        finally:
+            # Release the transient Metal buffer pool after every job so the
+            # decode/encode working set doesn't stay pinned through the idle gap.
+            # This drops only reusable buffers, not the resident model weights,
+            # and is a no-op when nothing is cached — cheap, always-on hygiene
+            # that helps even when whisper_idle_unload is off (model stays warm,
+            # but the per-chunk working set is reclaimed).
+            try:
+                mx.clear_cache()
+            except Exception:
+                pass
 
 
 class TranscriptionWorker:
@@ -543,7 +554,10 @@ class TranscriptionWorker:
 
     @property
     def queue_depth(self) -> int:
-        # qsize is approximate but fine for UI display.
+        # NOTE: mp.Queue.qsize() raises NotImplementedError on macOS, so this
+        # returns 0 there. The orchestrator tracks the true in-flight count via
+        # `pending_chunks` (run_loop) and drives the UI from that; this property
+        # is kept for Linux/tests and rough display only.
         try:
             return int(self._in_q.qsize())
         except (NotImplementedError, OSError):
