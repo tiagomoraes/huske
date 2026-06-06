@@ -6,6 +6,19 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.7.3 - 2026-06-03
+
+### Fixed
+
+- The `huske run` startup log now records the running version instead of a
+  stale `v0.1.0` placeholder.
+
+### Changed
+
+- The website reads its version from a single source (`website/version.js`),
+  and the release tooling now verifies every page matches the released version,
+  so the public site no longer drifts to an older version between releases.
+
 ## 0.7.2 - 2026-06-03
 
 ### Changed
