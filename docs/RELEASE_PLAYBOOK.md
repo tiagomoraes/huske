@@ -126,6 +126,15 @@ The back-merge PR is **also** opened automatically by
 `.github/workflows/back-merge.yml`. The script's version is the fallback
 if Actions are disabled.
 
+> Because that workflow opens the PR with `GITHUB_TOKEN`, GitHub won't run
+> `ci.yml` for it (anti-recursion), so the required `Python 3.x` checks can't
+> report normally. The workflow therefore posts them as success itself — but
+> only after verifying the file diff vs `develop` is empty, since the content
+> already passed CI on the release-prep and promotion PRs. The checks show as
+> "Skipped — no-op back-merge" on the PR. If you ever see the back-merge stuck
+> on "Expected — Waiting for status…", the diff was non-empty (investigate) or
+> the workflow didn't run.
+
 ### 🛑 STOP
 
 A human reviews and merges the back-merge PR with **"Create a merge

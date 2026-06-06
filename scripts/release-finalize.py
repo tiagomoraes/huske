@@ -18,15 +18,17 @@ What it does:
      `release.yml` workflow which builds sdist + wheel and publishes to
      PyPI via trusted publishing.
   5. Opens the back-merge PR `chore/sync-main-after-vX.Y.Z` from a
-     temporary branch (NOT `head=main`, which would be auto-deleted).
+     temporary branch (NOT `head=main`, which would be auto-deleted), or
+     reports the PR that `.github/workflows/back-merge.yml` already opened.
      The PR body reminds the reviewer to use "Create a merge commit"
      instead of squash.
   6. Optionally polls until the release workflow succeeds and prints a
      hint to run `python scripts/update-homebrew-tap.py X.Y.Z`.
 
 Idempotent where it can be: rerunning after the tag exists is a no-op for
-the tag, the GitHub release is created only once, and the back-merge
-branch is reused if it exists.
+the tag, the GitHub release is created only once, and the back-merge step
+reports an existing PR/branch (including the one `back-merge.yml` opens
+automatically) instead of failing.
 """
 
 from __future__ import annotations
@@ -210,27 +212,60 @@ def wait_for_release_workflow(version: str, repo: str, timeout_s: int) -> bool:
 def open_back_merge_pr(version: str, repo: str) -> str | None:
     branch = f"chore/sync-main-after-v{version}"
 
-    existing = run(
-        "git",
-        "show-ref",
-        "--verify",
-        "--quiet",
-        f"refs/heads/{branch}",
+    # `.github/workflows/back-merge.yml` opens this PR automatically when the
+    # promotion PR merges into `main`. If it already has, report the existing PR
+    # instead of racing it: blindly recreating the branch and pushing would fail
+    # non-fast-forward against the branch the workflow already pushed.
+    existing_pr = run(
+        "gh",
+        "pr",
+        "list",
+        "--repo",
+        repo,
+        "--head",
+        branch,
+        "--base",
+        "develop",
+        "--state",
+        "open",
+        "--json",
+        "url",
+        "--jq",
+        ".[0].url // empty",
+        capture=True,
         check=False,
-    )
-    if existing.returncode == 0:
-        run("git", "branch", "-D", branch)
+    ).stdout.strip()
+    if existing_pr:
+        print(f"back-merge PR already open (created by back-merge.yml): {existing_pr}")
+        return existing_pr
 
-    run("git", "switch", "-c", branch, "origin/develop")
-    run(
-        "git",
-        "merge",
-        "origin/main",
-        "--no-ff",
-        "-m",
-        f"chore: sync main back into develop after v{version}",
-    )
-    run("git", "push", "-u", "origin", branch)
+    # No PR yet. If the workflow pushed the branch but not the PR, open the PR
+    # from that remote branch; otherwise (e.g. Actions disabled) build the
+    # branch locally and push it ourselves.
+    remote_branch = run(
+        "git", "ls-remote", "--heads", "origin", branch, capture=True, check=False
+    ).stdout.strip()
+    if not remote_branch:
+        local = run(
+            "git",
+            "show-ref",
+            "--verify",
+            "--quiet",
+            f"refs/heads/{branch}",
+            check=False,
+        )
+        if local.returncode == 0:
+            run("git", "branch", "-D", branch)
+        run("git", "switch", "-c", branch, "origin/develop")
+        run(
+            "git",
+            "merge",
+            "origin/main",
+            "--no-ff",
+            "-m",
+            f"chore: sync main back into develop after v{version}",
+        )
+        run("git", "push", "-u", "origin", branch)
 
     body = (
         f"Brings the v{version} promotion merge commit and tag into `develop`.\n\n"
