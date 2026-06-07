@@ -173,7 +173,10 @@ Important guardrails:
   `virtualenv_install_with_resources`. The tap intentionally pins platform
   wheels and builds PyAV (`av`) from sdist against Homebrew `ffmpeg`.
 - Validate Homebrew changes with `brew style`, `brew audit --strict --online`,
-  `brew install --build-from-source`, and `brew test`.
+  `brew install --build-from-source`, and `brew test`. These only touch the
+  local tap clone, so an agent may run them automatically (use `brew reinstall
+  --build-from-source` if a prior version is installed); only the tap `git push`
+  publishes and requires a human.
 
 Reference commands:
 

@@ -397,7 +397,9 @@ python -m pip install --dry-run --ignore-installed \
   --report /tmp/huske-pip-report.json "huske==$VERSION"
 ```
 
-Validate the tap locally:
+Validate the tap locally. These steps only touch the local tap clone, so an
+agent may run them automatically (use `brew reinstall --build-from-source` if a
+previous version is already installed):
 
 ```bash
 brew style Formula/huske.rb
@@ -407,7 +409,7 @@ brew test tiagomoraes/huske/huske
 huske --version
 ```
 
-Commit and push the tap:
+Commit and push the tap — **only the push publishes, so a human does this**:
 
 ```bash
 git add Formula/huske.rb README.md
