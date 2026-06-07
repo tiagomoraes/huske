@@ -786,8 +786,51 @@ const FAQ = () => (
   </section>
 );
 
+// Bridge CTA under the hero — surfaces the two opt-in "power" commands
+// (run on login, recall over MCP) with one headline command each and a link
+// into the full docs walkthrough. Not a numbered chapter; a quick-start strip.
+const SETUP_CARDS = [
+  {
+    id: "autostart",
+    ph: "run on login",
+    cmd: "huske autostart install",
+    desc: "Registers a launchd agent that records from every login and restarts itself on crash.",
+    cta: "Autostart guide",
+    href: "docs/#autostart",
+    aria: "Run on login — read the autostart guide",
+  },
+  {
+    id: "mcp",
+    ph: "recall over mcp",
+    cmd: "huske mcp",
+    desc: "Serves on-device semantic search over your transcripts to Claude, Codex, Cursor, and more.",
+    cta: "MCP setup",
+    href: "docs/#search",
+    aria: "Recall over MCP — read the MCP setup guide",
+  },
+];
+
+const SetupStrip = () => (
+  <section className="setup-strip" aria-label="Set up huske">
+    <div className="page">
+      <div className="strip-head"><span className="num">→</span><span>go further</span></div>
+      <p className="strip-sub">Two opt-in commands take huske further: record from every login, and search your transcripts straight from your agent.</p>
+      <div className="strip-grid">
+        {SETUP_CARDS.map((c) => (
+          <a className="strip-card" href={c.href} key={c.id} aria-label={c.aria}>
+            <div className="sc-ph">{c.ph}</div>
+            <div className="sc-cmd"><span className="sp">$</span> {c.cmd}</div>
+            <p className="sc-desc">{c.desc}</p>
+            <span className="sc-cta">{c.cta} <span className="arrow">→</span></span>
+          </a>
+        ))}
+      </div>
+    </div>
+  </section>
+);
+
 Object.assign(window, {
-  SectionHead, Pillars, HowItWorks, OutputPreview, SearchRecall, Privacy, Releases, Community, FAQ,
+  SectionHead, Pillars, SetupStrip, HowItWorks, OutputPreview, SearchRecall, Privacy, Releases, Community, FAQ,
   // Shared so the docs page (components-docs.jsx) reuses the same MCP setup
   // data and per-agent configs — single source of truth.
   MCP_ENDPOINT, MCP_TOKEN_PATH, SETUP_STEPS, AGENTS, agentPrompt, PromptText,
