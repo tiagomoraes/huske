@@ -44,9 +44,12 @@ huske --help                 Print help.
 | `--device` | choice | `auto` | `auto` \| `cpu` \| `cuda`. |
 | `--language` | str | (auto) | ISO 639-1, e.g., `pt`, `en`. |
 | `--input-device` | str | (system default) | Microphone device name (substring match). If configured but unavailable, Huske falls back to the default input with a warning. System audio is independent of this flag. |
-| `--keep-audio` / `--no-keep-audio` | bool | `--no-keep-audio` | Retain raw WAVs after transcription. |
+| `--keep-audio` / `--no-keep-audio` | bool | `--no-keep-audio` | Retain audio after transcription (compressed per `--keep-audio-format`). |
+| `--keep-audio-format` | choice | `opus` | Kept-audio format: `opus` (lossy, smallest), `flac` (lossless), or `wav`. |
 | `--screenshots` / `--no-screenshots` | bool | config/default false | Capture periodic screenshots. |
-| `--screenshot-interval` | float (1–3600) | `10.0` | Seconds between screenshots. |
+| `--screenshot-interval` | float (1–3600) | `60.0` | Seconds between screenshots. |
+| `--screenshot-max-dimension` | int (0–10000) | `1568` | Downscale each screenshot's long edge to ≤ N px (0 disables; never upscales). |
+| `--screenshot-quality` | int (1–100) | `60` | JPEG quality for screenshots. |
 | `--screenshots-root` | path | `~/huske/screenshots` | Where screenshots are written. |
 | `--config` | path | `~/.config/huske/config.toml` | Path to TOML config file (silently ignored if absent). |
 | `--log-level` | choice | `INFO` | `DEBUG` \| `INFO` \| `WARNING` \| `ERROR`. |
@@ -212,6 +215,7 @@ model = "base"
 compute_type = "int8"
 language = "pt"
 keep_audio = false
+keep_audio_format = "opus"
 input_device = "MacBook Pro Microphone"
 system_audio_backend = "auto"
 log_level = "INFO"

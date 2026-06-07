@@ -130,6 +130,11 @@ def run_session(
                 str(paths.index_db_path(cfg)),
                 cfg.embedding_model,
                 batch_size=cfg.embed_batch_size,
+                # When distillation is also on, the same embedder embeds each
+                # transcript's distilled statements into a second store.
+                statements_db_path=(
+                    str(paths.statements_db_path(cfg)) if cfg.distill_enabled else None
+                ),
             )
             embed_worker.start()
             _print("[huske] indexing enabled — transcripts will be embedded in background")
@@ -172,11 +177,48 @@ def run_session(
                 sync_worker = None
                 sync_outbox = None
 
+    # Optional: background LLM distillation into searchable Statements. A daemon
+    # *thread* — the LLM runs in its own process (Ollama), so from here it is
+    # loopback HTTP, GIL-releasing, like sync. Off unless `distill_enabled`. Each
+    # finished sidecar is handed to the embed worker so its statements get
+    # embedded too. It does NOT reconcile history here (that's `huske distill`):
+    # it only distills this session's transcripts, so enabling it never kicks off
+    # a surprise whole-corpus backfill. See docs/adr/0005-llm-distillation.md.
+    distill_worker = None
+    if cfg.distill_enabled:
+        from huske.distill.distiller import build_distiller
+        from huske.distill.worker import DistillWorker
+
+        try:
+            distiller = build_distiller(
+                cfg.distill_model,
+                endpoint=cfg.distill_endpoint,
+                timeout=cfg.distill_timeout_seconds,
+                max_statements=cfg.distill_max_statements_per_passage,
+                think=cfg.distill_think,
+            )
+            distill_worker = DistillWorker(
+                cfg.output_root,
+                distiller,
+                max_statements_per_passage=cfg.distill_max_statements_per_passage,
+                on_sidecar=(embed_worker.submit if embed_worker is not None else None),
+            )
+            distill_worker.start()
+            _print(
+                f"[huske] distillation enabled — transcripts distilled to statements "
+                f"({cfg.distill_model} via {cfg.distill_backend})"
+            )
+        except Exception as exc:
+            log.warning("distill_worker_start_failed", error=str(exc))
+            distill_worker = None
+
     def _on_written(path: Path) -> None:
         if embed_worker is not None:
             embed_worker.submit(str(path))
         if sync_worker is not None:
             sync_worker.submit(str(path))
+        if distill_worker is not None:
+            distill_worker.submit(str(path))
 
     def _drain_embed() -> None:
         if embed_worker is None:
@@ -213,9 +255,38 @@ def run_session(
             else:
                 log.info("replicated", rel_path=evt.get("rel_path"), status=evt.get("status"))
 
+    def _drain_distill() -> None:
+        if distill_worker is None:
+            return
+        while True:
+            evt = distill_worker.poll_event(timeout=0.0)
+            if evt is None:
+                break
+            if "reconcile" in evt:
+                pending = int(evt.get("reconcile", 0))
+                if pending:
+                    on_event("info", f"distillation: catching up {pending} transcript(s)")
+            elif evt.get("ok"):
+                # A success clears any prior "unavailable" sticky warning.
+                state.clear_warning("distill")
+                log.info(
+                    "distilled",
+                    path=evt.get("path"),
+                    statements=evt.get("statements"),
+                    skipped=evt.get("skipped", False),
+                )
+            elif evt.get("unavailable"):
+                # Daemon down / model missing — one sticky warning, not per-chunk spam.
+                detail = str(evt.get("error", "")).splitlines()[0]
+                state.set_warning("distill", f"distillation unavailable: {detail}")
+            else:
+                detail = str(evt.get("error", "")).splitlines()[0]
+                on_event("warn", f"distillation failed: {detail}")
+
     def _on_tick() -> None:
         _drain_embed()
         _drain_sync()
+        _drain_distill()
 
     # Recovery before starting new capture.
     rec_report = _do_recovery(cfg, worker, log)
@@ -655,6 +726,12 @@ def run_session(
                 helper_proc.kill()
         if screenshotter is not None and screenshotter.alive:
             screenshotter.stop(timeout=1.0)
+        if distill_worker is not None:
+            # Stop distillation first: draining it hands each remaining sidecar to
+            # the embed worker (via on_sidecar) before we drain that worker below,
+            # so this session's last statements still get embedded. The LLM is
+            # slow, so allow a little longer; daemon-thread leftovers die on exit.
+            distill_worker.stop(drain_timeout=15.0)
         if embed_worker is not None:
             # SENTINEL is FIFO after queued paths, so any transcripts written
             # during drain still get indexed before the worker exits.

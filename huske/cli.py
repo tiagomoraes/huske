@@ -61,6 +61,12 @@ def run(
     language: str | None = typer.Option(None, "--language"),
     input_device: str | None = typer.Option(None, "--input-device"),
     keep_audio: bool = typer.Option(False, "--keep-audio/--no-keep-audio"),
+    keep_audio_format: str | None = typer.Option(
+        None,
+        "--keep-audio-format",
+        help="Format for retained audio when --keep-audio is set: opus (default, "
+        "smallest), flac (lossless), or wav (uncompressed).",
+    ),
     screenshots: bool | None = typer.Option(
         None,
         "--screenshots/--no-screenshots",
@@ -71,7 +77,22 @@ def run(
         "--screenshot-interval",
         min=1.0,
         max=3600.0,
-        help="Seconds between screenshots (default 10, minimum 1).",
+        help="Seconds between screenshots (default 60, minimum 1).",
+    ),
+    screenshot_max_dimension: int | None = typer.Option(
+        None,
+        "--screenshot-max-dimension",
+        min=0,
+        max=10000,
+        help="Downscale each screenshot so its long edge is at most N px "
+        "(default 1568; 0 disables resize). Never upscales.",
+    ),
+    screenshot_quality: int | None = typer.Option(
+        None,
+        "--screenshot-quality",
+        min=1,
+        max=100,
+        help="JPEG quality for screenshots, 1-100 (default 60).",
     ),
     screenshots_root: Path | None = typer.Option(
         None, "--screenshots-root", help="Where screenshots are written."
@@ -82,6 +103,17 @@ def run(
         help="Unload the Whisper model from memory between chunks to lower idle "
         "RAM (frees ~150 MB to 3 GB depending on model size). The next chunk pays "
         "a few-second reload from the local cache. Off by default.",
+    ),
+    distill: bool | None = typer.Option(
+        None,
+        "--distill/--no-distill",
+        help="Distill each finished transcript into searchable statements with a "
+        "local LLM (Ollama). Off by default; needs the daemon + model running.",
+    ),
+    distill_model: str | None = typer.Option(
+        None,
+        "--distill-model",
+        help="LLM tag used for distillation (e.g. qwen3.5:0.8b, qwen3.5:0.8b-mlx, qwen3.5:4b).",
     ),
     config_path: Path | None = typer.Option(None, "--config"),
     log_level: str = typer.Option("INFO", "--log-level"),
@@ -111,9 +143,14 @@ def run(
         language=language,
         input_device=input_device,
         keep_audio=keep_audio,
+        keep_audio_format=keep_audio_format,
         whisper_idle_unload=idle_unload,
+        distill_enabled=distill,
+        distill_model=distill_model,
         screenshots_enabled=screenshots,
         screenshots_interval_seconds=screenshot_interval,
+        screenshots_max_dimension=screenshot_max_dimension,
+        screenshots_jpeg_quality=screenshot_quality,
         screenshots_root=screenshots_root,
         log_level=log_level,
         no_ui=no_ui,
@@ -233,6 +270,41 @@ def index(
             config_path=config_path,
             cli_overrides=cli_overrides,
             rebuild=rebuild,
+            force=force,
+            low_impact=low_impact,
+        )
+    )
+
+
+@app.command()
+def distill(
+    output_root: Path | None = typer.Option(None, "--output-root"),
+    model: str | None = typer.Option(
+        None, "--model", help="Distill with this LLM tag (e.g. qwen3.5:0.8b), overriding config."
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Re-distill even transcripts whose content is unchanged."
+    ),
+    low_impact: bool | None = typer.Option(
+        None,
+        "--low-impact/--fast",
+        help="Throttle the backfill (lower CPU priority). On by default; --fast for full speed.",
+    ),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Distill transcripts into searchable statement sidecars with a local LLM.
+
+    Writes a ``<name>.statements.json`` next to each transcript. Run ``huske
+    index`` afterwards to embed the statements for two-stage search. Needs a
+    local LLM daemon (Ollama) with the model pulled (e.g. ``ollama pull qwen3.5:0.8b``).
+    """
+    from huske.distill.runner import run_distill
+
+    cli_overrides = _collect_overrides(output_root=output_root, distill_model=model)
+    raise typer.Exit(
+        run_distill(
+            config_path=config_path,
+            cli_overrides=cli_overrides,
             force=force,
             low_impact=low_impact,
         )

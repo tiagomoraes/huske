@@ -330,6 +330,59 @@ def _search_checks(cfg: RuntimeConfig) -> list[Check]:
     return checks
 
 
+def _distill_checks(cfg: RuntimeConfig) -> list[Check]:
+    """Diagnostics for the optional LLM-distillation subsystem.
+
+    Only probes the local LLM daemon when ``distill_enabled`` is set (the user
+    has opted in) — so ``huske doctor`` never waits on a daemon the 99% who
+    don't use distillation have not installed. When enabled, a missing daemon or
+    un-pulled model is a real failure with a fix-it hint.
+    """
+    if not cfg.distill_enabled:
+        return [
+            Check(
+                "distill",
+                True,
+                "off (opt-in: set distill_enabled; needs a local LLM daemon like Ollama)",
+            )
+        ]
+    if cfg.distill_model in ("heuristic", "fake"):
+        return [Check("distill", True, f"backend '{cfg.distill_model}' (no daemon needed)")]
+
+    from huske.distill.client import DistillError, OllamaClient
+
+    client = OllamaClient(cfg.distill_endpoint, timeout=5.0)
+    try:
+        models = client.list_models()
+    except DistillError as exc:
+        return [
+            Check(
+                "distill",
+                False,
+                f"LLM daemon unreachable at {cfg.distill_endpoint}: {exc}",
+                "Start it (e.g. `ollama serve`) or fix distill_endpoint.",
+            )
+        ]
+    wanted = cfg.distill_model
+    present = (
+        wanted in models
+        or f"{wanted}:latest" in models
+        or any(m.split(":", 1)[0] == wanted.split(":", 1)[0] and wanted in m for m in models)
+    )
+    if present:
+        return [
+            Check("distill", True, f"{cfg.distill_backend}: model '{wanted}' ready ({len(models)} pulled)")
+        ]
+    return [
+        Check(
+            "distill",
+            False,
+            f"model '{wanted}' not pulled (have: {', '.join(models) or 'none'})",
+            f"Run `ollama pull {wanted}`.",
+        )
+    ]
+
+
 def _autostart_check() -> Check | None:
     """Report the macOS login LaunchAgent state — opt-in, informational only.
 
@@ -510,6 +563,9 @@ def run_doctor(
 
     # Local semantic search + MCP (optional subsystem).
     checks.extend(_search_checks(cfg))
+
+    # LLM distillation into searchable statements (optional subsystem).
+    checks.extend(_distill_checks(cfg))
 
     # Render.
     if json_output:

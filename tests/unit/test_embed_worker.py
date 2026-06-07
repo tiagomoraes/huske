@@ -88,3 +88,34 @@ def test_embed_worker_indexes_submitted_path(tmp_path: Path) -> None:
     hits = store.search(emb.embed_query("estratégia de vendas"), k=3)
     assert hits and "estratégia" in hits[0].text
     store.close()
+
+
+def test_embed_worker_indexes_statements_when_configured(tmp_path: Path) -> None:
+    from huske.distill.distiller import HeuristicDistiller, distill_transcript
+    from huske.distill.sidecar import write_sidecar
+    from huske.search.embedder import HashingEmbedder
+
+    transcript = _write_transcript(tmp_path / "transcripts" / "2026-05-07")
+    write_sidecar(transcript, distill_transcript(transcript, HeuristicDistiller()))
+
+    db_path = tmp_path / "index" / "passages.db"
+    stmt_db_path = tmp_path / "index" / "statements.db"
+    worker = EmbedWorker(str(db_path), "hashing", statements_db_path=str(stmt_db_path))
+    worker.start()
+    try:
+        _wait_for(worker, lambda m: "ready" in m)
+        worker.submit(str(transcript))
+        result = _wait_for(worker, lambda m: m.get("path") == str(transcript.resolve()))
+        assert result["ok"] is True
+        assert result["passages"] >= 1
+        assert result["statements"] >= 1  # the same embedder embedded the sidecar too
+    finally:
+        worker.stop(drain_timeout=5.0)
+
+    emb = HashingEmbedder()
+    stmt_store = PassageStore.open(
+        stmt_db_path, embedding_model="hashing", dim=emb.dim, create=False
+    )
+    hits = stmt_store.search(emb.embed_query("estratégia de vendas"), k=3)
+    assert hits and "estratégia" in hits[0].text
+    stmt_store.close()

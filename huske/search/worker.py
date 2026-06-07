@@ -28,9 +28,20 @@ _SENTINEL = "__STOP__"
 
 
 def _embed_worker_main(
-    in_q: Any, out_q: Any, db_path: str, model_id: str, batch_size: int
+    in_q: Any,
+    out_q: Any,
+    db_path: str,
+    model_id: str,
+    batch_size: int,
+    statements_db_path: str | None = None,
 ) -> None:
-    """Subprocess entry point: load embedder + store, then index submitted paths."""
+    """Subprocess entry point: load embedder + store(s), then index submitted paths.
+
+    When ``statements_db_path`` is set, the same embedder also embeds each
+    transcript's distilled Statements (read from its sidecar) into a second
+    store — one model in memory, both granularities. See
+    docs/adr/0005-llm-distillation.md.
+    """
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
     from huske.proctitle import set_process_title
@@ -41,12 +52,19 @@ def _embed_worker_main(
 
     try:
         from huske.search.embedder import build_embedder
-        from huske.search.indexer import Indexer
+        from huske.search.indexer import Indexer, StatementIndexer
         from huske.search.store import PassageStore
 
         embedder = build_embedder(model_id, batch_size=batch_size)
         store = PassageStore.open(_Path(db_path), embedding_model=model_id, dim=embedder.dim)
         indexer = Indexer(store, embedder)
+        stmt_store = None
+        stmt_indexer = None
+        if statements_db_path:
+            stmt_store = PassageStore.open(
+                _Path(statements_db_path), embedding_model=model_id, dim=embedder.dim
+            )
+            stmt_indexer = StatementIndexer(stmt_store, embedder)
     except Exception as exc:
         out_q.put({"ready": False, "error": f"{exc}\n{traceback.format_exc()}"})
         return
@@ -57,18 +75,22 @@ def _embed_worker_main(
         msg = in_q.get()
         if msg == _SENTINEL:
             store.close()
+            if stmt_store is not None:
+                stmt_store.close()
             return
         if not isinstance(msg, str):
             continue
         try:
             n = indexer.index_file(_Path(msg))
-            out_q.put({"path": msg, "ok": True, "passages": n, "error": None})
+            s = stmt_indexer.index_file(_Path(msg)) if stmt_indexer is not None else 0
+            out_q.put({"path": msg, "ok": True, "passages": n, "statements": s, "error": None})
         except Exception as exc:
             out_q.put(
                 {
                     "path": msg,
                     "ok": False,
                     "passages": 0,
+                    "statements": 0,
                     "error": f"{exc}\n{traceback.format_exc()}",
                 }
             )
@@ -79,10 +101,18 @@ class EmbedWorker:
 
     SENTINEL = _SENTINEL
 
-    def __init__(self, db_path: str, model_id: str, *, batch_size: int = 16) -> None:
+    def __init__(
+        self,
+        db_path: str,
+        model_id: str,
+        *,
+        batch_size: int = 16,
+        statements_db_path: str | None = None,
+    ) -> None:
         self._db_path = db_path
         self._model_id = model_id
         self._batch_size = batch_size
+        self._statements_db_path = statements_db_path
         self._in_q: Any = _ctx.Queue()
         self._out_q: Any = _ctx.Queue()
         self._proc: Any = None
@@ -92,7 +122,14 @@ class EmbedWorker:
             return
         self._proc = _ctx.Process(
             target=_embed_worker_main,
-            args=(self._in_q, self._out_q, self._db_path, self._model_id, self._batch_size),
+            args=(
+                self._in_q,
+                self._out_q,
+                self._db_path,
+                self._model_id,
+                self._batch_size,
+                self._statements_db_path,
+            ),
             name="huske-embed-worker",
         )
         self._proc.start()
