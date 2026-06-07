@@ -357,7 +357,7 @@ const ConfigDoc = () => (
 const DOCS_EXTRA_CLIENTS = [
   {
     id: "claude-desktop",
-    label: "Claude Desktop",
+    label: "Claude Desktop / Cowork",
     selfWire: false,
     lang: "json",
     path: "~/Library/Application Support/Claude/claude_desktop_config.json",
@@ -415,7 +415,7 @@ const DOCS_CLIENT_NOTES = {
   cursor: <>No <code>type</code> key needed — Cursor infers the transport from <code>url</code>. <code>{"${env:HUSKE_MCP_TOKEN}"}</code> reads your shell environment, so export the token before launching Cursor.</>,
   vscode: <>VS Code uses <code>servers</code> (not <code>mcpServers</code>) and needs <code>"type": "http"</code>. The <code>{"${input:…}"}</code> form prompts once and keeps the token in encrypted secret storage.</>,
   opencode: <><code>{"{file:~/.config/huske/mcp_token}"}</code> reads the token from disk at load time, so nothing is committed. Put the literal <code>Bearer </code> prefix in the file if your build doesn't interpolate inside a string.</>,
-  "claude-desktop": <>Claude Desktop's native connectors need a public URL and OAuth, so they can't reach a loopback bearer endpoint. The <code>mcp-remote</code> bridge (needs Node / <code>npx</code>) wraps it as a local stdio server. Write <code>Authorization:</code> with no space — Claude Desktop strips spaces in args — and keep <code>Bearer &lt;token&gt;</code> in the env value. Quit and reopen the app after editing.</>,
+  "claude-desktop": <>Claude Desktop's native connectors need a public URL and OAuth, so they can't reach a loopback bearer endpoint. The <code>mcp-remote</code> bridge (needs Node / <code>npx</code>) wraps it as a local stdio server. Write <code>Authorization:</code> with no space — Claude Desktop strips spaces in args — and keep <code>Bearer &lt;token&gt;</code> in the env value. Quit and reopen the app after editing. <strong>Cowork</strong> shares this same config: once Desktop reloads it, huske shows up in Cowork sessions too, no separate setup.</>,
   gemini: <>Gemini CLI uses <code>httpUrl</code> for streamable HTTP (<code>url</code> selects the SSE transport, which huske doesn't expose). <code>{"${HUSKE_MCP_TOKEN}"}</code> is resolved from your environment.</>,
   generic: <>Any client that speaks MCP <strong>Streamable HTTP</strong> (POST <code>/mcp</code>) with a custom <code>Authorization</code> header. huske exposes no SSE endpoint, so pick the streamable-HTTP transport.</>,
 };

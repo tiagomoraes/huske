@@ -469,6 +469,62 @@ section.tight { padding: 56px 0; }
 .pillar .stat strong { color: var(--fg); font-weight: 500; display: block; font-size: 13px; margin-bottom: 2px; white-space: nowrap; }
 
 /* ================================================================
+   Setup strip — quick-start bridge under the hero (autostart + MCP)
+   ================================================================ */
+.setup-strip { padding: clamp(40px, 6vw, 64px) 0; }
+.setup-strip .strip-head {
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--font-mono); font-size: 12px; font-weight: 500;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg-muted);
+}
+.setup-strip .strip-head .num { color: var(--brand-amber-700); }
+[data-theme="dark"] .setup-strip .strip-head .num { color: var(--brand-amber); }
+.setup-strip .strip-sub { font-size: 15px; color: var(--fg-muted); margin: 12px 0 28px; max-width: 52ch; line-height: 1.5; }
+
+.setup-strip .strip-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px;
+  background: var(--border-soft);
+  border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden;
+}
+@media (max-width: 760px) { .setup-strip .strip-grid { grid-template-columns: 1fr; } }
+
+.setup-strip .strip-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 14px;
+  padding: clamp(20px, 2.6vw, 28px); background: var(--bg-elev);
+  text-decoration: none; color: inherit;
+  transition: background var(--dur-2) var(--ease-standard);
+}
+.setup-strip .strip-card:hover { background: var(--bg-subtle); }
+
+.setup-strip .sc-ph {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--font-mono); font-size: 11px; color: var(--brand-amber-700);
+  letter-spacing: 0.12em; text-transform: uppercase;
+}
+[data-theme="dark"] .setup-strip .sc-ph { color: var(--brand-amber); }
+.setup-strip .sc-ph::before { content: ""; width: 6px; height: 6px; background: currentColor; border-radius: 50%; }
+
+.setup-strip .sc-cmd {
+  align-self: stretch;
+  background: var(--ink-900); border: 1px solid var(--ink-600);
+  border-radius: var(--radius-sm); padding: 11px 13px;
+  font-family: var(--font-mono); font-size: 13px; line-height: 1.4;
+  color: var(--paper-100); white-space: nowrap; overflow-x: auto;
+}
+.setup-strip .sc-cmd .sp { color: #5BA8C9; user-select: none; margin-right: 4px; }
+
+.setup-strip .sc-desc { font-size: 14px; line-height: 1.55; color: var(--fg-muted); margin: 0; max-width: 42ch; }
+
+.setup-strip .sc-cta {
+  margin-top: auto; padding-top: 2px;
+  font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.02em;
+  color: var(--brand-amber-700); display: inline-flex; align-items: center; gap: 7px;
+}
+[data-theme="dark"] .setup-strip .sc-cta { color: var(--brand-amber); }
+.setup-strip .sc-cta .arrow { transition: transform var(--dur-1) var(--ease-standard); }
+.setup-strip .strip-card:hover .sc-cta .arrow { transform: translateX(3px); }
+
+/* ================================================================
    How it works — pipeline
    ================================================================ */
 .pipeline {

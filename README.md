@@ -262,12 +262,37 @@ This adds two subcommands and one config flag:
    # prints the endpoint, token, and a ready-to-paste registration command
    ```
 
-   **Claude Code / Claude Desktop** connect directly — no tunnel:
+   **Claude Code** connects directly — no tunnel:
 
    ```bash
    claude mcp add --transport http huske http://127.0.0.1:7641/mcp \
      --header "Authorization: Bearer <token from the banner>"
    ```
+
+   **Claude Desktop and Cowork** can't attach a bearer header to a loopback URL
+   through the connectors UI, so bridge the endpoint to a local stdio server
+   with `mcp-remote` in
+   `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+   ```json
+   {
+     "mcpServers": {
+       "huske": {
+         "command": "npx",
+         "args": [
+           "-y", "mcp-remote", "http://127.0.0.1:7641/mcp",
+           "--allow-http",
+           "--header", "Authorization:${HUSKE_MCP_TOKEN}"
+         ],
+         "env": { "HUSKE_MCP_TOKEN": "Bearer <token from the banner>" }
+       }
+     }
+   }
+   ```
+
+   Write `Authorization:` with no space (Claude Desktop strips spaces in args),
+   then fully quit and reopen the app. Cowork shares this config, so huske shows
+   up there too once Desktop reloads it.
 
    **ChatGPT** can only reach a public HTTPS endpoint, so it additionally needs
    you to expose the local server through a tunnel (OpenAI's secure tunnel,
