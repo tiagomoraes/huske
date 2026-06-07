@@ -491,10 +491,7 @@ section.tight { padding: 56px 0; }
 .setup-strip .strip-card {
   display: flex; flex-direction: column; align-items: flex-start; gap: 14px;
   padding: clamp(20px, 2.6vw, 28px); background: var(--bg-elev);
-  text-decoration: none; color: inherit;
-  transition: background var(--dur-2) var(--ease-standard);
 }
-.setup-strip .strip-card:hover { background: var(--bg-subtle); }
 
 .setup-strip .sc-ph {
   display: flex; align-items: center; gap: 8px;
@@ -506,12 +503,30 @@ section.tight { padding: 56px 0; }
 
 .setup-strip .sc-cmd {
   align-self: stretch;
+  display: flex; align-items: center; gap: 10px;
   background: var(--ink-900); border: 1px solid var(--ink-600);
-  border-radius: var(--radius-sm); padding: 11px 13px;
-  font-family: var(--font-mono); font-size: 13px; line-height: 1.4;
-  color: var(--paper-100); white-space: nowrap; overflow-x: auto;
+  border-radius: var(--radius-sm); padding: 9px 9px 9px 13px;
+}
+.setup-strip .sc-cmd-text {
+  flex: 1 1 auto; min-width: 0; overflow-x: auto; white-space: nowrap;
+  font-family: var(--font-mono); font-size: 13px; line-height: 1.4; color: var(--paper-100);
 }
 .setup-strip .sc-cmd .sp { color: #5BA8C9; user-select: none; margin-right: 4px; }
+
+/* Copy buttons are styled per-section on this site (see .recall .copy,
+   .docs-shell .copy); scope the same affordance to the setup strip. */
+.setup-strip .copy {
+  flex: 0 0 auto;
+  font-family: var(--font-mono); font-size: 10.5px;
+  padding: 4px; border-radius: var(--radius-xs);
+  background: transparent; color: var(--paper-300);
+  border: 1px solid #2A2F38; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 0; white-space: nowrap;
+  transition: color var(--dur-1) var(--ease-standard), border-color var(--dur-1);
+}
+.setup-strip .copy:hover { color: var(--paper-100); border-color: #444a55; }
+.setup-strip .copy.copied { color: var(--ok); border-color: var(--ok); }
+.setup-strip .copy svg { width: 12px; height: 12px; }
 
 .setup-strip .sc-desc { font-size: 14px; line-height: 1.55; color: var(--fg-muted); margin: 0; max-width: 42ch; }
 
@@ -519,10 +534,13 @@ section.tight { padding: 56px 0; }
   margin-top: auto; padding-top: 2px;
   font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.02em;
   color: var(--brand-amber-700); display: inline-flex; align-items: center; gap: 7px;
+  text-decoration: none; transition: color var(--dur-1) var(--ease-standard);
 }
 [data-theme="dark"] .setup-strip .sc-cta { color: var(--brand-amber); }
+.setup-strip .sc-cta:hover { color: var(--brand-amber); }
+[data-theme="dark"] .setup-strip .sc-cta:hover { color: var(--paper-100); }
 .setup-strip .sc-cta .arrow { transition: transform var(--dur-1) var(--ease-standard); }
-.setup-strip .strip-card:hover .sc-cta .arrow { transform: translateX(3px); }
+.setup-strip .sc-cta:hover .arrow { transform: translateX(3px); }
 
 /* ================================================================
    How it works — pipeline
