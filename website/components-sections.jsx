@@ -825,12 +825,15 @@ const SetupStrip = () => (
       <p className="strip-sub">Two opt-in commands take huske further: record from every login, and search your transcripts straight from your agent.</p>
       <div className="strip-grid">
         {SETUP_CARDS.map((c) => (
-          <a className="strip-card" href={c.href} key={c.id} aria-label={c.aria}>
+          <div className="strip-card" key={c.id}>
             <div className="sc-ph">{c.ph}</div>
-            <div className="sc-cmd"><span className="sp">$</span> {c.cmd}</div>
+            <div className="sc-cmd">
+              <span className="sc-cmd-text"><span className="sp">$</span> {c.cmd}</span>
+              <CopyButton text={c.cmd} className="copy ghost mini" withLabel={false} />
+            </div>
             <p className="sc-desc">{c.desc}</p>
-            <span className="sc-cta">{c.cta} <span className="arrow">→</span></span>
-          </a>
+            <a className="sc-cta" href={c.href} aria-label={c.aria}>{c.cta} <span className="arrow">→</span></a>
+          </div>
         ))}
       </div>
     </div>
