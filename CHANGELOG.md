@@ -6,6 +6,8 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.8.0 - 2026-06-07
+
 ### Added
 
 - LLM distillation into searchable **statements** (opt-in, off by default). A

@@ -595,7 +595,15 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.7.4", date: "2026-06-07", tag: "latest",
+    ver: "0.8.0", date: "2026-06-07", tag: "latest",
+    items: [
+      { kind: "added", text: <>LLM distillation into searchable **statements** (opt-in, off by default). A local LLM (Ollama; any model tag, default <code>qwen3.5:0.8b</code> — the lightest portable tier, run non-reasoning) distils each transcript into compact, self-contained claims written to a <code><name>.statements.json</code> sidecar. With local search enabled, statements are embedded into a separate <code>statements.db</code>, and <code>huske mcp</code> ranks statements first — <code>fetch</code> returns the matched claim plus the verbatim source transcript that grounds it (two-stage retrieval). New <code>huske distill</code> backfill, a <code>huske doctor</code> daemon/model check, and <code>distill_*</code> config keys; the send transport is dependency-free (loopback HTTP over stdlib). Distillation runs off the hot path and degrades gracefully if the daemon is unavailable. See <code>docs/distillation.md</code> and <code>docs/adr/0005-llm-distillation.md</code>.</> },
+      { kind: "changed", text: <>Screenshots are now smaller on disk by default. The capture interval default is <code>60s</code> (was <code>10s</code>), and each capture is compressed and downscaled in place via macOS <code>sips</code> (no new dependency, skipped gracefully if <code>sips</code> is absent): the long edge is clamped to at most <code>1568px</code> — Claude's vision target, and it never upscales a smaller display — and re-encoded at JPEG quality <code>60</code>. New <code>screenshots_max_dimension</code> / <code>screenshots_jpeg_quality</code> config keys and <code>--screenshot-max-dimension</code> / <code>--screenshot-quality</code> flags.</> },
+      { kind: "changed", text: <><code>keep_audio</code> now stores compressed audio instead of raw WAV. After a chunk is transcribed, its WAV is transcoded to a sibling file and the WAV removed. The new <code>keep_audio_format</code> config (default <code>opus</code>, ~12–20× smaller; <code>flac</code> is lossless ~2×; <code>wav</code> keeps the uncompressed original) drives this via <code>soundfile</code>/<code>libsndfile</code> — no new dependency. Whisper still reads the raw WAV first, so transcription is unaffected, and crash recovery is untouched (it only handles pre-transcription WAVs).</> },
+    ],
+  },
+  {
+    ver: "0.7.4", date: "2026-06-07",
     items: [
       { kind: "added", text: <>Setup guidance for connecting <strong>Claude Desktop and Cowork</strong> through the <code>mcp-remote</code> bridge — both share one <code>claude_desktop_config.json</code>, so the same entry exposes huske in Cowork once Desktop reloads. The home page gained a quick-start strip linking the autostart and MCP guides.</> },
       { kind: "changed", text: <>Lighter footprint, default-on: the transcription worker releases the Metal buffer pool after every chunk (not only on idle unload), and the ScreenCaptureKit capture stack now imports lazily — loading only when the SCK fallback path runs, not on the Core Audio tap path, mic-only mode, or <code>huske recover</code>.</> },
