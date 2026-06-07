@@ -45,6 +45,11 @@ it about your day.
   embedding + a local vector index so Claude Code, Claude Desktop, or ChatGPT
   can search your transcripts by meaning. Embeddings and the index never leave
   your machine; see [Search your transcripts from Claude / ChatGPT](#search-your-transcripts-from-claude--chatgpt-opt-in).
+- **LLM distillation into searchable statements (opt-in)** — distil each
+  transcript into compact, self-contained claims with a **local** LLM (Ollama),
+  search those, and drill into the verbatim transcript on demand. Fully
+  on-device, no new Python dependency, off by default; see [Distil transcripts
+  into searchable statements](#distil-transcripts-into-searchable-statements-opt-in).
 - **Optional periodic screenshots** — opt in with `--screenshots` to also
   capture a JPEG of every attached display every 10 s, stored under
   `~/huske/screenshots/YYYY-MM-DD/<session>/HHMMSS_dN.jpg` for downstream
@@ -307,6 +312,48 @@ This adds two subcommands and one config flag:
 > path widens that surface. The design rationale lives in
 > [docs/adr/0001-http-only-mcp-daemon.md](docs/adr/0001-http-only-mcp-daemon.md).
 
+## Distil transcripts into searchable statements (opt-in)
+
+Semantic search over raw passages works, but conversational speech is verbose.
+huske can also distil each transcript into compact, self-contained **statements**
+— "We approved the Q3 marketing budget", "The roadmap ships Friday" — using a
+**local** LLM, then search *those* and drill into the verbatim transcript only
+when a statement looks relevant. Two-stage retrieval: find the claim, then read
+what was actually said.
+
+It runs entirely on-device through a local LLM daemon
+([Ollama](https://ollama.com)) and adds **no Python dependency** (a loopback HTTP
+call). Off by default.
+
+```bash
+# 1. Install Ollama, then pull any model — pick for your RAM:
+ollama pull gemma4:e2b      # ~2-4 GB resident, multilingual — the default
+# or: ollama pull qwen3:4b  (higher quality)  ·  llama3.2:3b  (lightest)
+
+# 2. Distil your history into <name>.statements.json sidecars (incremental):
+huske distill                       # --fast for full speed; --model to override
+
+# 3. Embed the statements for search (needs the huske[mcp] extra):
+huske index                         # also embeds any statement sidecars
+```
+
+To keep statements fresh automatically, in `~/.config/huske/config.toml`:
+
+```toml
+distill_enabled = true        # distil each finished transcript in the background
+distill_model   = "gemma4:e2b"
+indexing_enabled = true       # also embed them so `huske mcp` searches statements first
+```
+
+With both on, `huske run` distils and embeds each transcript off the hot path —
+an LLM call never blocks recording, and if the daemon is down, recording and
+passage search continue while `huske distill` catches up later. `huske mcp` then
+ranks **statements** first, and `fetch` returns the matched claim **plus the
+source transcript** that grounds it. `huske doctor` validates the daemon + model
+when `distill_enabled` is set. Rationale:
+[docs/adr/0005-llm-distillation.md](docs/adr/0005-llm-distillation.md); full
+guide: [docs/distillation.md](docs/distillation.md).
+
 ## Replicate to a server you control (opt-in)
 
 The local MCP only answers when your Mac is awake. If you want an always-on
@@ -346,6 +393,10 @@ metadata can contain private or legally sensitive information.
   huske server you configure. Run it only on infrastructure you control, over
   HTTPS, and treat that box as holding your full transcript history. See
   [docs/server.md](docs/server.md).
+- If you enable distillation (`distill_enabled`), transcript text is sent to the
+  local LLM daemon you run. By default that is Ollama on loopback — on-device, so
+  it stays on your machine; only pointing `distill_endpoint` at a remote daemon
+  would change that.
 - The `--screenshots` flag captures everything visible on every attached
   display every 10 s — including any password manager popovers, banking
   tabs, or private DMs that happen to be open. Leave it off unless you've
@@ -368,6 +419,8 @@ metadata can contain private or legally sensitive information.
 - [Glossary](CONTEXT.md) — domain language (Chunk, Segment, Passage, …).
 - [Off-device server](docs/server.md) — replicate transcripts to a VPS and serve
   them to a co-located agent (opt-in).
+- [Transcript distillation](docs/distillation.md) — distil transcripts into
+  searchable statements with a local LLM (opt-in).
 - [Architecture decisions](docs/adr/) — why the MCP daemon, search stack,
   embed-worker isolation, and off-device server are built the way they are.
 

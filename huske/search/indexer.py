@@ -12,10 +12,15 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from huske.distill.models import StatementSidecar
+from huske.distill.sidecar import read_sidecar
 from huske.search.embedder import Embedder
+from huske.search.models import Passage
 from huske.search.parser import ParseError, parse_transcript
 from huske.search.store import PassageStore
 from huske.search.windowing import window
+
+_STATEMENT_TITLE_MAX = 160
 
 
 @dataclass
@@ -115,6 +120,67 @@ class Indexer:
             force=force,
             release_between_files=release_between_files,
         )
+
+
+def _statements_to_passages(sidecar: StatementSidecar, key: str) -> list[Passage]:
+    """Map distilled Statements onto Passage-shaped records for the vec0 store.
+
+    A Statement reuses the Passage schema (same columns) — it differs only in
+    being a distilled claim. Its uid carries an ``#s`` infix so it can never
+    collide with a real passage uid, and its title is the claim itself, so
+    ``search`` results read as the statements they are.
+    """
+    out: list[Passage] = []
+    for i, s in enumerate(sidecar.statements):
+        title = s.text if len(s.text) <= _STATEMENT_TITLE_MAX else s.text[: _STATEMENT_TITLE_MAX - 1] + "…"
+        out.append(
+            Passage(
+                uid=f"{key}#s{i}",
+                text=s.text,
+                start=s.start,
+                end=s.end,
+                sources=list(s.sources),
+                session_id=sidecar.session_id,
+                day=int(s.start.strftime("%Y%m%d")),
+                path=key,
+                title=title,
+            )
+        )
+    return out
+
+
+class StatementIndexer:
+    """Embed a transcript's distilled Statements into their own store.
+
+    Consumes the ``.statements.json`` sidecar (distillation's on-disk contract)
+    rather than re-distilling, so the live embed worker and the ``huske index``
+    backfill share one path — exactly as :class:`Indexer` consumes the ``.md``.
+    Incremental on the sidecar's recorded source hash. The store is a separate
+    ``statements.db`` (see ``paths.statements_db_path``); reusing
+    :class:`PassageStore` keeps one schema and one set of query primitives.
+    """
+
+    def __init__(self, store: PassageStore, embedder: Embedder) -> None:
+        self._store = store
+        self._embedder = embedder
+
+    def index_file(self, transcript_path: Path, *, force: bool = False) -> int:
+        """Embed the Statements for one transcript. Returns statements written (0 if none)."""
+        path = transcript_path.resolve()
+        key = str(path)
+        sidecar = read_sidecar(path)
+        if sidecar is None:
+            return 0
+        digest = sidecar.source_sha256
+        if not force and self._store.is_indexed(key, digest):
+            return 0
+        passages = _statements_to_passages(sidecar, key)
+        if not passages:
+            # Distilled to nothing (filler-only transcript): clear stale rows, record hash.
+            self._store.upsert(key, digest, [], [])
+            return 0
+        embeddings = self._embedder.embed_passages([p.text for p in passages])
+        return self._store.upsert(key, digest, passages, embeddings)
 
 
 def iter_transcripts(output_root: Path) -> list[Path]:

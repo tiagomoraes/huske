@@ -6,6 +6,20 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+### Added
+
+- LLM distillation into searchable **statements** (opt-in, off by default). A
+  local LLM (Ollama; any model tag, default `gemma4:e2b`) distils each
+  transcript into compact, self-contained claims written to a
+  `<name>.statements.json` sidecar. With local search enabled, statements are
+  embedded into a separate `statements.db`, and `huske mcp` ranks statements
+  first — `fetch` returns the matched claim plus the verbatim source transcript
+  that grounds it (two-stage retrieval). New `huske distill` backfill, a
+  `huske doctor` daemon/model check, and `distill_*` config keys; the send
+  transport is dependency-free (loopback HTTP over stdlib). Distillation runs
+  off the hot path and degrades gracefully if the daemon is unavailable. See
+  `docs/distillation.md` and `docs/adr/0005-llm-distillation.md`.
+
 ## 0.7.4 - 2026-06-07
 
 ### Added

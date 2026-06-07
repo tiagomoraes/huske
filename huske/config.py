@@ -16,6 +16,10 @@ ModelSize = Literal["tiny", "base", "small", "medium", "large-v3"]
 ComputeType = Literal["int8", "int8_float16", "float16", "float32"]
 Device = Literal["auto", "cpu", "cuda"]
 SystemAudioBackend = Literal["auto", "tap", "sck", "off"]
+# Backend that turns a finalized transcript into searchable Statements. Only a
+# local Ollama daemon for now; kept a Literal so adding an `mlx`/`openai` backend
+# is a one-line change that the config layer already validates.
+DistillBackend = Literal["ollama"]
 
 
 _MLX_WHISPER_REPO_BY_SIZE: dict[str, str] = {
@@ -147,6 +151,34 @@ class RuntimeConfig(BaseModel):
     # Public hostname the reverse proxy serves, used to validate the Host header
     # on ingested requests. Optional (skip the check when unset).
     public_host: str | None = None
+
+    # --- LLM distillation into searchable Statements (opt-in) ---------------
+    # See docs/adr/0005-llm-distillation.md. When enabled, each finalized
+    # transcript is distilled by a LOCAL LLM into compact, self-contained
+    # "statements" (a `<name>.statements.json` sidecar). With indexing also on,
+    # those statements are embedded into a separate statement store, and `huske
+    # mcp` searches them first, drilling into the source transcript on `fetch`.
+    # Off by default; the distill call is loopback HTTP to a local LLM daemon
+    # (Ollama) over stdlib urllib — it adds no Python dependency. Degrades
+    # gracefully: if the daemon/model is unavailable, recording + passage search
+    # continue untouched.
+    distill_enabled: bool = False
+    # Backend daemon. Only "ollama" today (see DistillBackend).
+    distill_backend: DistillBackend = "ollama"
+    # Any model the backend can serve. Default is Gemma's on-device E2B
+    # (~2-4 GB resident at Q4, multilingual) — `ollama pull gemma4:e2b`. Swap
+    # for `qwen3:4b` (quality), `llama3.2:3b` (lightest), or any local tag.
+    distill_model: str = "gemma4:e2b"
+    # Loopback endpoint of the local LLM daemon (Ollama's default).
+    distill_endpoint: str = "http://127.0.0.1:11434"
+    # Per-call ceiling. A local model is slow; this bounds one passage's distill.
+    distill_timeout_seconds: float = Field(default=120.0, gt=0.0)
+    # Upper bound on statements distilled from a single Passage — caps LLM
+    # output and statement-index growth on dense passages.
+    distill_max_statements_per_passage: int = Field(default=8, ge=1, le=50)
+    # `huske distill` backfill runs gentle by default (lower CPU priority), same
+    # rationale as `index_low_impact`. Pass `--fast` to run flat out.
+    distill_low_impact: bool = True
 
     @field_validator(
         "output_root",
