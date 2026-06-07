@@ -16,6 +16,15 @@ ModelSize = Literal["tiny", "base", "small", "medium", "large-v3"]
 ComputeType = Literal["int8", "int8_float16", "float16", "float32"]
 Device = Literal["auto", "cpu", "cuda"]
 SystemAudioBackend = Literal["auto", "tap", "sck", "off"]
+# Format for retained audio when `keep_audio` is on. Whisper transcribes the raw
+# WAV first, so the kept copy can be compressed freely: `opus` (lossy, ~12-20x
+# smaller, speech-optimized) or `flac` (lossless, ~2x), or `wav` to keep the
+# uncompressed original. Encoded via libsndfile (soundfile) — no extra dependency.
+AudioKeepFormat = Literal["opus", "flac", "wav"]
+# Backend that turns a finalized transcript into searchable Statements. Only a
+# local Ollama daemon for now; kept a Literal so adding an `mlx`/`openai` backend
+# is a one-line change that the config layer already validates.
+DistillBackend = Literal["ollama"]
 
 
 _MLX_WHISPER_REPO_BY_SIZE: dict[str, str] = {
@@ -68,6 +77,11 @@ class RuntimeConfig(BaseModel):
     whisper_idle_unload_seconds: float = Field(default=120.0, ge=5.0)
 
     keep_audio: bool = False
+    # When `keep_audio` is on, the per-chunk WAV is transcoded to this format
+    # after transcription (and the WAV removed) — so retained audio stays small.
+    # Default `opus` (lossy, smallest); `flac` for a lossless archival copy;
+    # `wav` to keep the uncompressed original. No effect unless `keep_audio`.
+    keep_audio_format: AudioKeepFormat = "opus"
     input_device: str | None = None
 
     sample_rate: int = Field(default=48000, gt=0)
@@ -75,10 +89,21 @@ class RuntimeConfig(BaseModel):
     channels: int = Field(default=2, ge=1, le=2)
 
     screenshots_enabled: bool = False
-    # Filenames are second-precision (`HHMMSS_dN.jpg`), so subsecond intervals
-    # can overwrite the prior capture for the same display.
-    screenshots_interval_seconds: float = Field(default=10.0, ge=1.0, le=3600.0)
+    # Default cadence is 60s — screen content changes slowly relative to speech,
+    # and a slower tick keeps the screenshot directory small. Filenames are
+    # second-precision (`HHMMSS_dN.jpg`), so subsecond intervals can overwrite
+    # the prior capture for the same display.
+    screenshots_interval_seconds: float = Field(default=60.0, ge=1.0, le=3600.0)
     screenshots_max_displays: int = Field(default=4, ge=1, le=16)
+    # Each captured JPEG is post-processed (macOS `sips`, no extra dependency)
+    # to shrink it for storage and as LLM input: downscaled so its longest edge
+    # is at most `screenshots_max_dimension` px (0 disables resize; it never
+    # *upscales* a smaller display) and re-encoded at `screenshots_jpeg_quality`
+    # (1-100). 1568 px is the long edge Claude's vision API targets — a good
+    # "legible but small" default. If `sips` is unavailable the raw
+    # `screencapture` JPEG is kept untouched.
+    screenshots_max_dimension: int = Field(default=1568, ge=0, le=10000)
+    screenshots_jpeg_quality: int = Field(default=60, ge=1, le=100)
 
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     no_ui: bool = False
@@ -147,6 +172,45 @@ class RuntimeConfig(BaseModel):
     # Public hostname the reverse proxy serves, used to validate the Host header
     # on ingested requests. Optional (skip the check when unset).
     public_host: str | None = None
+
+    # --- LLM distillation into searchable Statements (opt-in) ---------------
+    # See docs/adr/0005-llm-distillation.md. When enabled, each finalized
+    # transcript is distilled by a LOCAL LLM into compact, self-contained
+    # "statements" (a `<name>.statements.json` sidecar). With indexing also on,
+    # those statements are embedded into a separate statement store, and `huske
+    # mcp` searches them first, drilling into the source transcript on `fetch`.
+    # Off by default; the distill call is loopback HTTP to a local LLM daemon
+    # (Ollama) over stdlib urllib — it adds no Python dependency. Degrades
+    # gracefully: if the daemon/model is unavailable, recording + passage search
+    # continue untouched.
+    distill_enabled: bool = False
+    # Backend daemon. Only "ollama" today (see DistillBackend).
+    distill_backend: DistillBackend = "ollama"
+    # Any model the backend can serve. Default is Qwen3.5 0.8B (~1 GB resident,
+    # multilingual, 256K context) — the lightest tier, and portable: it runs on
+    # the Metal/llama.cpp path across the whole Apple-Silicon range, and Ollama
+    # auto-accelerates it on its MLX engine where supported. Pull it with
+    # `ollama pull qwen3.5:0.8b`. For the explicit MLX-weights fast path on
+    # capable (32GB+) Macs, pull the `qwen3.5:0.8b-mlx` build and set it here;
+    # swap up to `qwen3.5:2b` / `qwen3.5:4b` for more quality, or any local tag.
+    distill_model: str = "qwen3.5:0.8b"
+    # Loopback endpoint of the local LLM daemon (Ollama's default).
+    distill_endpoint: str = "http://127.0.0.1:11434"
+    # Per-call ceiling. A local model is slow; this bounds one passage's distill.
+    distill_timeout_seconds: float = Field(default=120.0, gt=0.0)
+    # Upper bound on statements distilled from a single Passage — caps LLM
+    # output and statement-index growth on dense passages.
+    distill_max_statements_per_passage: int = Field(default=8, ge=1, le=50)
+    # `huske distill` backfill runs gentle by default (lower CPU priority), same
+    # rationale as `index_low_impact`. Pass `--fast` to run flat out.
+    distill_low_impact: bool = True
+    # Distillation runs a NON-reasoning call by default. Thinking-capable models
+    # (e.g. Qwen3.5) otherwise spend their budget on a hidden reasoning pass —
+    # slower, and on `/api/generate` it can swallow the whole reply — when claim
+    # extraction needs none. huske distils over Ollama's `/api/chat` with
+    # `think: false`, which the daemon honors for thinking models and ignores for
+    # the rest. Set true only if a model's reasoning measurably helps extraction.
+    distill_think: bool = False
 
     @field_validator(
         "output_root",

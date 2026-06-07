@@ -45,6 +45,17 @@ single time range and the **set** of Sources it spans. The unit a search
 returns to an LLM.
 _Avoid_: chunk, segment, snippet, excerpt.
 
+**Statement**:
+A self-contained, decontextualized factual claim distilled from a Transcript by
+a **local LLM** (e.g. Ollama), carrying the time range of its source Passage as
+provenance. Statements are the compact, more-searchable "memory" of a
+Transcript: search ranks Statements, then **fetch** drills into the source
+Transcript for depth. Each is embedded into one vector and held in a separate
+statement index, and the set for a Transcript is written to a
+`<name>.statements.json` sidecar. Opt-in (see docs/adr/0005).
+_Avoid_: "summary" (a Statement is one atomic claim, not a paragraph); "memory"
+as a type name (it is the role Statements play, not the unit).
+
 ### Replication & serving (this initiative)
 
 **huske server**:
@@ -78,9 +89,12 @@ idempotent: re-pushing the same Transcript is a no-op.
 
 - A **RecordingSession** contains one or more **Chunks**.
 - A **Chunk** produces exactly one **Transcript** and contains many **Segments**.
-- A **Transcript** is windowed into one or more **Passages** for retrieval.
+- A **Transcript** is windowed into one or more **Passages** for retrieval, and
+  (optionally) distilled into one or more **Statements**.
 - A **Passage** spans one or more **Segments** and carries a single time range
   and Source set.
+- A **Statement** is distilled from a **Passage** and grounded back to its
+  Transcript by time range; search ranks Statements, fetch returns the Passage.
 - The optional **huske server** holds a **Replica** of the **Transcripts** and
   serves **Passages** to a **co-located agent** when the recording Mac is
   offline.

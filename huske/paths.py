@@ -116,6 +116,28 @@ def index_db_path(cfg: RuntimeConfig) -> Path:
     return cfg.index_root / "passages.db"
 
 
+def statements_db_path(cfg: RuntimeConfig) -> Path:
+    """Single-file sqlite-vec store of distilled Statements under ``index_root``.
+
+    Kept separate from ``passages.db`` so the two retrieval granularities are
+    independent — enabling distillation never forces a rebuild of an existing
+    passage index, and a Statement re-index doesn't touch Passages. See
+    docs/adr/0005-llm-distillation.md.
+    """
+    return cfg.index_root / "statements.db"
+
+
+def statements_sidecar_path(transcript_path: Path) -> Path:
+    """The distilled-Statements sidecar for a transcript.
+
+    ``…/2026-05-07/093000_8a3f2c19_001.md`` →
+    ``…/2026-05-07/093000_8a3f2c19_001.statements.json``. A sibling JSON file so
+    it sorts next to its transcript and is excluded by the ``*.md`` transcript
+    glob (indexing/sync never pick it up as a transcript).
+    """
+    return transcript_path.with_name(f"{transcript_path.stem}.statements.json")
+
+
 def sync_root(cfg: RuntimeConfig) -> Path:
     return cfg.sync_root
 

@@ -38,6 +38,53 @@ def _remove_db(db_path: Path) -> None:
         p.unlink(missing_ok=True)
 
 
+def _backfill_statements(
+    cfg: Any, embedder: Any, *, force: bool, gentle: bool
+) -> tuple[int, int]:
+    """Embed any distilled-statement sidecars into the statement store.
+
+    Makes ``huske distill`` (write sidecars) + ``huske index`` (embed them) a
+    complete offline two-stage backfill, sharing the one embedder already loaded.
+    Returns ``(transcripts_with_statements, statements_written)``; a no-op (0, 0)
+    when no sidecars exist yet.
+    """
+    from huske.paths import statements_db_path, statements_sidecar_path
+    from huske.search.indexer import StatementIndexer, iter_transcripts
+    from huske.search.store import PassageStore
+
+    transcripts = iter_transcripts(cfg.output_root)
+    if not any(statements_sidecar_path(t).exists() for t in transcripts):
+        return (0, 0)
+
+    store = PassageStore.open(
+        statements_db_path(cfg),
+        embedding_model=cfg.embedding_model,
+        dim=embedder.dim,
+        create=True,
+    )
+    indexer = StatementIndexer(store, embedder)
+    release = getattr(embedder, "release", None)
+    files = total = 0
+    try:
+        for t in transcripts:
+            try:
+                n = indexer.index_file(t, force=force)
+            except Exception:
+                continue
+            finally:
+                if gentle and callable(release):
+                    try:
+                        release()
+                    except Exception:
+                        pass
+            if n > 0:
+                files += 1
+                total += n
+    finally:
+        store.close()
+    return (files, total)
+
+
 def run_index(
     config_path: Path | None = None,
     cli_overrides: dict[str, Any] | None = None,
@@ -91,6 +138,14 @@ def run_index(
     if rebuild and db_path.exists():
         _print(f"[huske] rebuilding index at {db_path}")
         _remove_db(db_path)
+    if rebuild:
+        # Statements share the embedding space, so a model change invalidates
+        # them too — clear the statement store on rebuild or it would refuse to
+        # open with the new model (ModelMismatchError). Re-embedded below from
+        # the sidecars, which are independent of the embedding model.
+        from huske.paths import statements_db_path
+
+        _remove_db(statements_db_path(cfg))
 
     try:
         store = PassageStore.open(
@@ -123,11 +178,21 @@ def run_index(
     finally:
         store.close()
 
+    try:
+        stmt_files, stmt_count = _backfill_statements(cfg, embedder, force=force, gentle=gentle)
+    except Exception as exc:  # statement embedding must never fail the passage index
+        _print(f"  [warn] statement index skipped: {exc}")
+        stmt_files = stmt_count = 0
+
     _print(
         f"\n{summary.files_indexed} indexed, {summary.files_skipped} unchanged, "
         f"{summary.files_failed} failed across {summary.files_seen} transcript(s); "
         f"{summary.passages} passage(s) written."
     )
+    if stmt_files or stmt_count:
+        _print(
+            f"{stmt_count} statement(s) embedded from {stmt_files} distilled transcript(s)."
+        )
     for err in summary.errors[:10]:
         _print(f"  [warn] {err.splitlines()[0]}")
     if len(summary.errors) > 10:

@@ -16,5 +16,13 @@ def _no_process_renice(monkeypatch: pytest.MonkeyPatch) -> None:
     try:
         import huske.search.runner as runner
     except Exception:
+        pass
+    else:
+        monkeypatch.setattr(runner, "_lower_process_priority", lambda *a, **k: None)
+
+    # `huske distill` throttles the same way; neutralize it too.
+    try:
+        import huske.distill.runner as distill_runner
+    except Exception:
         return
-    monkeypatch.setattr(runner, "_lower_process_priority", lambda *a, **k: None)
+    monkeypatch.setattr(distill_runner, "_lower_process_priority", lambda *a, **k: None)

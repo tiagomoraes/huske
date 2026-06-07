@@ -314,6 +314,25 @@ class PassageStore:
         hits.sort(key=_uid_index)
         return hits
 
+    def passages_in_range(
+        self, path: str, start_ms: int, end_ms: int, *, limit: int = 8
+    ) -> list[SearchHit]:
+        """Passages from one transcript overlapping ``[start_ms, end_ms]``, in time order.
+
+        Grounds a distilled Statement back in its source transcript: a Statement
+        cites a time *range* (not a passage uid), so this stays correct even
+        though the Statement and Passage indexes window independently. A plain
+        metadata SELECT — no vector MATCH — the same shape as ``get_by_uid``.
+        """
+        rows = self._conn.execute(
+            "SELECT 0.0, uid, title, text, path, session_id, day, start_ms, end_ms, sources "
+            "FROM passages WHERE path = ? AND end_ms >= ? AND start_ms <= ?",
+            (path, int(start_ms), int(end_ms)),
+        ).fetchall()
+        hits = [self._row_to_hit(r, distance=0.0) for r in rows]
+        hits.sort(key=lambda h: h.start_ms)
+        return hits[: max(1, limit)]
+
     def stats(self) -> dict[str, object]:
         passages = self._conn.execute("SELECT count(*) FROM passages").fetchone()[0]
         files = self._conn.execute("SELECT count(*) FROM indexed_files").fetchone()[0]
