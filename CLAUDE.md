@@ -182,7 +182,7 @@ python scripts/release.py X.Y.Z              # opens release-prep PR -> develop
 python scripts/release-finalize.py X.Y.Z     # tag, GitHub release, back-merge PR
 # (human merges back-merge)
 python scripts/update-homebrew-tap.py X.Y.Z  # refreshes the brew tap formula
-# (human runs `brew install --build-from-source && brew test && git push`)
+# (agent may run `brew install --build-from-source` + `brew test`; human reviews the diff and runs `git push`)
 ```
 
 The scripts handle the version bump, CHANGELOG move, website updates
