@@ -53,7 +53,7 @@ class StatementSidecar:
     transcript_path: str  # resolved absolute path of the source ``.md``
     session_id: str
     source_sha256: str  # sha256 of the source ``.md`` bytes — for incremental skip
-    model: str  # the distill model id used (e.g. "gemma4:e2b")
+    model: str  # the distill model id used (e.g. "qwen3.5:0.8b")
     backend: str  # the distill backend (e.g. "ollama")
     distilled_at: str  # ISO-8601 timestamp the sidecar was produced
     statements: list[Statement]

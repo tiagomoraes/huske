@@ -195,6 +195,7 @@ def run_session(
                 endpoint=cfg.distill_endpoint,
                 timeout=cfg.distill_timeout_seconds,
                 max_statements=cfg.distill_max_statements_per_passage,
+                think=cfg.distill_think,
             )
             distill_worker = DistillWorker(
                 cfg.output_root,

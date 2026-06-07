@@ -147,13 +147,16 @@ finalized (orphaned) ──valid WAV──▶ queued
 | `compute_type` | `str` | `"int8"` | Kept for back-compat; `float32` opts out of fp16 inference, other values use the MLX default. |
 | `device` | `str` | `"auto"` | Kept for back-compat; `cuda` is rejected on macOS. |
 | `language` | `str \| None` | `None` (auto-detect) | ISO 639-1. |
-| `keep_audio` | `bool` | `False` | Retain WAVs after successful transcription. |
+| `keep_audio` | `bool` | `False` | Retain audio after successful transcription (compressed per `keep_audio_format`). |
+| `keep_audio_format` | `str` | `"opus"` | Format for kept audio: `opus` (lossy, smallest), `flac` (lossless), or `wav`. |
 | `input_device` | `str \| None` | `None` (system default) | Preferred microphone device name. If unavailable, Huske falls back to the default input with a warning. |
 | `sample_rate` | `int` | `48000` | Hz. |
 | `block_size` | `int` | `1024` | Samples per audio callback. |
 | `screenshots_enabled` | `bool` | `False` | Enable periodic screenshots. |
-| `screenshots_interval_seconds` | `float` | `10.0` | Seconds between screenshots, minimum 1. |
+| `screenshots_interval_seconds` | `float` | `60.0` | Seconds between screenshots, minimum 1. |
 | `screenshots_root` | `Path` | `~/huske/screenshots` | Screenshot output root. |
+| `screenshots_max_dimension` | `int` | `1568` | Downscale each screenshot's long edge to ≤ this many px (0 disables; never upscales). |
+| `screenshots_jpeg_quality` | `int` | `60` | JPEG quality for screenshots (1–100). |
 | `system_audio_backend` | `str` | `"auto"` | `auto`, `tap`, `sck`, or `off`. `auto` chooses Core Audio process tap on macOS 14.4+ and ScreenCaptureKit fallback otherwise. |
 | `log_level` | `str` | `"INFO"` | |
 

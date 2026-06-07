@@ -464,6 +464,7 @@ const SearchRecall = () => {
               <div className="row"><span className="k">tools</span><span className="v">search · fetch</span></div>
               <div className="row"><span className="k">model</span><span className="v">multilingual-e5-base · 768d</span></div>
               <div className="row"><span className="k">index</span><span className="v">on-device · sqlite-vec</span></div>
+              <div className="row"><span className="k">distill</span><span className="v">qwen3.5:0.8b · opt-in</span></div>
             </div>
             <div className="auth">
               <div className="auth-head"><KeyGlyph/> authentication</div>
@@ -480,6 +481,43 @@ const SearchRecall = () => {
             <div className="wnote">
               <div className="ln"><span className="tick">✓</span><span>Claude Code, Codex, Cursor &amp; more connect direct over loopback. No tunnel.</span></div>
               <div className="ln"><span className="warn">⚠</span><span>ChatGPT needs a public HTTPS tunnel to reach it (opt-in).</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div className="two-stage">
+          <div className="ts-head">
+            <span className="ts-tag">opt-in</span>
+            <span>two-stage recall · distillation</span>
+          </div>
+          <div className="ts-grid">
+            <div className="ts-main">
+              <div className="ts-flow">
+                <span className="node">transcript</span>
+                <span className="arr">→</span>
+                <span className="node hot">distil · local LLM</span>
+                <span className="arr">→</span>
+                <span className="node">statements</span>
+                <span className="arr">→</span>
+                <span className="node">search</span>
+                <span className="arr">→</span>
+                <span className="node">fetch grounds in source</span>
+              </div>
+              <p className="ts-p">
+                Set <code>distill_enabled</code> and a local LLM condenses each transcript
+                into compact, self-contained <em>statements</em> in a fast, non-reasoning
+                pass. huske searches those first — denser and less noisy than raw speech —
+                then <code>fetch</code>
+                grounds every hit back in the verbatim transcript. The model is just a
+                config string, so swap it freely; it runs in its own daemon, stays
+                on-device, and degrades gracefully when it's off.
+              </p>
+            </div>
+            <div className="ts-meta">
+              <div className="row"><span className="k">model</span><span className="v">qwen3.5:0.8b <span className="opt">· any local tag</span></span></div>
+              <div className="row"><span className="k">backend</span><span className="v">ollama · on-device</span></div>
+              <div className="row"><span className="k">writes</span><span className="v">&lt;name&gt;.statements.json</span></div>
+              <div className="row"><span className="k">default</span><span className="v">off · graceful</span></div>
             </div>
           </div>
         </div>
@@ -545,7 +583,7 @@ const Privacy = () => (
               <span className="glyph">⚠</span>
               <span>
                 <strong><code>--screenshots</code> is loud.</strong>
-                <span className="desc">It captures every display every 10 s — passwords, banking tabs, DMs. Off by default. Opt in only after reading what you're recording.</span>
+                <span className="desc">It captures every display every 60 s — passwords, banking tabs, DMs. Off by default. Opt in only after reading what you're recording.</span>
               </span>
             </li>
           </ul>
@@ -771,6 +809,13 @@ const FAQ = () => (
           </div>
         </details>
         <details>
+          <summary>What is transcript distillation? <span className="chev">→</span></summary>
+          <div className="answer">
+            <p>An opt-in second stage for search. Set <code>distill_enabled = true</code> and a <strong>local</strong> LLM condenses each transcript into compact, self-contained <em>statements</em> — the decisions, facts, and commitments, minus the filler. huske embeds those into a separate index and your agent searches them first, then <code>fetch</code> grounds every hit back in the verbatim transcript. Denser recall for "what did we decide about X," with the source always one hop away.</p>
+            <p>It runs through a local daemon (Ollama), adds no Python dependency, and is off by default. The model is just a config string — the default <code>qwen3.5:0.8b</code> is the lightest tier and runs across the Apple-Silicon range; swap to <code>qwen3.5:0.8b-mlx</code> for the explicit MLX fast path, or any local tag. Fully on-device, and it degrades gracefully: if the daemon is down, recording and ordinary search carry on. Run <code>huske distill</code> to backfill your history. See the <a href="docs/#search">docs</a>.</p>
+          </div>
+        </details>
+        <details>
           <summary>Is this only for Apple Silicon? <span className="chev">→</span></summary>
           <div className="answer">
             <p>Apple Silicon Mac is the supported target in {HUSKE_VERSION}. The transcription engine (<code>mlx-whisper</code>) runs on the M-series GPU via MLX, and system-audio capture uses macOS-only Core Audio / ScreenCaptureKit APIs.</p>
@@ -785,7 +830,7 @@ const FAQ = () => (
         <details>
           <summary>What about the optional screenshots flag? <span className="chev">→</span></summary>
           <div className="answer">
-            <p><code>huske run --screenshots</code> captures a JPEG of every display every 10 seconds (<code>--screenshot-interval</code> configurable). They land at <code>~/huske/screenshots/YYYY-MM-DD/&lt;session&gt;/HHMMSS_dN.jpg</code> for multimodal LLM use.</p>
+            <p><code>huske run --screenshots</code> captures a JPEG of every display every 60 seconds (<code>--screenshot-interval</code> configurable). Each is shrunk in place with macOS <code>sips</code> — downscaled to a ~1568 px long edge and re-encoded at JPEG quality 60 — so it stays small to store and ideal as LLM input (tune with <code>--screenshot-max-dimension</code> / <code>--screenshot-quality</code>). They land at <code>~/huske/screenshots/YYYY-MM-DD/&lt;session&gt;/HHMMSS_dN.jpg</code> for multimodal LLM use.</p>
             <p>Off by default. It captures <strong>everything</strong> on screen — passwords, banking tabs, DMs. Read the privacy section before enabling.</p>
           </div>
         </details>

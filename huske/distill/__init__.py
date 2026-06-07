@@ -14,7 +14,7 @@ call is loopback HTTP to a local daemon (Ollama) over stdlib ``urllib`` (mirrors
 ``huske.sync``). It never imports the heavy ``mlx``/``sqlite-vec`` paths and is
 inert unless ``distill_enabled`` is set, so the local-only case pays nothing.
 
-- :mod:`huske.distill.client`    — the loopback ``POST /api/generate`` call.
+- :mod:`huske.distill.client`    — the loopback ``POST /api/chat`` call.
 - :mod:`huske.distill.distiller` — Passage → Statements (Ollama or a test fake).
 - :mod:`huske.distill.sidecar`   — read/write the ``.statements.json`` artifact.
 - :mod:`huske.distill.worker`    — a background *thread* that distills off the

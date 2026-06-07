@@ -1,10 +1,12 @@
-"""The loopback LLM call: ``POST /api/generate`` against a local Ollama daemon.
+"""The loopback LLM call: ``POST /api/chat`` against a local Ollama daemon.
 
 Dependency-free (stdlib ``urllib`` + ``json``), mirroring ``huske.sync.client``.
-Ollama's HTTP API runs on ``127.0.0.1:11434`` by default; we hit ``/api/generate``
-for a single-turn completion and ``/api/tags`` to enumerate pulled models (used
-by ``huske doctor``). Errors are classified retryable/not the same way the sync
-client does, so a worker can back off on a transient blip but give up on a 4xx.
+Ollama's HTTP API runs on ``127.0.0.1:11434`` by default; we hit ``/api/chat``
+for a single-turn completion (it honors a top-level ``think`` flag, which
+``/api/generate`` silently drops for thinking models like Qwen3.5) and
+``/api/tags`` to enumerate pulled models (used by ``huske doctor``). Errors are
+classified retryable/not the same way the sync client does, so a worker can back
+off on a transient blip but give up on a 4xx.
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-_GENERATE_PATH = "/api/generate"
+_CHAT_PATH = "/api/chat"
 _TAGS_PATH = "/api/tags"
 
 
@@ -41,31 +43,43 @@ class OllamaClient:
         self._base = endpoint.rstrip("/")
         self._timeout = timeout
 
-    def generate(
+    def chat(
         self,
         model: str,
         prompt: str,
         *,
         json_format: bool = True,
+        think: bool = False,
         options: dict[str, Any] | None = None,
     ) -> str:
-        """Run one non-streaming completion; return the model's ``response`` text.
+        """Run one non-streaming chat turn; return the assistant ``content`` text.
 
-        ``json_format`` asks Ollama to constrain output to valid JSON (its
-        ``format: "json"`` mode), which makes parsing the statement list robust.
+        Uses ``/api/chat`` (not ``/api/generate``) so the top-level ``think``
+        flag is honored: thinking models like Qwen3.5 ignore ``think: false`` on
+        ``/api/generate`` and burn the whole ``num_predict`` budget on a hidden
+        reasoning pass, returning an empty reply. ``think: false`` is ignored by
+        non-thinking models, so it is safe across any tag. ``json_format`` asks
+        Ollama to constrain output to valid JSON (its ``format: "json"`` mode),
+        which makes parsing the statement list robust.
         """
-        payload: dict[str, Any] = {"model": model, "prompt": prompt, "stream": False}
+        payload: dict[str, Any] = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+            "think": think,
+        }
         if json_format:
             payload["format"] = "json"
         if options:
             payload["options"] = options
-        body = self._post(_GENERATE_PATH, payload)
-        response = body.get("response")
-        if not isinstance(response, str):
+        body = self._post(_CHAT_PATH, payload)
+        message = body.get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, str):
             raise DistillError(
-                f"unexpected /api/generate response (no 'response' field): {str(body)[:120]!r}"
+                f"unexpected /api/chat response (no 'message.content'): {str(body)[:120]!r}"
             )
-        return response
+        return content
 
     def list_models(self) -> list[str]:
         """Return the names of locally pulled models (``GET /api/tags``)."""

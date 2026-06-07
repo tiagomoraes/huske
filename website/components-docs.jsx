@@ -282,11 +282,12 @@ const COMMON_CONFIG = [
   { key: "language", def: "auto-detect", desc: "Transcription language hint, ISO 639-1 (e.g. pt, en).", flag: "--language" },
   { key: "output_root", def: "~/huske/transcripts", desc: "Where Markdown transcripts are written.", flag: "--output-root" },
   { key: "audio_root", def: "~/huske/audio", desc: "Transient WAV chunks (plus incomplete/).", flag: "--audio-root" },
-  { key: "keep_audio", def: "false", desc: "Keep raw WAVs after transcription.", flag: "--keep-audio" },
+  { key: "keep_audio", def: "false", desc: "Keep audio after transcription (compressed — see keep_audio_format).", flag: "--keep-audio" },
+  { key: "keep_audio_format", def: "opus", desc: "Format for kept audio: opus (lossy, smallest), flac (lossless), or wav.", flag: "--keep-audio-format" },
   { key: "log_level", def: "INFO", desc: "DEBUG, INFO, WARNING, ERROR.", flag: "--log-level" },
   { key: "no_ui", def: "false", desc: "Disable the live UI; emit plain log lines.", flag: "--no-ui" },
   { key: "screenshots_enabled", def: "false", desc: "Capture a JPEG of every display periodically. Loud — see privacy.", flag: "--screenshots" },
-  { key: "screenshots_interval_seconds", def: "10", desc: "Seconds between screenshots (1–3600).", flag: "--screenshot-interval" },
+  { key: "screenshots_interval_seconds", def: "60", desc: "Seconds between screenshots (1–3600).", flag: "--screenshot-interval" },
 ];
 
 const ADVANCED_CONFIG = [
@@ -302,6 +303,8 @@ const ADVANCED_CONFIG = [
   { key: "menu_bar_label_style", def: "text", desc: "Menu bar label: text or icon.", flag: "" },
   { key: "screenshots_root", def: "~/huske/screenshots", desc: "Screenshot output root.", flag: "--screenshots-root" },
   { key: "screenshots_max_displays", def: "4", desc: "Max displays captured per tick (1–16).", flag: "" },
+  { key: "screenshots_max_dimension", def: "1568", desc: "Downscale each screenshot's long edge to ≤ N px via sips (0 disables; never upscales).", flag: "--screenshot-max-dimension" },
+  { key: "screenshots_jpeg_quality", def: "60", desc: "JPEG quality for screenshots, 1–100 (re-encoded via sips).", flag: "--screenshot-quality" },
   { key: "indexing_enabled", def: "false", desc: "Index each finalized transcript live during huske run.", flag: "" },
   { key: "embedding_model", def: "multilingual-e5-base", desc: "Local embedding model; changing it needs huske index --rebuild.", flag: "" },
   { key: "index_root", def: "~/huske/index", desc: "sqlite-vec passage store (passages.db).", flag: "" },

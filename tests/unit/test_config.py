@@ -22,6 +22,34 @@ def test_defaults_are_sane() -> None:
     assert cfg.chunk_seconds == 900.0
 
 
+def test_distill_defaults_are_light_and_opt_in() -> None:
+    cfg = RuntimeConfig()
+    assert cfg.distill_enabled is False  # opt-in; never on by default
+    assert cfg.distill_backend == "ollama"
+    # Lightest portable tier — runs across the whole Apple-Silicon range.
+    assert cfg.distill_model == "qwen3.5:0.8b"
+    assert cfg.distill_think is False  # non-reasoning distillation by default
+
+
+def test_distill_model_is_selectable(tmp_path: Path) -> None:
+    # A different local tag can be chosen via config file or CLI override.
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('distill_model = "qwen3.5:0.8b-mlx"\n', encoding="utf-8")
+    assert load_config(config_path=cfg_file).distill_model == "qwen3.5:0.8b-mlx"
+    overridden = load_config(
+        config_path=cfg_file, cli_overrides={"distill_model": "qwen3.5:4b"}
+    )
+    assert overridden.distill_model == "qwen3.5:4b"
+
+
+def test_keep_audio_format_default_and_validation() -> None:
+    assert RuntimeConfig().keep_audio_format == "opus"  # compressed by default
+    RuntimeConfig(keep_audio_format="flac")
+    RuntimeConfig(keep_audio_format="wav")
+    with pytest.raises(ValueError):
+        RuntimeConfig(keep_audio_format="mp3")  # type: ignore[arg-type]
+
+
 def test_chunk_minutes_range() -> None:
     with pytest.raises(ValueError):
         RuntimeConfig(chunk_minutes=0.0)

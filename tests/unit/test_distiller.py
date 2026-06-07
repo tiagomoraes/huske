@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import cast
 
 from huske.distill.distiller import (
     HeuristicDistiller,
@@ -83,10 +84,34 @@ def test_heuristic_distiller_splits_sentences() -> None:
 
 def test_build_distiller_routing() -> None:
     assert isinstance(build_distiller("heuristic"), HeuristicDistiller)
-    real = build_distiller("gemma4:e2b", endpoint="http://127.0.0.1:11434")
+    real = build_distiller("qwen3.5:0.8b", endpoint="http://127.0.0.1:11434")
     assert isinstance(real, OllamaDistiller)
-    assert real.model_id == "gemma4:e2b"
+    assert real.model_id == "qwen3.5:0.8b"
     assert real.backend == "ollama"
+    assert real._think is False  # non-reasoning by default
+    assert build_distiller("qwen3.5:0.8b", think=True)._think is True
+
+
+def test_ollama_distiller_calls_chat_no_thinking_by_default() -> None:
+    calls: dict[str, object] = {}
+
+    class _FakeClient:
+        def chat(self, model, prompt, *, json_format, think, options):  # type: ignore[no-untyped-def]
+            calls.update(model=model, think=think, json_format=json_format, options=options)
+            return '{"statements": ["one", "two"]}'
+
+    out = OllamaDistiller(_FakeClient(), "qwen3.5:0.8b").distill_passage(
+        "some text", sources=["mic"], language="en"
+    )
+    assert out == ["one", "two"]
+    assert calls["think"] is False  # default: no reasoning pass
+    assert calls["json_format"] is True
+    assert cast(dict, calls["options"])["temperature"] == 0.0
+
+    OllamaDistiller(_FakeClient(), "qwen3.5:0.8b", think=True).distill_passage(
+        "t", sources=["mic"], language="en"
+    )
+    assert calls["think"] is True  # opt-in reasoning is forwarded
 
 
 def test_distill_transcript_produces_statements_with_provenance(tmp_path: Path) -> None:

@@ -20,8 +20,10 @@ from huske.screenshots import ScreenshotCapturer
 def test_screenshots_defaults_off() -> None:
     cfg = RuntimeConfig()
     assert cfg.screenshots_enabled is False
-    assert cfg.screenshots_interval_seconds == 10.0
+    assert cfg.screenshots_interval_seconds == 60.0
     assert cfg.screenshots_max_displays == 4
+    assert cfg.screenshots_max_dimension == 1568
+    assert cfg.screenshots_jpeg_quality == 60
     assert cfg.screenshots_root.is_absolute()
 
 
@@ -163,6 +165,92 @@ def test_capture_once_raises_when_no_files_produced(
 
 
 # ---------------------------------------------------------------------------
+# Compression — each capture is shrunk in place via `sips`
+# ---------------------------------------------------------------------------
+
+
+def _capturer_with_sips(tmp_path: Path) -> ScreenshotCapturer:
+    cap = ScreenshotCapturer(cfg=_cfg(tmp_path, max_displays=1), session_id="sx")
+    cap._sips_available = True  # as start() sets it when `sips` is on PATH
+    return cap
+
+
+def _fake_run_factory(
+    calls: list[list[str]], *, long_edge: int
+) -> object:
+    """A subprocess.run double: screencapture writes one JPEG; `sips -g` reports
+    a square image of ``long_edge`` px; the in-place re-encode is a no-op."""
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        calls.append(cmd)
+        if cmd[0] == "screencapture":
+            for p in cmd[4:5]:
+                Path(p).write_bytes(b"\xff\xd8fake-jpeg")
+            return subprocess.CompletedProcess(cmd, 0, b"", b"")
+        if cmd[0] == "sips" and "-g" in cmd:
+            blob = f"pixelWidth: {long_edge}\npixelHeight: {long_edge}\n".encode()
+            return subprocess.CompletedProcess(cmd, 0, blob, b"")
+        return subprocess.CompletedProcess(cmd, 0, b"", b"")
+
+    return fake_run
+
+
+def test_capture_once_compresses_and_downscales_large_images(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cap = _capturer_with_sips(tmp_path)
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        "huske.screenshots.capturer.subprocess.run",
+        _fake_run_factory(calls, long_edge=2880),  # bigger than the 1568 cap
+    )
+
+    cap._capture_once(datetime(2026, 5, 7, 9, 15, 0))
+
+    reencodes = [c for c in calls if c[0] == "sips" and "formatOptions" in c]
+    assert reencodes, "expected an in-place sips re-encode"
+    cmd = reencodes[-1]
+    assert "60" in cmd  # configured JPEG quality
+    assert "-Z" in cmd and "1568" in cmd  # downscale to the cap
+
+
+def test_capture_once_reencodes_but_never_upscales_small_screens(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cap = _capturer_with_sips(tmp_path)
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        "huske.screenshots.capturer.subprocess.run",
+        _fake_run_factory(calls, long_edge=1280),  # smaller than the 1568 cap
+    )
+
+    cap._capture_once(datetime(2026, 5, 7, 9, 15, 0))
+
+    reencodes = [c for c in calls if c[0] == "sips" and "formatOptions" in c]
+    assert reencodes, "still re-encodes at the lower quality"
+    assert "-Z" not in reencodes[-1]  # 1280 < 1568 → no resize, no upscale
+
+
+def test_capture_once_keeps_original_when_sips_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cap = ScreenshotCapturer(cfg=_cfg(tmp_path, max_displays=1), session_id="sx")
+    cap._sips_available = False  # start() found no `sips`
+    calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        calls.append(cmd)
+        for p in cmd[4:5]:
+            Path(p).write_bytes(b"\xff\xd8fake-jpeg")
+        return subprocess.CompletedProcess(cmd, 0, b"", b"")
+
+    monkeypatch.setattr("huske.screenshots.capturer.subprocess.run", fake_run)
+    cap._capture_once(datetime(2026, 5, 7, 9, 15, 0))
+
+    assert calls and all(c[0] == "screencapture" for c in calls)  # no sips calls
+
+
+# ---------------------------------------------------------------------------
 # Lifecycle — start/stop without exercising the real `screencapture` binary
 # ---------------------------------------------------------------------------
 
@@ -218,9 +306,14 @@ def test_stop_is_idempotent(
     )
 
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
-        for path_str in cmd[4:5]:
-            Path(path_str).write_bytes(b"\xff\xd8")
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=b"", stderr=b"")
+        if cmd[0] == "screencapture":
+            for path_str in cmd[4:5]:
+                Path(path_str).write_bytes(b"\xff\xd8")
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=b"", stderr=b"")
+        # `sips` (which() is mocked truthy, so it's "available"): report small
+        # dims for the -g probe, no-op for the in-place re-encode.
+        out = b"pixelWidth: 100\npixelHeight: 80\n" if "-g" in cmd else b""
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=out, stderr=b"")
 
     monkeypatch.setattr("huske.screenshots.capturer.subprocess.run", fake_run)
 

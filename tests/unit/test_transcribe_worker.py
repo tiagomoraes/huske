@@ -189,3 +189,48 @@ def test_next_message_signals_unload_when_idle_window_elapses() -> None:
     msg = worker._next_message(q, model_resident=True, idle_unload=True, idle_unload_seconds=0.01)
     assert msg is worker._IDLE_TIMEOUT
     assert q.timeouts == [0.01]
+
+
+# --- kept-audio compression (_compress_kept_audio) -------------------------
+
+
+def _write_wav(path: Path, *, seconds: float = 1.0, sr: int = 48000) -> None:
+    t = np.linspace(0, seconds, int(sr * seconds), endpoint=False)
+    sig = (0.2 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
+    sf.write(str(path), sig, sr, subtype="PCM_16")
+
+
+def test_compress_kept_audio_opus_replaces_wav(tmp_path: Path) -> None:
+    wav = tmp_path / "0001_091500_microphone.wav"
+    _write_wav(wav)
+    original = wav.stat().st_size
+
+    worker._compress_kept_audio(wav, "opus")
+
+    out = wav.with_suffix(".opus")
+    assert out.exists() and not wav.exists()  # WAV replaced by the compressed copy
+    assert out.stat().st_size < original  # smaller
+    data, sr = sf.read(str(out))
+    assert sr == 48000 and len(data) > 0  # still decodable
+
+
+def test_compress_kept_audio_flac_replaces_wav(tmp_path: Path) -> None:
+    wav = tmp_path / "0001_091500_system.wav"
+    _write_wav(wav)
+    worker._compress_kept_audio(wav, "flac")
+    assert wav.with_suffix(".flac").exists() and not wav.exists()
+
+
+def test_compress_kept_audio_unknown_format_is_noop(tmp_path: Path) -> None:
+    wav = tmp_path / "x.wav"
+    _write_wav(wav, seconds=0.1)
+    worker._compress_kept_audio(wav, "mp3")  # unsupported → leave the WAV
+    assert wav.exists()
+
+
+def test_compress_kept_audio_keeps_original_on_failure(tmp_path: Path) -> None:
+    bad = tmp_path / "bad.wav"
+    bad.write_bytes(b"not a real wav")  # soundfile.read will raise
+    worker._compress_kept_audio(bad, "opus")
+    assert bad.exists()  # best-effort: never lose the recording
+    assert not bad.with_suffix(".opus").exists()  # no partial output left behind

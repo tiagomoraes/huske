@@ -97,6 +97,7 @@ def run_distill(
         endpoint=cfg.distill_endpoint,
         timeout=cfg.distill_timeout_seconds,
         max_statements=cfg.distill_max_statements_per_passage,
+        think=cfg.distill_think,
     )
 
     if gentle:

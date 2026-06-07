@@ -66,7 +66,7 @@ def test_preflight_fails_when_daemon_unreachable(
 
     monkeypatch.setattr(client_mod.OllamaClient, "list_models", boom)
     rc = run_distill(
-        cli_overrides={"output_root": tmp_path / "transcripts", "distill_model": "gemma4:e2b"},
+        cli_overrides={"output_root": tmp_path / "transcripts", "distill_model": "qwen3.5:0.8b"},
         low_impact=False,
     )
     assert rc == 1  # aborts before touching transcripts

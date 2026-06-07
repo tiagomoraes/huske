@@ -61,6 +61,12 @@ def run(
     language: str | None = typer.Option(None, "--language"),
     input_device: str | None = typer.Option(None, "--input-device"),
     keep_audio: bool = typer.Option(False, "--keep-audio/--no-keep-audio"),
+    keep_audio_format: str | None = typer.Option(
+        None,
+        "--keep-audio-format",
+        help="Format for retained audio when --keep-audio is set: opus (default, "
+        "smallest), flac (lossless), or wav (uncompressed).",
+    ),
     screenshots: bool | None = typer.Option(
         None,
         "--screenshots/--no-screenshots",
@@ -71,7 +77,22 @@ def run(
         "--screenshot-interval",
         min=1.0,
         max=3600.0,
-        help="Seconds between screenshots (default 10, minimum 1).",
+        help="Seconds between screenshots (default 60, minimum 1).",
+    ),
+    screenshot_max_dimension: int | None = typer.Option(
+        None,
+        "--screenshot-max-dimension",
+        min=0,
+        max=10000,
+        help="Downscale each screenshot so its long edge is at most N px "
+        "(default 1568; 0 disables resize). Never upscales.",
+    ),
+    screenshot_quality: int | None = typer.Option(
+        None,
+        "--screenshot-quality",
+        min=1,
+        max=100,
+        help="JPEG quality for screenshots, 1-100 (default 60).",
     ),
     screenshots_root: Path | None = typer.Option(
         None, "--screenshots-root", help="Where screenshots are written."
@@ -92,7 +113,7 @@ def run(
     distill_model: str | None = typer.Option(
         None,
         "--distill-model",
-        help="LLM tag used for distillation (e.g. gemma4:e2b, qwen3:4b, llama3.2:3b).",
+        help="LLM tag used for distillation (e.g. qwen3.5:0.8b, qwen3.5:0.8b-mlx, qwen3.5:4b).",
     ),
     config_path: Path | None = typer.Option(None, "--config"),
     log_level: str = typer.Option("INFO", "--log-level"),
@@ -122,11 +143,14 @@ def run(
         language=language,
         input_device=input_device,
         keep_audio=keep_audio,
+        keep_audio_format=keep_audio_format,
         whisper_idle_unload=idle_unload,
         distill_enabled=distill,
         distill_model=distill_model,
         screenshots_enabled=screenshots,
         screenshots_interval_seconds=screenshot_interval,
+        screenshots_max_dimension=screenshot_max_dimension,
+        screenshots_jpeg_quality=screenshot_quality,
         screenshots_root=screenshots_root,
         log_level=log_level,
         no_ui=no_ui,
@@ -256,7 +280,7 @@ def index(
 def distill(
     output_root: Path | None = typer.Option(None, "--output-root"),
     model: str | None = typer.Option(
-        None, "--model", help="Distill with this LLM tag (e.g. qwen3:4b), overriding config."
+        None, "--model", help="Distill with this LLM tag (e.g. qwen3.5:0.8b), overriding config."
     ),
     force: bool = typer.Option(
         False, "--force", help="Re-distill even transcripts whose content is unchanged."
@@ -272,7 +296,7 @@ def distill(
 
     Writes a ``<name>.statements.json`` next to each transcript. Run ``huske
     index`` afterwards to embed the statements for two-stage search. Needs a
-    local LLM daemon (Ollama) with the model pulled (e.g. ``ollama pull gemma4:e2b``).
+    local LLM daemon (Ollama) with the model pulled (e.g. ``ollama pull qwen3.5:0.8b``).
     """
     from huske.distill.runner import run_distill
 

@@ -111,19 +111,24 @@ def parse_statements(raw: str, max_statements: int) -> list[str]:
 class OllamaDistiller:
     """Distills via a local Ollama model. See :class:`huske.distill.client.OllamaClient`."""
 
-    def __init__(self, client: Any, model: str, *, max_statements: int = 8) -> None:
+    def __init__(
+        self, client: Any, model: str, *, max_statements: int = 8, think: bool = False
+    ) -> None:
         self.model_id = model
         self.backend = "ollama"
         self._client = client
         self._max = max_statements
+        self._think = think
 
     def distill_passage(self, text: str, *, sources: list[str], language: str) -> list[str]:
         prompt = build_prompt(text, sources=sources, language=language, max_statements=self._max)
         # temperature 0 for faithfulness; num_predict caps a runaway generation.
-        raw = self._client.generate(
+        # think=False by default — extraction needs no reasoning pass (see config).
+        raw = self._client.chat(
             self.model_id,
             prompt,
             json_format=True,
+            think=self._think,
             options={"temperature": 0.0, "num_predict": 512},
         )
         return parse_statements(raw, self._max)
@@ -154,18 +159,20 @@ def build_distiller(
     endpoint: str = "http://127.0.0.1:11434",
     timeout: float = 120.0,
     max_statements: int = 8,
+    think: bool = False,
 ) -> Distiller:
     """Construct the distiller for ``model``.
 
     ``heuristic`` / ``fake`` → the dependency-free test distiller; anything else
-    → an Ollama-backed distiller pointed at ``endpoint``.
+    → an Ollama-backed distiller pointed at ``endpoint``. ``think`` enables the
+    model's reasoning pass (off by default; extraction does not need it).
     """
     if model in ("heuristic", "fake"):
         return HeuristicDistiller(max_statements=max_statements)
     from huske.distill.client import OllamaClient
 
     client = OllamaClient(endpoint, timeout=timeout)
-    return OllamaDistiller(client, model, max_statements=max_statements)
+    return OllamaDistiller(client, model, max_statements=max_statements, think=think)
 
 
 def distill_transcript(

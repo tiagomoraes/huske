@@ -42,7 +42,9 @@ Add an opt-in distillation subsystem (`huske.distill`), off by default:
   process, so from huske it is loopback HTTP — GIL-releasing, like
   `huske.sync`). The transport is stdlib `urllib`: **no new Python dependency**.
 - The model is a config string (`distill_model`), so users pick any local model
-  (`gemma4:e2b` default, `qwen3:4b`, `llama3.2:3b`, …) without code changes.
+  (`qwen3.5:0.8b` default — the lightest, portable tier; `qwen3.5:0.8b-mlx` for
+  the explicit MLX fast path; heavier `qwen3.5:2b`/`4b`, `llama3.2:3b`, …)
+  without code changes.
 
 ## Why (the trade-off)
 
@@ -74,6 +76,11 @@ Add an opt-in distillation subsystem (`huske.distill`), off by default:
 - Statement quality depends on the chosen model. Faithfulness is defended by a
   conservative, low-temperature prompt **and** by grounding: `fetch` always
   returns the source transcript, so a consuming agent can verify a claim.
+- **Non-reasoning by default.** Extraction is a transformation, not a reasoning
+  task, so the call runs with `think: false` over Ollama's `/api/chat` — the
+  endpoint that honors the flag (`/api/generate` drops it for thinking models
+  like Qwen3.5 and spends the whole token budget on a hidden reasoning pass,
+  returning an empty reply). `distill_think` opts reasoning back in.
 - The off-device huske server has no LLM, so Statements are produced on the Mac;
   replicating sidecars to the server is a forward-compatible follow-up (the
   sidecar makes it a file copy + the server's existing indexer).

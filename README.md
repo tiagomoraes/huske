@@ -51,7 +51,7 @@ it about your day.
   on-device, no new Python dependency, off by default; see [Distil transcripts
   into searchable statements](#distil-transcripts-into-searchable-statements-opt-in).
 - **Optional periodic screenshots** — opt in with `--screenshots` to also
-  capture a JPEG of every attached display every 10 s, stored under
+  capture a JPEG of every attached display every 60 s (compressed for LLM input), stored under
   `~/huske/screenshots/YYYY-MM-DD/<session>/HHMMSS_dN.jpg` for downstream
   multimodal LLM use. Off by default; see [Periodic screenshots](#periodic-screenshots-opt-in).
 
@@ -190,7 +190,7 @@ export HUSKE_NO_UPDATE_CHECK=1
 ### Periodic screenshots (opt-in)
 
 `huske run --screenshots` enables a background thread that captures a JPEG of
-every attached display every 10 seconds (configurable). Screenshots are
+every attached display every 60 seconds (configurable). Screenshots are
 written to:
 
 ```text
@@ -206,11 +206,18 @@ needed. It uses Screen Recording permission; if system audio is using the Core
 Audio tap, macOS may prompt for this separately when screenshots are first
 enabled.
 
+Each capture is then shrunk in place with macOS's built-in `sips`: downscaled so
+its long edge is at most 1568 px (the resolution Claude's vision API targets;
+never upscaled) and re-encoded at JPEG quality 60 — small to store and ideal as
+LLM input. Tune with `--screenshot-max-dimension` (0 disables resize) and
+`--screenshot-quality`; if `sips` isn't on the PATH the full-size capture is kept.
+
 Flags:
 
 ```bash
 huske run --screenshots                       # opt in
 huske run --screenshots --screenshot-interval 30
+huske run --screenshots --screenshot-quality 50 --screenshot-max-dimension 1024
 huske run --screenshots --screenshots-root ~/another/path
 ```
 
@@ -398,7 +405,7 @@ metadata can contain private or legally sensitive information.
   it stays on your machine; only pointing `distill_endpoint` at a remote daemon
   would change that.
 - The `--screenshots` flag captures everything visible on every attached
-  display every 10 s — including any password manager popovers, banking
+  display every 60 s — including any password manager popovers, banking
   tabs, or private DMs that happen to be open. Leave it off unless you've
   consciously decided you want this in the on-disk record.
 - Redact `huske doctor` output before sharing it publicly.

@@ -14,6 +14,7 @@ import queue
 import signal
 import traceback
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 # Use spawn on macOS to keep PortAudio out of the child.
@@ -38,6 +39,7 @@ class TranscribeJob:
     config_device: str
     language: str | None
     keep_audio: bool
+    keep_audio_format: str = "wav"
 
 
 @dataclass
@@ -46,6 +48,40 @@ class TranscribeResult:
     ok: bool
     transcript_path: str | None
     error: str | None
+
+
+# format -> (libsndfile container, subtype, file extension)
+_KEEP_AUDIO_SPECS: dict[str, tuple[str, str | None, str]] = {
+    "opus": ("OGG", "OPUS", ".opus"),
+    "flac": ("FLAC", None, ".flac"),
+}
+
+
+def _compress_kept_audio(wav_path: Path, fmt: str) -> None:
+    """Transcode a finished chunk WAV to a compressed sibling, then drop the WAV.
+
+    Whisper has already read the WAV, so the codec is irrelevant to the
+    transcript — this only shrinks what ``--keep-audio`` leaves on disk. Encoded
+    with libsndfile via ``soundfile`` (no extra dependency). Best-effort: on any
+    failure the original WAV is kept and any partial output removed, so a bad
+    transcode never costs a recording.
+    """
+    spec = _KEEP_AUDIO_SPECS.get(fmt)
+    if spec is None:
+        return
+    container, subtype, ext = spec
+    out = wav_path.with_suffix(ext)
+    try:
+        import soundfile as sf
+
+        data, sr = sf.read(str(wav_path), dtype="float32")
+        if subtype is not None:
+            sf.write(str(out), data, sr, format=container, subtype=subtype)
+        else:
+            sf.write(str(out), data, sr, format=container)
+        wav_path.unlink(missing_ok=True)
+    except Exception:
+        out.unlink(missing_ok=True)  # drop any half-written file; keep the WAV
 
 
 _SENTINEL = "__STOP__"
@@ -423,13 +459,22 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
             target = day / transcript_filename(chunk_proxy).name
             written = write_transcript(transcript, target)
 
-            # Delete per-source WAVs if not keeping audio.
+            # Audio cleanup. Without --keep-audio, drop the per-source WAVs.
+            # With it, transcode each WAV to the configured (compressed) format
+            # and remove the WAV so retained audio stays small. Whisper has
+            # already read the WAV above, so the codec never affects the
+            # transcript.
             if not job_data.get("keep_audio", False):
                 for p in audio_paths.values():
                     try:
                         _Path(p).unlink(missing_ok=True)
                     except OSError:
                         pass
+            else:
+                keep_format = job_data.get("keep_audio_format", "wav")
+                if keep_format != "wav":
+                    for p in audio_paths.values():
+                        _compress_kept_audio(_Path(p), keep_format)
 
             out_q.put(
                 {
@@ -598,6 +643,7 @@ def chunk_to_job(
         "config_device": cfg.device,
         "language": cfg.language,
         "keep_audio": cfg.keep_audio,
+        "keep_audio_format": cfg.keep_audio_format,
         "whisper_idle_unload": cfg.whisper_idle_unload,
         "whisper_idle_unload_seconds": cfg.whisper_idle_unload_seconds,
     }

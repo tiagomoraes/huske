@@ -886,6 +886,60 @@ section.tight { padding: 56px 0; }
 .recall .wiring .wnote .ln .tick { color: var(--ok); }
 .recall .wiring .wnote .ln .warn { color: var(--warn); }
 
+/* two-stage recall (distillation) — opt-in block under the search connect grid */
+.two-stage {
+  margin-top: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.two-stage .ts-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--border-soft);
+  font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.04em;
+  color: var(--fg);
+}
+.two-stage .ts-tag {
+  font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--brand-amber);
+  border: 1px solid var(--border); border-radius: 999px;
+  padding: 2px 8px;
+}
+.two-stage .ts-grid {
+  display: grid; grid-template-columns: minmax(0, 1fr) 300px;
+  align-items: stretch;
+}
+@media (max-width: 980px) { .two-stage .ts-grid { grid-template-columns: 1fr; } }
+.two-stage .ts-main { padding: 16px 18px; }
+.two-stage .ts-flow {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  font-family: var(--font-mono); font-size: 11.5px; margin-bottom: 14px;
+}
+.two-stage .ts-flow .node {
+  border: 1px solid var(--border-soft); border-radius: 6px;
+  padding: 4px 9px; color: var(--fg-muted); white-space: nowrap;
+}
+.two-stage .ts-flow .node.hot { color: var(--brand-amber); border-color: var(--brand-amber); }
+.two-stage .ts-flow .arr { color: var(--fg-faint); }
+.two-stage .ts-p { margin: 0; font-size: 14px; line-height: 1.6; color: var(--fg-muted); max-width: 62ch; }
+.two-stage .ts-p code { font-family: var(--font-mono); font-size: 12.5px; }
+.two-stage .ts-meta {
+  display: flex; flex-direction: column; gap: 11px;
+  padding: 16px 18px;
+  border-left: 1px solid var(--border-soft);
+  font-family: var(--font-mono); font-size: 11.5px;
+}
+@media (max-width: 980px) {
+  .two-stage .ts-meta { border-left: none; border-top: 1px solid var(--border-soft); }
+}
+.two-stage .ts-meta .row { display: flex; gap: 10px; align-items: baseline; }
+.two-stage .ts-meta .row .k { color: var(--fg-faint); flex: 0 0 64px; letter-spacing: 0.04em; }
+.two-stage .ts-meta .row .v { color: var(--fg); min-width: 0; word-break: break-word; }
+.two-stage .ts-meta .opt { color: var(--fg-faint); }
+
 /* ================================================================
    Privacy strip
    ================================================================ */
