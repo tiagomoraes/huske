@@ -6,6 +6,31 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.7.4 - 2026-06-07
+
+### Added
+
+- Setup guidance for connecting **Claude Desktop and Cowork** to the local
+  `huske mcp` server through the `mcp-remote` bridge. Both share one
+  `claude_desktop_config.json`, so the same entry exposes huske in Cowork once
+  Desktop reloads it. The website home page also gained a quick-start strip that
+  surfaces the run-on-login and MCP commands and links to the detailed guides.
+
+### Changed
+
+- Lighter footprint, default-on with no new config. The transcription worker now
+  releases the Metal buffer pool after every chunk (not only on idle unload), so
+  the per-chunk decode working set is reclaimed during recording gaps even while
+  the model stays warm. The ScreenCaptureKit capture stack is now imported
+  lazily and loads only when the SCK fallback path actually starts, not on the
+  common Core Audio tap path, mic-only mode, or `huske recover`.
+
+### Fixed
+
+- The live UI's "N pending" chunk count was always `0` on macOS: it read
+  `multiprocessing.Queue.qsize()`, which raises `NotImplementedError` there. It
+  now uses the orchestrator's authoritative pending-chunk count.
+
 ## 0.7.3 - 2026-06-03
 
 ### Fixed
