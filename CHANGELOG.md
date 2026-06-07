@@ -9,7 +9,8 @@ This project uses semantic versioning after the first public release.
 ### Added
 
 - LLM distillation into searchable **statements** (opt-in, off by default). A
-  local LLM (Ollama; any model tag, default `gemma4:e2b`) distils each
+  local LLM (Ollama; any model tag, default `qwen3.5:0.8b` — the lightest
+  portable tier, run non-reasoning) distils each
   transcript into compact, self-contained claims written to a
   `<name>.statements.json` sidecar. With local search enabled, statements are
   embedded into a separate `statements.db`, and `huske mcp` ranks statements
@@ -19,6 +20,23 @@ This project uses semantic versioning after the first public release.
   transport is dependency-free (loopback HTTP over stdlib). Distillation runs
   off the hot path and degrades gracefully if the daemon is unavailable. See
   `docs/distillation.md` and `docs/adr/0005-llm-distillation.md`.
+
+### Changed
+
+- Screenshots are now smaller on disk by default. The capture interval default
+  is `60s` (was `10s`), and each capture is compressed and downscaled in place
+  via macOS `sips` (no new dependency, skipped gracefully if `sips` is absent):
+  the long edge is clamped to at most `1568px` — Claude's vision target, and it
+  never upscales a smaller display — and re-encoded at JPEG quality `60`. New
+  `screenshots_max_dimension` / `screenshots_jpeg_quality` config keys and
+  `--screenshot-max-dimension` / `--screenshot-quality` flags.
+- `keep_audio` now stores compressed audio instead of raw WAV. After a chunk is
+  transcribed, its WAV is transcoded to a sibling file and the WAV removed. The
+  new `keep_audio_format` config (default `opus`, ~12–20× smaller; `flac` is
+  lossless ~2×; `wav` keeps the uncompressed original) drives this via
+  `soundfile`/`libsndfile` — no new dependency. Whisper still reads the raw WAV
+  first, so transcription is unaffected, and crash recovery is untouched (it
+  only handles pre-transcription WAVs).
 
 ## 0.7.4 - 2026-06-07
 
