@@ -6,6 +6,15 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.8.1 - 2026-06-10
+
+### Fixed
+
+- Website: the home-page output ledger is now a functional, interactive
+  file-tree preview instead of a static block.
+- Website: the release history renders Markdown bold correctly instead of
+  showing literal `**`.
+
 ## 0.8.0 - 2026-06-07
 
 ### Added

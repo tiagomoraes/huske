@@ -139,16 +139,131 @@ const HowItWorks = () => (
   </section>
 );
 
-const FILES = [
-  { name: "091500_8a3f2c19_001.md", active: true },
-  { name: "093000_8a3f2c19_002.md" },
-  { name: "094500_8a3f2c19_003.md" },
+// A working replica of ~/huske/transcripts/: day folders open and close, and
+// every file (plus the auto-generated README) carries its own frontmatter and
+// body, per specs/001-huske-recorder/contracts/transcript-format.md. The days
+// tell one story — a support call surfaces an auth race (05-06), the next
+// morning pins it down and merges the fix (05-07; chunk 3 shows the
+// graceful-stop case), and a system-audio-only talk sits two days back
+// (05-05). Always-on recording means ~4 chunks an hour, so older days elide
+// their tail behind an "earlier chunks" row.
+const DAYS = [
+  {
+    date: "2026-05-07", dow: "Thu", session: "20260507T091500_8a3f2c19",
+    files: [
+      {
+        name: "091500_8a3f2c19_001.md",
+        seq: 1, start: "09:15:00", end: "09:30:00",
+        actual: "900.0", incomplete: false,
+        turns: [
+          { ts: "09:15:02", src: "mic", body: "morning. let's review the auth bug that came up yesterday. looks like the token refresh is racing the cookie write on slow links." },
+          { ts: "09:15:14", src: "sys", body: "sure, looking at the staging logs now. give me a sec." },
+          { ts: "09:15:38", src: "mic", body: "the timing is interesting, every failure is within 80 milliseconds of the cookie write returning." },
+          { ts: "09:15:54", src: "sys", body: "yeah, i see it. the middleware reads from the request before the response cookie has flushed. easy fix, we can pin the auth header in the same hop." },
+          { ts: "09:16:21", src: "mic", body: "good. let me draft a patch and we can pair on it after standup." },
+        ],
+      },
+      {
+        name: "093000_8a3f2c19_002.md",
+        seq: 2, start: "09:30:00", end: "09:45:00",
+        actual: "900.0", incomplete: false,
+        turns: [
+          { ts: "09:30:41", src: "sys", body: "alright, standup. marina, you're up first." },
+          { ts: "09:31:02", src: "sys", body: "shipping the export queue today. one flaky retry test left, i'll chase it down after this." },
+          { ts: "09:31:48", src: "mic", body: "quick flag from me. the auth race from yesterday is reproducible and the patch is drafted. i want one more pair of eyes before it merges." },
+          { ts: "09:32:10", src: "sys", body: "i can pair right after this. is it the same family as the session pinning fix from march?" },
+          { ts: "09:32:24", src: "mic", body: "same family, same hop. i'll grab a room for quarter to ten." },
+        ],
+      },
+      {
+        name: "094500_8a3f2c19_003.md",
+        seq: 3, start: "09:45:00", end: "09:57:22",
+        actual: "742.3", incomplete: true,
+        turns: [
+          { ts: "09:45:12", src: "mic", body: "sharing my screen. the patch pins the auth header in the same hop, so the middleware never sees a stale cookie." },
+          { ts: "09:46:05", src: "sys", body: "walk me through the failing case first. ok. refresh fires, the cookie write lands 80 milliseconds later, and the middleware already read the old token. yeah, pin it." },
+          { ts: "09:48:33", src: "mic", body: "running the integration suite now." },
+          { ts: "09:53:17", src: "sys", body: "green. forty-one passed, including the race repro." },
+          { ts: "09:55:48", src: "mic", body: "merging. i'll post in the channel and close the incident." },
+        ],
+      },
+    ],
+  },
+  {
+    // Always-on since login: session start 08:45 + 31 chunks × 15 min = 16:30.
+    date: "2026-05-06", dow: "Wed", session: "20260506T084500_c41d09e2",
+    earlier: 31,
+    files: [
+      {
+        name: "163000_c41d09e2_032.md",
+        seq: 32, start: "16:30:00", end: "16:45:00",
+        actual: "900.0", incomplete: false,
+        turns: [
+          { ts: "16:30:12", src: "sys", body: "thanks for jumping on. since this morning we've had maybe thirty users kicked back to the login screen mid-session." },
+          { ts: "16:30:55", src: "mic", body: "no deploys on our side since friday. is it everyone, or is there a pattern?" },
+          { ts: "16:31:30", src: "sys", body: "mostly people on hotel wifi or tethering. from the office we can't reproduce it at all." },
+          { ts: "16:32:08", src: "mic", body: "slow links. interesting. can you pull two or three HAR files from affected sessions and send them over?" },
+          { ts: "16:33:40", src: "mic", body: "got them. i'll dig into the token refresh path first thing tomorrow." },
+        ],
+      },
+    ],
+  },
+  {
+    // Session start 09:00 + 21 chunks × 15 min = 14:15.
+    date: "2026-05-05", dow: "Tue", session: "20260505T090000_f0a7d513",
+    earlier: 21,
+    files: [
+      {
+        name: "141500_f0a7d513_022.md",
+        seq: 22, start: "14:15:00", end: "14:30:00",
+        actual: "900.0", incomplete: false,
+        sources: "[system]", language: "en",
+        turns: [
+          { ts: "14:15:09", src: "sys", body: "so the question everyone asks about local-first is sync. and the answer is, you don't sync state, you sync facts." },
+          { ts: "14:16:44", src: "sys", body: "every event is immutable. the view is a fold over the log. when two devices disagree, you don't merge objects, you merge histories." },
+          { ts: "14:18:21", src: "sys", body: "we'll come back to compaction, because logs grow, and that's where most implementations fall over." },
+        ],
+      },
+    ],
+  },
+];
+
+// Mirrors the README that huske writes to <output_root>/README.md
+// (transcript-format.md, "Auto-generated README" section).
+const LEDGER_README = [
+  "This directory is managed by the huske terminal app. Each subdirectory is a local calendar date in YYYY-MM-DD form, holding all transcripts whose chunk start time falls on that date.",
+  "Each .md file is a single transcribed audio chunk; filenames sort chronologically (HHMMSS_<sessionid8>_<seq>.md). The YAML frontmatter at the top of each file is the authoritative metadata.",
+  "To query: an LLM agent can be pointed at this directory and asked to read files by date/time. No bespoke tooling is required.",
+];
+
+const frontmatterRows = (day, f) => [
+  ["session_id", `"${day.session}"`, "str"],
+  ["chunk_seq", String(f.seq), "val"],
+  ["date", day.date, "str"],
+  ["start_time", `${day.date}T${f.start}-03:00`, "str"],
+  ["end_time", `${day.date}T${f.end}-03:00`, "str"],
+  ["duration_seconds", "900", "val"],
+  ["duration_actual_seconds", f.actual, "val"],
+  ["gap_seconds", "0.0", "val"],
+  ["model", "mlx-whisper:base", "val"],
+  ["audio_sources", f.sources || "[microphone, system]", "val"],
+  ["language", f.language || "auto", "str"],
+  ["incomplete", String(f.incomplete), "val"],
+  ["huske_version", HUSKE_VERSION, "str"],
 ];
 
 const OutputPreview = () => {
-  const [active, setActive] = React.useState(0);
+  const [selected, setSelected] = React.useState(DAYS[0].files[0].name);
+  const [openDays, setOpenDays] = React.useState({ [DAYS[0].date]: true });
   const [copied, setCopied] = React.useState(false);
-  const cur = FILES[active] || FILES[0];
+  const isReadme = selected === "README.md";
+  const curDay = DAYS.find((d) => d.files.some((f) => f.name === selected)) || DAYS[0];
+  const cur = curDay.files.find((f) => f.name === selected) || DAYS[0].files[0];
+  const path = isReadme
+    ? "~/huske/transcripts/README.md"
+    : `~/huske/transcripts/${curDay.date}/${cur.name}`;
+  const select = (name) => { setSelected(name); setCopied(false); };
+  const toggleDay = (date) => setOpenDays((o) => ({ ...o, [date]: !o[date] }));
   return (
     <section id="output">
       <div className="page">
@@ -161,82 +276,94 @@ const OutputPreview = () => {
         <div className="ledger">
           <div className="tree">
             <div className="head">~/huske/transcripts/</div>
-            <div className="item"><span className="glyph">├─</span> README.md</div>
-            <div className="item root"><span className="glyph">▾</span> 2026-05-07/</div>
-            {FILES.map((f, i) => (
-              <div
-                key={f.name}
-                className={`item ${i === active ? "active" : ""}`}
-                onClick={() => setActive(i)}
-                style={{ paddingLeft: 16 }}
-              >
-                <span className="glyph">{i === FILES.length - 1 ? "└─" : "├─"}</span>
-                {f.name}
-              </div>
+            <button
+              type="button"
+              className={`item ${isReadme ? "active" : ""}`}
+              aria-pressed={isReadme}
+              onClick={() => select("README.md")}
+            >
+              <span className="glyph">├─</span> README.md
+            </button>
+            {DAYS.map((d) => (
+              <React.Fragment key={d.date}>
+                <button
+                  type="button"
+                  className="item root"
+                  aria-expanded={!!openDays[d.date]}
+                  onClick={() => toggleDay(d.date)}
+                >
+                  <span className="glyph">{openDays[d.date] ? "▾" : "▸"}</span> {d.date}/
+                </button>
+                {openDays[d.date] && d.earlier && (
+                  <div className="item static more" style={{ paddingLeft: 16 }}>
+                    <span className="glyph">├─</span> … {d.earlier} earlier chunks
+                  </div>
+                )}
+                {openDays[d.date] && d.files.map((f, i) => (
+                  <button
+                    key={f.name}
+                    type="button"
+                    className={`item ${f.name === selected ? "active" : ""}`}
+                    aria-pressed={f.name === selected}
+                    onClick={() => select(f.name)}
+                    style={{ paddingLeft: 16 }}
+                  >
+                    <span className="glyph">{i === d.files.length - 1 ? "└─" : "├─"}</span>
+                    {f.name}
+                  </button>
+                ))}
+              </React.Fragment>
             ))}
-            <div style={{ height: 12 }}/>
-            <div className="item root"><span className="glyph">▸</span> 2026-05-06/</div>
-            <div className="item root"><span className="glyph">▸</span> 2026-05-05/</div>
+            <div className="hint">click folders to open, files to preview</div>
           </div>
           <div className="doc">
             <div className="crumb">
-              <span>2026-05-07</span>
-              <span className="arrow">/</span>
-              <span style={{ color: "var(--fg)" }}>{cur.name}</span>
+              {isReadme ? (
+                <span style={{ color: "var(--fg)" }}>README.md</span>
+              ) : (
+                <>
+                  <span>{curDay.date}</span>
+                  <span className="arrow">/</span>
+                  <span style={{ color: "var(--fg)" }}>{cur.name}</span>
+                </>
+              )}
               <div className="actions">
                 <button onClick={() => {
-                  navigator.clipboard?.writeText(cur.name);
+                  navigator.clipboard?.writeText(path);
                   setCopied(true);
                   setTimeout(() => setCopied(false), 1200);
                 }}>{copied ? "✓ copied" : "copy path"}</button>
-                <button>open in editor</button>
               </div>
             </div>
-            <div className="frontmatter">
-              <div><span className="delim">---</span></div>
-              <div><span className="key">session_id:</span>      <span className="str">"20260507T091500_8a3f"</span></div>
-              <div><span className="key">chunk_seq:</span>       <span className="val">1</span></div>
-              <div><span className="key">date:</span>            <span className="str">2026-05-07</span></div>
-              <div><span className="key">start_time:</span>      <span className="str">2026-05-07T09:15:00-03:00</span></div>
-              <div><span className="key">end_time:</span>        <span className="str">2026-05-07T09:30:00-03:00</span></div>
-              <div><span className="key">duration_seconds:</span> <span className="val">900</span></div>
-              <div><span className="key">duration_actual_seconds:</span> <span className="val">900.0</span></div>
-              <div><span className="key">gap_seconds:</span>     <span className="val">0.0</span></div>
-              <div><span className="key">model:</span>            <span className="val">mlx-whisper:base</span></div>
-              <div><span className="key">audio_sources:</span>    <span className="val">[microphone, system]</span></div>
-              <div><span className="key">language:</span>         <span className="str">auto</span></div>
-              <div><span className="key">incomplete:</span>       <span className="val">false</span></div>
-              <div><span className="key">huske_version:</span>    <span className="str">{HUSKE_VERSION}</span></div>
-              <div><span className="delim">---</span></div>
-            </div>
+            {isReadme ? (
+              <div className="doc-body readme" key="README.md">
+                <h2># Huske transcripts</h2>
+                {LEDGER_README.map((p, i) => <p key={i}>{p}</p>)}
+              </div>
+            ) : (
+              <div className="doc-body" key={cur.name}>
+                <div className="frontmatter">
+                  <div><span className="delim">---</span></div>
+                  {frontmatterRows(curDay, cur).map(([k, v, cls]) => (
+                    <div className="row" key={k}>
+                      <span className="key">{k}:</span>
+                      <span className={cls}>{v}</span>
+                    </div>
+                  ))}
+                  <div><span className="delim">---</span></div>
+                </div>
 
-            <h2># Transcript · 09:15:00 — 09:30:00</h2>
+                <h2># {cur.start.slice(0, 5)} – {cur.end.slice(0, 5)} ({curDay.dow} {curDay.date})</h2>
 
-            <div className="turn mic">
-              <span className="ts">09:15:02</span>
-              <span className="src">mic</span>
-              <span className="body">morning. let's review the auth bug that came up yesterday — looks like the token refresh is racing the cookie write on slow links.</span>
-            </div>
-            <div className="turn sys">
-              <span className="ts">09:15:14</span>
-              <span className="src">sys</span>
-              <span className="body">sure, looking at the staging logs now. give me a sec.</span>
-            </div>
-            <div className="turn mic">
-              <span className="ts">09:15:38</span>
-              <span className="src">mic</span>
-              <span className="body">the timing is interesting — every failure is within 80 ms of the cookie write returning.</span>
-            </div>
-            <div className="turn sys">
-              <span className="ts">09:15:54</span>
-              <span className="src">sys</span>
-              <span className="body">yeah, i see it. the middleware reads from the request before the response cookie has flushed. easy fix — we can pin the auth header in the same hop.</span>
-            </div>
-            <div className="turn mic">
-              <span className="ts">09:16:21</span>
-              <span className="src">mic</span>
-              <span className="body">good. let me draft a patch and we can pair on it after standup.</span>
-            </div>
+                {cur.turns.map((t) => (
+                  <div className={`turn ${t.src}`} key={t.ts}>
+                    <span className="ts">{t.ts}</span>
+                    <span className="src">{t.src}</span>
+                    <span className="body">{t.body}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -595,7 +722,14 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.8.0", date: "2026-06-07", tag: "latest",
+    ver: "0.8.1", date: "2026-06-10", tag: "latest",
+    items: [
+      { kind: "fixed", text: <>Website: the home-page output ledger is now a functional, interactive file-tree preview instead of a static block.</> },
+      { kind: "fixed", text: <>Website: the release history renders Markdown bold correctly instead of showing literal <code>**</code>.</> },
+    ],
+  },
+  {
+    ver: "0.8.0", date: "2026-06-07",
     items: [
       { kind: "added", text: <>Opt-in LLM distillation into searchable <strong>statements</strong> (off by default). A local LLM (Ollama; default <code>qwen3.5:0.8b</code>, any tag) condenses each transcript into compact, self-contained claims; with local search on, <code>huske mcp</code> ranks those first and <code>fetch</code> grounds every hit in the verbatim source (two-stage retrieval). Adds <code>huske distill</code> backfill, a <code>huske doctor</code> daemon check, and <code>distill_*</code> config — dependency-free and off the hot path. See <code>docs/distillation.md</code>.</> },
       { kind: "changed", text: <>Screenshots are lighter by default: the capture interval is now <code>60s</code> (was <code>10s</code>), and each frame is downscaled (long edge ≤ <code>1568px</code>) and re-encoded at JPEG quality <code>60</code> in place via macOS <code>sips</code>. New <code>screenshots_max_dimension</code> / <code>screenshots_jpeg_quality</code> config and matching flags.</> },
@@ -647,8 +781,8 @@ const RELEASES = [
       { kind: "changed", text: <>Release process collapses into three scripts under <code>scripts/</code>: <code>release.py</code>, <code>release-finalize.py</code>, and <code>update-homebrew-tap.py</code>. The short operational checklist is <code>docs/RELEASE_PLAYBOOK.md</code>; <code>docs/releasing.md</code> remains as the deep reference.</> },
       { kind: "changed", text: <><code>huske/__init__.py</code> now reads the version from <code>pyproject.toml</code> when the package source is adjacent (dev checkout / editable install) and falls back to <code>importlib.metadata</code> for installed wheels. The two hardcoded versions could no longer drift the way <code>0.3.1</code> had to be hotfixed for.</> },
       { kind: "added", text: <><code>.github/workflows/back-merge.yml</code> automatically opens the <code>chore/sync-main-after-vX.Y.Z</code> (or <code>chore/sync-main-hotfix-…</code>) PR when a <code>release: v*</code> / <code>hotfix:*</code> PR merges into <code>main</code>, so the back-merge step no longer relies on the maintainer remembering to open it.</> },
-      { kind: "added", text: <>**Local semantic search** (opt-in <code>huske[mcp]</code> extra). <code>huske index</code> builds or refreshes a local <code>sqlite-vec</code> passage store from transcripts. Each finalized transcript is embedded via <code>mlx-embeddings</code> (<code>multilingual-e5-base</code>) in an isolated subprocess so the audio drainer is never starved. <code>huske run</code> can continuously index during recording when <code>indexing_enabled = true</code> in config. See <code>docs/adr/0002</code> and <code>CONTEXT.md</code> for the Passage model.</> },
-      { kind: "added", text: <>**<code>huske mcp</code> daemon** exposes <code>search</code> and <code>fetch</code> over a loopback HTTP MCP endpoint (bearer token + Origin/Host validation). Works with any MCP client (Claude Desktop, ChatGPT, etc.). See <code>docs/adr/0001</code>.</> },
+      { kind: "added", text: <><strong>Local semantic search</strong> (opt-in <code>huske[mcp]</code> extra). <code>huske index</code> builds or refreshes a local <code>sqlite-vec</code> passage store from transcripts. Each finalized transcript is embedded via <code>mlx-embeddings</code> (<code>multilingual-e5-base</code>) in an isolated subprocess so the audio drainer is never starved. <code>huske run</code> can continuously index during recording when <code>indexing_enabled = true</code> in config. See <code>docs/adr/0002</code> and <code>CONTEXT.md</code> for the Passage model.</> },
+      { kind: "added", text: <><strong><code>huske mcp</code> daemon</strong> exposes <code>search</code> and <code>fetch</code> over a loopback HTTP MCP endpoint (bearer token + Origin/Host validation). Works with any MCP client (Claude Desktop, ChatGPT, etc.). See <code>docs/adr/0001</code>.</> },
       { kind: "added", text: <><code>index_root</code>, <code>indexing_enabled</code>, <code>embedding_model</code>, <code>mcp_host</code>, and <code>mcp_port</code> config keys for the search subsystem.</> },
     ],
   },

@@ -157,18 +157,28 @@ The script:
   blocks — those need human ordering).
 - Runs `brew style` and `brew audit --strict --online`.
 
-### 🛑 STOP
-
-A human runs the final three commands the script prints:
+Then build and test the formula from source. **An agent may run these two
+automatically** — they only touch the local tap clone and don't publish
+anything:
 
 ```bash
 brew install --build-from-source tiagomoraes/huske/huske
 brew test tiagomoraes/huske/huske
-cd "$(brew --repo tiagomoraes/huske)" && git push
 ```
 
-The tap repo does not use PRs (it's a personal tap); the maintainer pushes
-directly to `master`.
+(If a previous version is already installed, use `brew reinstall
+--build-from-source …` to force a from-source rebuild of the new formula.)
+
+### 🛑 STOP
+
+Only the push publishes, so a human reviews the formula diff and pushes the
+tap (the tap repo does not use PRs — it's a personal tap, pushed directly to
+`master`):
+
+```bash
+cd "$(brew --repo tiagomoraes/huske)"
+git add Formula/huske.rb && git commit -m "Update huske to v$VERSION" && git push
+```
 
 ---
 
