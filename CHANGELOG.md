@@ -6,6 +6,17 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+### Changed
+
+- `whisper_idle_unload` now defaults to **on**. The transcription worker drops
+  the Whisper model after `whisper_idle_unload_seconds` of inactivity (default
+  120 s) and reloads it from the local cache on the next chunk, so huske idles
+  at a few hundred MB instead of holding ~150 MB (`base`) to ~3 GB (`large-v3`)
+  resident through the long gaps between chunks. Recording idles far more than
+  it transcribes, and held RAM costs more than a network-free re-read. Pass
+  `huske run --no-idle-unload` (or set `whisper_idle_unload = false`) to keep
+  the model warm for back-to-back transcription.
+
 ## 0.8.1 - 2026-06-10
 
 ### Fixed
