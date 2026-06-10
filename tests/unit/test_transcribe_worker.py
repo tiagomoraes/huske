@@ -117,12 +117,12 @@ def test_chunk_to_job_carries_idle_unload_config(tmp_path: Path) -> None:
     assert job["whisper_idle_unload_seconds"] == 45.0
 
 
-def test_chunk_to_job_idle_unload_defaults_off(tmp_path: Path) -> None:
+def test_chunk_to_job_idle_unload_defaults_on(tmp_path: Path) -> None:
     from huske.config import RuntimeConfig
 
     job = worker.chunk_to_job(_fake_chunk(tmp_path), RuntimeConfig())
 
-    assert job["whisper_idle_unload"] is False
+    assert job["whisper_idle_unload"] is True
     assert job["whisper_idle_unload_seconds"] == 120.0
 
 

@@ -102,7 +102,8 @@ def run(
         "--idle-unload/--no-idle-unload",
         help="Unload the Whisper model from memory between chunks to lower idle "
         "RAM (frees ~150 MB to 3 GB depending on model size). The next chunk pays "
-        "a few-second reload from the local cache. Off by default.",
+        "a few-second reload from the local cache. On by default; pass "
+        "--no-idle-unload to keep the model warm.",
     ),
     distill: bool | None = typer.Option(
         None,
