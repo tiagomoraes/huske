@@ -722,7 +722,14 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.8.0", date: "2026-06-07", tag: "latest",
+    ver: "0.8.1", date: "2026-06-10", tag: "latest",
+    items: [
+      { kind: "fixed", text: <>Website: the home-page output ledger is now a functional, interactive file-tree preview instead of a static block.</> },
+      { kind: "fixed", text: <>Website: the release history renders Markdown bold correctly instead of showing literal <code>**</code>.</> },
+    ],
+  },
+  {
+    ver: "0.8.0", date: "2026-06-07",
     items: [
       { kind: "added", text: <>Opt-in LLM distillation into searchable <strong>statements</strong> (off by default). A local LLM (Ollama; default <code>qwen3.5:0.8b</code>, any tag) condenses each transcript into compact, self-contained claims; with local search on, <code>huske mcp</code> ranks those first and <code>fetch</code> grounds every hit in the verbatim source (two-stage retrieval). Adds <code>huske distill</code> backfill, a <code>huske doctor</code> daemon check, and <code>distill_*</code> config — dependency-free and off the hot path. See <code>docs/distillation.md</code>.</> },
       { kind: "changed", text: <>Screenshots are lighter by default: the capture interval is now <code>60s</code> (was <code>10s</code>), and each frame is downscaled (long edge ≤ <code>1568px</code>) and re-encoded at JPEG quality <code>60</code> in place via macOS <code>sips</code>. New <code>screenshots_max_dimension</code> / <code>screenshots_jpeg_quality</code> config and matching flags.</> },
