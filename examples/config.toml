@@ -58,10 +58,11 @@ device = "auto"
 # Unload the Whisper model from memory between chunks to lower idle RAM. When
 # true, the model is dropped after `whisper_idle_unload_seconds` of inactivity
 # and reloaded (from the local cache, no network) on the next chunk — freeing
-# ~150 MB for `base` up to ~3 GB for `large-v3` while idle. Off by default so
-# live transcription stays warm; the reload costs a few seconds on the first
-# chunk after an idle gap. Equivalent CLI flag: `huske run --idle-unload`.
-# whisper_idle_unload = true
+# ~150 MB for `base` up to ~3 GB for `large-v3` while idle. On by default,
+# since recording idles far more than it transcribes; the reload costs a few
+# seconds on the first chunk after an idle gap. Set this false (or pass
+# `huske run --no-idle-unload`) to keep the model warm for back-to-back work.
+# whisper_idle_unload = false
 # whisper_idle_unload_seconds = 120
 
 # ============================================================

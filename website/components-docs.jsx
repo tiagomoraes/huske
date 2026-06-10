@@ -260,11 +260,12 @@ const AutostartDoc = () => (
 
     <h3>Lighter idle footprint</h3>
     <p>
-      Since the agent runs all day, you may want it to use less RAM while idle.
-      Set <code>whisper_idle_unload = true</code> (drops the Whisper model from
-      memory between chunks, freeing ~150 MB–3 GB; the next chunk reloads from the
-      local cache in a few seconds) and <code>menu_bar_enabled = false</code> in a
-      config file, then point the agent at it:
+      Since the agent runs all day, huske keeps idle RAM low by default:
+      {" "}<code>whisper_idle_unload</code> is on, so the Whisper model is dropped
+      from memory between chunks (freeing ~150 MB–3 GB; the next chunk reloads
+      from the local cache in a few seconds). To trim a little more, set
+      {" "}<code>menu_bar_enabled = false</code> in a config file, then point the
+      agent at it:
     </p>
     <DocsTerminal>
       <DocsCmd cmd="huske autostart install --config ~/.config/huske/config.toml" />
@@ -296,7 +297,7 @@ const ADVANCED_CONFIG = [
   { key: "channels", def: "2", desc: "Input channel count (1–2; mixed to mono internally).", flag: "" },
   { key: "compute_type", def: "int8", desc: "Back-compat; only float32 disables fp16 on the MLX backend.", flag: "--compute-type" },
   { key: "device", def: "auto", desc: "Back-compat; mlx-whisper always runs on the Apple GPU.", flag: "--device" },
-  { key: "whisper_idle_unload", def: "false", desc: "Drop the Whisper model from RAM between chunks (frees ~150 MB–3 GB); reloads from the local cache on the next chunk.", flag: "--idle-unload" },
+  { key: "whisper_idle_unload", def: "true", desc: "Drop the Whisper model from RAM between chunks (frees ~150 MB–3 GB); reloads from the local cache on the next chunk. Set false to keep it warm.", flag: "--idle-unload" },
   { key: "whisper_idle_unload_seconds", def: "120", desc: "Idle seconds before the model is unloaded (min 5).", flag: "" },
   { key: "logs_root", def: "~/huske/logs", desc: "Per-session log files.", flag: "" },
   { key: "menu_bar_enabled", def: "true", desc: "macOS menu bar helper while recording.", flag: "--menu-bar" },

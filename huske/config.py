@@ -70,10 +70,13 @@ class RuntimeConfig(BaseModel):
     # after `whisper_idle_unload_seconds` of inactivity, letting the OS reclaim
     # the resident weights (~150 MB for `base`, up to ~3 GB for `large-v3`)
     # during the long idle gaps between chunks. The next chunk pays a one-off
-    # reload from the local model cache (a few seconds, no network). Off by
-    # default so live transcription always stays warm. See the transcribe
-    # worker's idle loop for the queue-empty/timeout guard that avoids thrash.
-    whisper_idle_unload: bool = False
+    # reload from the local model cache (a few seconds, no network) — a cheap
+    # trade, since recording idles far more than it transcribes and held RAM
+    # costs more than a network-free re-read. On by default; pass
+    # `--no-idle-unload` (or set this false) to keep the model warm for
+    # back-to-back transcription. See the transcribe worker's idle loop for the
+    # queue-empty/timeout guard that keeps it warm through recovery bursts.
+    whisper_idle_unload: bool = True
     whisper_idle_unload_seconds: float = Field(default=120.0, ge=5.0)
 
     keep_audio: bool = False
