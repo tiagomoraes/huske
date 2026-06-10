@@ -6,6 +6,8 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.8.2 - 2026-06-10
+
 ### Changed
 
 - `whisper_idle_unload` now defaults to **on**. The transcription worker drops

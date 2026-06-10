@@ -120,7 +120,7 @@ screenshots directory and interval.
 For prerelease builds or exact GitHub tags, install directly from the repository:
 
 ```bash
-uv tool install "git+https://github.com/tiagomoraes/huske.git@v0.8.1"
+uv tool install "git+https://github.com/tiagomoraes/huske.git@v0.8.2"
 ```
 
 See [quickstart.md](specs/001-huske-recorder/quickstart.md) for the full setup.

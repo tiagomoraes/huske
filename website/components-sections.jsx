@@ -722,7 +722,13 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.8.1", date: "2026-06-10", tag: "latest",
+    ver: "0.8.2", date: "2026-06-10", tag: "latest",
+    items: [
+      { kind: "changed", text: <><code>whisper_idle_unload</code> now defaults to **on**. The transcription worker drops the Whisper model after <code>whisper_idle_unload_seconds</code> of inactivity (default 120 s) and reloads it from the local cache on the next chunk, so huske idles at a few hundred MB instead of holding ~150 MB (<code>base</code>) to ~3 GB (<code>large-v3</code>) resident through the long gaps between chunks. Recording idles far more than it transcribes, and held RAM costs more than a network-free re-read. Pass <code>huske run --no-idle-unload</code> (or set <code>whisper_idle_unload = false</code>) to keep the model warm for back-to-back transcription.</> },
+    ],
+  },
+  {
+    ver: "0.8.1", date: "2026-06-10",
     items: [
       { kind: "fixed", text: <>Website: the home-page output ledger is now a functional, interactive file-tree preview instead of a static block.</> },
       { kind: "fixed", text: <>Website: the release history renders Markdown bold correctly instead of showing literal <code>**</code>.</> },
