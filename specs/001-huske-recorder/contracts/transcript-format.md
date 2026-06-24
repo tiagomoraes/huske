@@ -65,7 +65,7 @@ gap_seconds: 0.0
 audio_sources:
   - microphone
   - system
-model: mlx-whisper:base
+model: parakeet:tdt-0.6b-v3
 language: pt
 incomplete: false
 huske_version: 0.5.0
@@ -77,15 +77,34 @@ huske_version: 0.5.0
 | `session_id` | string | Full session id. |
 | `chunk_seq` | integer | Within session, ≥1. |
 | `date` | YYYY-MM-DD | Local date of `start_time`. |
-| `start_time`, `end_time` | ISO 8601 with offset | Always tz-aware. |
-| `duration_seconds` | integer | Configured chunk duration. |
-| `duration_actual_seconds` | float | What was actually captured. May be < `duration_seconds` for partial chunks. |
+| `start_time`, `end_time` | ISO 8601 with offset | Always tz-aware. The actual recorded window — with speech-gated segmentation, this is bounded by speech, not a fixed clock. |
+| `duration_seconds` | integer | Speech-gated: the chunk's recorded length (≈ `duration_actual_seconds`), since the chunk closed naturally on a pause or the cap. Legacy fixed-interval mode: the configured chunk duration (`chunk_minutes`·60). |
+| `duration_actual_seconds` | float | Seconds of audio actually recorded in the chunk. |
 | `gap_seconds` | float | Total silence/disconnect gaps within the chunk; 0 if continuous. |
 | `audio_sources` | list[string] | Subset of `["microphone", "system"]`. Reflects what was effectively captured (may shrink if a source dropped mid-chunk). |
-| `model` | string | `<engine>:<size>`. |
-| `language` | string | ISO 639-1 or `auto` if undetected. |
+| `model` | string | `<engine>:<size>`, e.g. `parakeet:tdt-0.6b-v3` (default) or `mlx-whisper:medium`. |
+| `language` | string | ISO 639-1, or `auto` when the engine auto-detects (Parakeet does not report a per-chunk language). |
 | `incomplete` | boolean | `true` if produced from recovery, graceful-stop short chunk, or partial transcription. |
 | `huske_version` | string | Semver of the producing huske binary. |
+
+> **Chunk boundaries (v0.9+).** By default huske segments on *speech activity*,
+> not a fixed clock: a chunk opens when speech is first heard and closes after a
+> configurable pause (`silence_split_seconds`, default 60 s) or at the
+> `chunk_minutes` cap. Silence between chunks is not recorded, so there are no
+> large near-empty files and a conversation is not cut mid-sentence at an
+> arbitrary 15-minute tick. Setting `speech_gated = false` restores the legacy
+> fixed-interval rotation. Filenames, frontmatter keys, and sort order are
+> unchanged.
+>
+> **Echo handling (v0.9+).** When mic + system audio are recorded on speakers,
+> the system output that bleeds into the mic is handled in two stages so it is
+> not transcribed a second time on the `mic` side: coherence-based echo
+> *suppression* (`echo_cancel`, default on) attenuates the bleed in the mic
+> audio before transcription, and a transcript-level dedup (`echo_dedup`,
+> default `drop`) removes any residual mic run — whole line or partial fragment —
+> that duplicates a near-simultaneous system run. In `annotate` mode a surviving
+> mic echo is tagged `mic · echo` (see Body). The dedup is one-way: the local
+> voice and the clean system line are never removed.
 
 ### Body
 
@@ -102,7 +121,10 @@ huske_version: 0.5.0
 - The H1 line is human-readable and may be reformatted; tooling should rely on the frontmatter, not the heading.
 - Each contiguous run of same-source segments is one paragraph prefixed with `[HH:MM:SS · <source>]`, where:
   - `HH:MM:SS` is the local-time start of the run's first segment (chunk `start_time` plus the segment offset within its WAV) — it is the run's head, not periodic.
-  - `<source>` is `mic` for microphone or `system` for system audio.
+  - `<source>` is `mic` for microphone or `system` for system audio. When the
+    cross-channel echo de-duplication runs in `annotate` mode, a mic run
+    identified as speaker bleed of a system run is tagged `mic · echo`; in the
+    default `drop` mode such runs are removed entirely and never appear.
 - Runs are formed from segments sorted ascending by start time; consecutive
   same-source segments are merged into one run. Concurrent segments from
   different sources appear back-to-back in source order, making overlapping

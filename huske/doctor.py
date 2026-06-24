@@ -437,32 +437,42 @@ def run_doctor(
     # huske version.
     checks.append(Check("huske version", True, __version__))
 
-    # mlx-whisper importable.
-    try:
-        import importlib.metadata as _md
+    # ASR backend importable (check the active engine).
+    import importlib.metadata as _md
 
-        import mlx_whisper  # noqa: F401
+    if cfg.asr_engine == "parakeet":
+        try:
+            import parakeet_mlx  # noqa: F401
 
-        version = _md.version("mlx-whisper")
-        checks.append(Check("mlx-whisper", True, version))
-    except Exception as exc:
-        checks.append(
-            Check(
-                "mlx-whisper",
-                False,
-                str(exc),
-                "pip install 'mlx-whisper>=0.4' (Apple Silicon Mac only).",
+            checks.append(Check("parakeet-mlx", True, _md.version("parakeet-mlx")))
+        except Exception as exc:
+            checks.append(
+                Check(
+                    "parakeet-mlx",
+                    False,
+                    str(exc),
+                    "pip install 'parakeet-mlx' (Apple Silicon Mac only).",
+                )
             )
-        )
+        model_desc = f"'{cfg.parakeet_model}' will be downloaded on first use if missing"
+    else:
+        try:
+            import mlx_whisper  # noqa: F401
+
+            checks.append(Check("mlx-whisper", True, _md.version("mlx-whisper")))
+        except Exception as exc:
+            checks.append(
+                Check(
+                    "mlx-whisper",
+                    False,
+                    str(exc),
+                    "pip install 'mlx-whisper>=0.4' (Apple Silicon Mac only).",
+                )
+            )
+        model_desc = f"'{cfg.model}' will be downloaded on first use if missing"
 
     # Model cached check (does not download — we attempt to load only at run time).
-    checks.append(
-        Check(
-            "model",
-            True,
-            f"'{cfg.model}' will be downloaded on first use if missing",
-        )
-    )
+    checks.append(Check("model", True, model_desc))
 
     # sounddevice working.
     try:

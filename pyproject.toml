@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "huske"
 version = "0.8.2"
-description = "Always-on terminal audio recorder + local transcription (Whisper)"
+description = "Always-on terminal audio recorder + local transcription (Parakeet / Whisper on Apple Silicon)"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 license = "MIT"
@@ -27,7 +27,13 @@ dependencies = [
     "sounddevice>=0.4.6",
     "soundfile>=0.12.1",
     "numpy>=1.26",
+    # Transcription backends (Apple Silicon / MLX). Parakeet is the default
+    # engine; mlx-whisper stays available via `asr_engine = "whisper"`.
+    "parakeet-mlx>=0.5; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "mlx-whisper>=0.4; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    # Used by the engines to resample 48 kHz capture to the 16 kHz both models
+    # want, without shelling out to ffmpeg. Small, ships wheels for Apple Silicon.
+    "soxr>=0.3; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "rich>=13.7",
     "typer>=0.12",
     "pydantic>=2.6",

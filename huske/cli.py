@@ -52,9 +52,56 @@ def main(
 
 @app.command()
 def run(
-    chunk_minutes: float = typer.Option(15.0, "--chunk-minutes", "-c", min=0.1, max=60.0),
+    chunk_minutes: float | None = typer.Option(
+        None,
+        "--chunk-minutes",
+        "-c",
+        min=0.1,
+        max=60.0,
+        help="Maximum chunk length in minutes (a safety cap; chunks normally "
+        "close on a pause in speech — see --silence-split). Default 30.",
+    ),
     output_root: Path | None = typer.Option(None, "--output-root"),
     audio_root: Path | None = typer.Option(None, "--audio-root"),
+    asr_engine: str | None = typer.Option(
+        None,
+        "--asr-engine",
+        help="Transcription backend: parakeet (default, silence-robust, "
+        "multilingual) or whisper (legacy mlx-whisper).",
+    ),
+    parakeet_model: str | None = typer.Option(
+        None,
+        "--parakeet-model",
+        help="Parakeet model id when --asr-engine=parakeet "
+        "(default mlx-community/parakeet-tdt-0.6b-v3).",
+    ),
+    speech_gated: bool | None = typer.Option(
+        None,
+        "--speech-gated/--no-speech-gated",
+        help="Segment audio on real pauses in speech instead of a fixed clock "
+        "(on by default). --no-speech-gated restores fixed-interval rotation.",
+    ),
+    silence_split: float | None = typer.Option(
+        None,
+        "--silence-split",
+        min=2.0,
+        max=600.0,
+        help="Seconds of continuous silence that close the current chunk "
+        "(default 60).",
+    ),
+    echo_cancel: bool | None = typer.Option(
+        None,
+        "--echo-cancel/--no-echo-cancel",
+        help="Suppress system audio that bleeds into the mic over speakers "
+        "(coherence-based echo suppression) before transcription. On by "
+        "default; self-gating (no effect with headphones).",
+    ),
+    echo_dedup: str | None = typer.Option(
+        None,
+        "--echo-dedup",
+        help="Remove a residual mic copy of a system line (full or partial): "
+        "drop (default), annotate, or off.",
+    ),
     model: str | None = typer.Option(None, "--model"),
     compute_type: str | None = typer.Option(None, "--compute-type"),
     device: str | None = typer.Option(None, "--device"),
@@ -138,6 +185,12 @@ def run(
         chunk_minutes=chunk_minutes,
         output_root=output_root,
         audio_root=audio_root,
+        asr_engine=asr_engine,
+        parakeet_model=parakeet_model,
+        speech_gated=speech_gated,
+        silence_split_seconds=silence_split,
+        echo_cancel=echo_cancel,
+        echo_dedup=echo_dedup,
         model=model,
         compute_type=compute_type,
         device=device,

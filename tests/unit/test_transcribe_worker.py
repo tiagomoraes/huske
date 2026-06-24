@@ -48,41 +48,38 @@ def test_worker_child_ignores_sigint_until_parent_stops_it() -> None:
             pass
 
 
-def test_audio_energy_gate_rejects_low_level_noise(tmp_path: Path) -> None:
-    path = tmp_path / "noise.wav"
+def test_whisper_energy_gate_rejects_low_level_noise() -> None:
+    from huske.transcribe.engines.whisper import _EnergyGate
+
     sr = 16_000
     audio = np.full(sr * 2, 0.0005, dtype=np.float32)
-    sf.write(path, audio, sr)
-
-    gate = worker._AudioEnergyGate.from_path(str(path))
+    gate = _EnergyGate(audio, sr)
 
     assert not gate.has_signal(0.5, 1.0)
 
 
-def test_audio_energy_gate_accepts_speech_above_noise_floor(tmp_path: Path) -> None:
-    path = tmp_path / "speech.wav"
+def test_whisper_energy_gate_accepts_speech_above_noise_floor() -> None:
+    from huske.transcribe.engines.whisper import _EnergyGate
+
     sr = 16_000
     audio = np.full(sr * 2, 0.0005, dtype=np.float32)
     start = int(0.8 * sr)
     end = int(1.2 * sr)
     t = np.arange(end - start, dtype=np.float32) / sr
     audio[start:end] += (0.02 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
-    sf.write(path, audio, sr)
-
-    gate = worker._AudioEnergyGate.from_path(str(path))
+    gate = _EnergyGate(audio, sr)
 
     assert gate.has_signal(0.9, 1.1)
     assert not gate.has_signal(0.1, 0.2)
 
 
-def test_audio_energy_gate_keeps_continuous_speech_like_audio(tmp_path: Path) -> None:
-    path = tmp_path / "continuous.wav"
+def test_whisper_energy_gate_keeps_continuous_speech_like_audio() -> None:
+    from huske.transcribe.engines.whisper import _EnergyGate
+
     sr = 16_000
     t = np.arange(sr * 2, dtype=np.float32) / sr
     audio = (0.02 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
-    sf.write(path, audio, sr)
-
-    gate = worker._AudioEnergyGate.from_path(str(path))
+    gate = _EnergyGate(audio, sr)
 
     assert gate.has_signal(0.5, 1.0)
 
@@ -126,24 +123,15 @@ def test_chunk_to_job_idle_unload_defaults_on(tmp_path: Path) -> None:
     assert job["whisper_idle_unload_seconds"] == 120.0
 
 
-def test_resolve_model_dir_returns_existing_path(tmp_path: Path) -> None:
-    # An on-disk path is returned unchanged, with no Hugging Face hub call —
-    # this is what keeps post-unload reloads network-free.
-    assert worker._resolve_model_dir(str(tmp_path)) == str(tmp_path)
+def test_chunk_to_job_carries_engine_selection(tmp_path: Path) -> None:
+    from huske.config import RuntimeConfig
 
+    cfg = RuntimeConfig(asr_engine="parakeet", echo_dedup="annotate")
+    job = worker.chunk_to_job(_fake_chunk(tmp_path), cfg)
 
-def test_unload_whisper_model_releases_metal_cache() -> None:
-    # mlx-whisper may be absent (non-arm CI): resetting ModelHolder is
-    # best-effort, but releasing the Metal buffer pool must always run.
-    calls: list[str] = []
-
-    class _FakeMx:
-        def clear_cache(self) -> None:
-            calls.append("clear_cache")
-
-    worker._unload_whisper_model(_FakeMx())
-
-    assert calls == ["clear_cache"]
+    assert job["asr_engine"] == "parakeet"
+    assert job["parakeet_model"] == "mlx-community/parakeet-tdt-0.6b-v3"
+    assert job["echo_dedup"] == "annotate"
 
 
 class _FakeQueue:

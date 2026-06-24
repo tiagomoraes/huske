@@ -19,10 +19,26 @@ from huske.models import AudioChunk
 def cfg(tmp_path: Path) -> RuntimeConfig:
     return RuntimeConfig(
         chunk_minutes=1.0 / 60.0,  # 1 second chunks (small for tests)
+        speech_gated=False,  # legacy fixed-interval rotation for these tests
         output_root=tmp_path / "transcripts",
         audio_root=tmp_path / "audio",
         logs_root=tmp_path / "logs",
         sample_rate=8000,  # smaller, faster
+        block_size=800,
+        channels=1,
+    )
+
+
+@pytest.fixture
+def gated_cfg(tmp_path: Path) -> RuntimeConfig:
+    return RuntimeConfig(
+        chunk_minutes=10.0,  # high cap — splits should come from silence, not the cap
+        speech_gated=True,
+        silence_split_seconds=5.0,
+        output_root=tmp_path / "transcripts",
+        audio_root=tmp_path / "audio",
+        logs_root=tmp_path / "logs",
+        sample_rate=8000,
         block_size=800,
         channels=1,
     )
@@ -212,3 +228,96 @@ def test_pause_current_without_open_chunk_is_noop(cfg: RuntimeConfig) -> None:
     assert rot.pause_current() is False
     assert finalized == []
     assert not rot.closed
+
+
+# --- speech-gated segmentation --------------------------------------------
+
+
+def test_gated_does_not_open_chunk_during_silence(gated_cfg: RuntimeConfig) -> None:
+    """Silence before any speech writes nothing — no large near-empty files."""
+    finalized: list[AudioChunk] = []
+    rot = ChunkRotator(
+        cfg=gated_cfg,
+        session_id="20260507T091500_aaaa1111",
+        on_finalized=finalized.append,
+    )
+    start = datetime(2026, 5, 7, 9, 0, 0).astimezone()
+    for i in range(20):  # 2 s of silence
+        rot.write_block(
+            _block(gated_cfg.block_size, gated_cfg.channels),
+            now=start + timedelta(seconds=i * 0.1),
+            is_speech=False,
+        )
+    assert rot.current_chunk_seq == 0  # nothing opened
+    assert finalized == []
+
+
+def test_gated_splits_chunks_on_long_silence(gated_cfg: RuntimeConfig) -> None:
+    """Speech, a >silence_split pause, then speech again → two separate chunks."""
+    finalized: list[AudioChunk] = []
+    rot = ChunkRotator(
+        cfg=gated_cfg,
+        session_id="20260507T091500_aaaa1111",
+        on_finalized=finalized.append,
+    )
+    start = datetime(2026, 5, 7, 9, 0, 0).astimezone()
+    blk = _block(gated_cfg.block_size, gated_cfg.channels)
+
+    # 1 s of speech.
+    for i in range(10):
+        rot.write_block(blk, now=start + timedelta(seconds=i * 0.1), is_speech=True)
+    # 6 s of silence (> silence_split_seconds=5) — should finalize the chunk.
+    t = 1.0
+    for i in range(60):
+        rot.write_block(blk, now=start + timedelta(seconds=t + i * 0.1), is_speech=False)
+    # Speech resumes → opens a new chunk.
+    t2 = 7.5
+    for i in range(10):
+        rot.write_block(blk, now=start + timedelta(seconds=t2 + i * 0.1), is_speech=True)
+    rot.finalize_current(now=start + timedelta(seconds=t2 + 1.1))
+
+    assert len(finalized) == 2
+    assert [c.chunk_seq for c in finalized] == [1, 2]
+    # The first chunk's audio is bounded (speech + up to the split window), not
+    # the full wall-clock span.
+    assert finalized[0].actual_duration_seconds is not None
+    assert finalized[0].actual_duration_seconds <= gated_cfg.silence_split_seconds + 2.0
+
+
+def test_gated_keeps_short_gaps_in_one_chunk(gated_cfg: RuntimeConfig) -> None:
+    """A pause shorter than silence_split keeps speech in a single chunk."""
+    finalized: list[AudioChunk] = []
+    rot = ChunkRotator(
+        cfg=gated_cfg,
+        session_id="20260507T091500_aaaa1111",
+        on_finalized=finalized.append,
+    )
+    start = datetime(2026, 5, 7, 9, 0, 0).astimezone()
+    blk = _block(gated_cfg.block_size, gated_cfg.channels)
+    for i in range(10):  # speech
+        rot.write_block(blk, now=start + timedelta(seconds=i * 0.1), is_speech=True)
+    for i in range(20):  # 2 s gap (< 5 s split)
+        rot.write_block(blk, now=start + timedelta(seconds=1.0 + i * 0.1), is_speech=False)
+    for i in range(10):  # speech resumes
+        rot.write_block(blk, now=start + timedelta(seconds=3.0 + i * 0.1), is_speech=True)
+    rot.finalize_current(now=start + timedelta(seconds=4.1))
+
+    assert len(finalized) == 1  # one continuous chunk across the short gap
+
+
+def test_gated_max_cap_rotates_unbroken_speech(gated_cfg: RuntimeConfig) -> None:
+    """Continuous speech past the chunk_minutes cap rotates seamlessly."""
+    cfg = gated_cfg.model_copy(update={"chunk_minutes": 1.0 / 60.0})  # 1 s cap
+    finalized: list[AudioChunk] = []
+    rot = ChunkRotator(
+        cfg=cfg,
+        session_id="20260507T091500_aaaa1111",
+        on_finalized=finalized.append,
+    )
+    start = datetime(2026, 5, 7, 9, 0, 0).astimezone()
+    blk = _block(cfg.block_size, cfg.channels)
+    for i in range(25):  # 2.5 s of unbroken speech, 1 s cap → ~2 rotations
+        rot.write_block(blk, now=start + timedelta(seconds=i * 0.1), is_speech=True)
+    rot.finalize_current(now=start + timedelta(seconds=2.5))
+    assert len(finalized) >= 2
+    assert [c.chunk_seq for c in finalized] == sorted(c.chunk_seq for c in finalized)

@@ -54,6 +54,11 @@ class ChunkRotator:
         self._chunk_started_at: datetime | None = None
         self._closed = False
 
+        # Speech-gated segmentation state (see `write_block`).
+        self._speech_gated = bool(cfg.speech_gated)
+        self._silence_split_seconds = float(cfg.silence_split_seconds)
+        self._last_speech_at: datetime | None = None
+
     @property
     def current_chunk_seq(self) -> int:
         return self._chunk_seq
@@ -73,33 +78,86 @@ class ChunkRotator:
         block: npt.NDArray[np.float32],
         source: str = "microphone",
         now: datetime | None = None,
+        is_speech: bool = True,
     ) -> None:
         """Append ``block`` (mono float32) to the writer for ``source``.
 
-        Rotates BEFORE writing if the configured chunk duration has elapsed —
-        the boundary block becomes the first block of the new chunk so the
-        finalized chunk's audio length is at most ``chunk_seconds``.
+        With ``speech_gated`` on, ``is_speech`` (computed once per mixer tick on
+        the combined signal) drives segmentation: a chunk opens on the first
+        speech block, stays open across short gaps, and closes after
+        ``silence_split_seconds`` of continuous silence — so a long quiet period
+        produces no file and a conversation isn't cut at a fixed clock tick.
+        ``chunk_seconds`` is then only a safety cap on an unbroken monologue.
+
+        With ``speech_gated`` off, this is the legacy behavior: open
+        immediately and rotate strictly when ``chunk_seconds`` elapses
+        (``is_speech`` ignored).
         """
         if self._closed:
             return
         when = now or datetime.now().astimezone()
 
         with self._lock:
-            # Rotate first if the elapsed budget is exhausted.
-            if self._chunk_started_at is not None:
-                elapsed = (when - self._chunk_started_at).total_seconds()
-                if elapsed >= self._cfg.chunk_seconds:
-                    self._close_current(when)
+            if self._speech_gated:
+                self._write_block_gated(block, source, when, is_speech)
+            else:
+                self._write_block_legacy(block, source, when)
 
-            if self._chunk_started_at is None:
+    def _write_block_legacy(
+        self, block: npt.NDArray[np.float32], source: str, when: datetime
+    ) -> None:
+        # Rotate first if the elapsed budget is exhausted — the boundary block
+        # becomes the first block of the new chunk.
+        if self._chunk_started_at is not None:
+            elapsed = (when - self._chunk_started_at).total_seconds()
+            if elapsed >= self._cfg.chunk_seconds:
+                self._close_current(when)
+        if self._chunk_started_at is None:
+            self._open_new_chunk(when)
+        self._append(source, block)
+
+    def _write_block_gated(
+        self,
+        block: npt.NDArray[np.float32],
+        source: str,
+        when: datetime,
+        is_speech: bool,
+    ) -> None:
+        if self._chunk_started_at is None:
+            # Idle: don't record silence. Open only when speech arrives — the
+            # triggering block already contains the onset, so nothing is lost.
+            if not is_speech:
+                return
+            self._open_new_chunk(when)  # sets _last_speech_at = when
+        else:
+            silence = (
+                (when - self._last_speech_at).total_seconds()
+                if self._last_speech_at is not None
+                else 0.0
+            )
+            elapsed = (when - self._chunk_started_at).total_seconds()
+            if silence >= self._silence_split_seconds:
+                # A real pause in speech: finalize and go idle. The next speech
+                # block starts a fresh chunk; the silent gap is never recorded.
+                self._close_current(when)
+                if not is_speech:
+                    return
                 self._open_new_chunk(when)
+            elif elapsed >= self._cfg.chunk_seconds:
+                # Safety cap on an unbroken monologue: rotate seamlessly.
+                self._close_current(when)
+                self._open_new_chunk(when)
+            elif is_speech:
+                self._last_speech_at = when
 
-            writer = self._writers.get(source)
-            if writer is None:
-                writer = self._open_writer_for_source(source)
+        self._append(source, block)
 
-            writer.write(block)
-            self._frames_written[source] = self._frames_written.get(source, 0) + block.shape[0]
+    def _append(self, source: str, block: npt.NDArray[np.float32]) -> None:
+        writer = self._writers.get(source)
+        if writer is None:
+            writer = self._open_writer_for_source(source)
+        writer.write(block)
+        self._frames_written[source] = self._frames_written.get(source, 0) + block.shape[0]
 
     def finalize_current(self, now: datetime | None = None) -> None:
         """Close the current chunk (e.g., on graceful stop). Safe to call multiple times."""
@@ -133,6 +191,9 @@ class ChunkRotator:
     def _open_new_chunk(self, when: datetime) -> None:
         self._chunk_seq += 1
         self._chunk_started_at = when
+        # Reset the silence timer so a just-opened chunk never immediately
+        # splits (matters for the max-cap seamless-rotation path).
+        self._last_speech_at = when
         self._writers = {}
         self._chunk_paths = {}
         self._frames_written = {}
@@ -184,11 +245,19 @@ class ChunkRotator:
             else Path()
         )
 
+        # In speech-gated mode a chunk closes on a real pause (or the cap), so
+        # its natural length IS its full length — it is not a truncated
+        # ("partial"/incomplete) chunk the way a short legacy fixed-interval
+        # chunk would be. Setting expected == actual makes ``is_partial`` False
+        # and reports the recorded length as ``duration_seconds``. Recovery
+        # still marks its chunks incomplete explicitly.
+        expected = actual if self._speech_gated else self._cfg.chunk_seconds
+
         chunk = AudioChunk(
             chunk_seq=self._chunk_seq,
             session_id=self._session_id,
             start_time=self._chunk_started_at,
-            expected_duration_seconds=self._cfg.chunk_seconds,
+            expected_duration_seconds=expected,
             audio_path=primary_path,
             audio_paths=dict(self._chunk_paths),  # type: ignore[arg-type]
             audio_sources=list(sources_used),  # type: ignore[arg-type]
