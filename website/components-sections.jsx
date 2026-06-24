@@ -27,7 +27,7 @@ const Pillars = () => (
           <div className="ph">local · first</div>
           <h3>Audio never leaves your machine.</h3>
           <p>
-            Capture and transcription run on-device with <code>mlx-whisper</code> on Apple Silicon.
+            Capture and transcription run on-device with <code>Parakeet</code> on Apple Silicon.
             No accounts, no upload, no telemetry. Works offline. The only network call huske makes
             is a once-a-day, opt-out version check.
           </p>
@@ -43,13 +43,13 @@ const Pillars = () => (
           <h3>Continuous capture, no gaps.</h3>
           <p>
             Microphone via <code>sounddevice</code>. System audio via Core Audio process tap
-            on macOS 14.4+, with ScreenCaptureKit fallback on older macOS. Rotated into
-            Markdown chunks every 15 minutes. SIGKILL the
+            on macOS 14.4+, with ScreenCaptureKit fallback on older macOS. Files split on
+            real pauses in speech, not a fixed clock. SIGKILL the
             process and <code>huske recover</code> reclaims orphaned audio.
           </p>
           <div className="stat">
-            <div><strong>15 min</strong>default chunks</div>
-            <div><strong>6 s — 60 m</strong>configurable</div>
+            <div><strong>60 s</strong>pause splits a file</div>
+            <div><strong>30 min</strong>safety cap</div>
             <div><strong>48 kHz</strong>mono wav</div>
           </div>
         </div>
@@ -99,12 +99,12 @@ const HowItWorks = () => (
         <div className="stage">
           <div className="n"><span className="digit">02</span></div>
           <div>
-            <h4>Rotate into chunks.</h4>
-            <p>Default 15-minute boundaries; anything from 6 seconds to 60 minutes. WAV written to <code>~/huske/audio/</code>, queued for transcription. Boundaries are gapless — the next chunk starts on the same sample the last one ended.</p>
+            <h4>Split on pauses, not a clock.</h4>
+            <p>A file opens when speech starts and closes after a real pause (<code>--silence-split</code>, default 60 s) or at the <code>--chunk-minutes</code> cap. Quiet stretches aren't recorded, so there are no large near-empty files and a conversation isn't cut mid-sentence. WAV written to <code>~/huske/audio/</code>, queued for transcription.</p>
           </div>
           <div className="meta">
-            <div className="row"><span className="k">--chunk-minutes</span><span className="v">0.1 – 60.0 <span className="opt">(15 default)</span></span></div>
-            <div className="row"><span className="k">audio root</span><span className="v">~/huske/audio/</span></div>
+            <div className="row"><span className="k">--silence-split</span><span className="v">seconds <span className="opt">(60 default)</span></span></div>
+            <div className="row"><span className="k">--chunk-minutes</span><span className="v">cap <span className="opt">(30 default)</span></span></div>
             <div className="row"><span className="k">format</span><span className="v">wav · pcm_s16le · 48 kHz</span></div>
           </div>
         </div>
@@ -113,12 +113,12 @@ const HowItWorks = () => (
           <div className="n"><span className="digit">03</span></div>
           <div>
             <h4>Transcribe locally.</h4>
-            <p><code>mlx-whisper</code> on Apple Silicon, running on the M-series GPU via MLX. Per-chunk, on-device, no cloud. Per-source segments for mic and system audio so timestamps map back to wall-clock session time.</p>
+            <p><code>Parakeet</code> on Apple Silicon, running on the M-series GPU via MLX. Multilingual and silence-robust — it emits nothing on quiet input instead of hallucinating filler. Per-chunk, on-device, no cloud. Per-source segments for mic and system audio so timestamps map back to wall-clock session time.</p>
           </div>
           <div className="meta">
-            <div className="row"><span className="k">--model</span><span className="v">base <span className="opt">(default)</span></span></div>
-            <div className="row"><span className="k">engine</span><span className="v">mlx-whisper · apple gpu</span></div>
-            <div className="row"><span className="k">latency</span><span className="v">~5–7× realtime · M2</span></div>
+            <div className="row"><span className="k">--asr-engine</span><span className="v">parakeet <span className="opt">(default)</span></span></div>
+            <div className="row"><span className="k">engine</span><span className="v">parakeet-mlx · apple gpu</span></div>
+            <div className="row"><span className="k">languages</span><span className="v">~25 · auto-detected</span></div>
           </div>
         </div>
 
@@ -245,7 +245,7 @@ const frontmatterRows = (day, f) => [
   ["duration_seconds", "900", "val"],
   ["duration_actual_seconds", f.actual, "val"],
   ["gap_seconds", "0.0", "val"],
-  ["model", "mlx-whisper:base", "val"],
+  ["model", "parakeet:tdt-0.6b-v3", "val"],
   ["audio_sources", f.sources || "[microphone, system]", "val"],
   ["language", f.language || "auto", "str"],
   ["incomplete", String(f.incomplete), "val"],
@@ -722,7 +722,17 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.8.2", date: "2026-06-10", tag: "latest",
+    ver: "0.9.0", date: "2026-06-24", tag: "latest",
+    items: [
+      { kind: "added", text: <><strong>Parakeet is the default transcription engine.</strong> NVIDIA Parakeet (<code>parakeet-tdt-0.6b-v3</code>) via <code>parakeet-mlx</code> on the Apple-Silicon GPU — multilingual with automatic language detection, and (being a transducer) it emits nothing on silence instead of hallucinating repeated filler the way Whisper does. The backend is pluggable (<code>asr_engine</code>); <code>--asr-engine whisper</code> keeps the legacy mlx-whisper path.</> },
+      { kind: "added", text: <><strong>Speech-gated segmentation.</strong> Files now split on real pauses in speech, not a fixed clock: a chunk opens when speech starts and closes after a pause (<code>--silence-split</code>, default 60 s) or the <code>--chunk-minutes</code> cap. Quiet stretches produce no file, and a conversation is no longer cut mid-sentence. <code>--no-speech-gated</code> restores fixed-interval rotation.</> },
+      { kind: "added", text: <><strong>Speaker-bleed removal</strong> for recording on speakers without headphones, so the system audio isn't transcribed twice: coherence-based echo <em>suppression</em> attenuates the bleed in the mic before transcription (<code>--echo-cancel</code>, self-gating — no effect with headphones, never touches your own voice), and a transcript-level dedup removes any residual mic copy of a system line, including partial fragments (<code>--echo-dedup</code>).</> },
+      { kind: "changed", text: <><code>chunk_minutes</code> is now a maximum-length safety cap (default raised 15 → 30 min); speech-gated chunks report their recorded length and are no longer flagged <code>incomplete</code>. The <code>model</code> frontmatter value is now e.g. <code>parakeet:tdt-0.6b-v3</code>.</> },
+      { kind: "changed", text: <>The auto-generated <code>~/huske/transcripts/README.md</code> is now a proper entry point for an LLM agent — speech-gated boundaries, the corrected frontmatter schema, and what the <code>mic</code>/<code>system</code> tags mean (you/the room vs. audio played by the computer).</> },
+    ],
+  },
+  {
+    ver: "0.8.2", date: "2026-06-10",
     items: [
       { kind: "changed", text: <><code>whisper_idle_unload</code> now defaults to <strong>on</strong>. The transcription worker drops the Whisper model after <code>whisper_idle_unload_seconds</code> of inactivity (default 120 s) and reloads it from the local cache on the next chunk, so huske idles at a few hundred MB instead of holding ~150 MB (<code>base</code>) to ~3 GB (<code>large-v3</code>) resident through the long gaps between chunks. Recording idles far more than it transcribes, and held RAM costs more than a network-free re-read. Pass <code>huske run --no-idle-unload</code> (or set <code>whisper_idle_unload = false</code>) to keep the model warm for back-to-back transcription.</> },
     ],

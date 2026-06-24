@@ -14,6 +14,10 @@ from huske.config import RuntimeConfig
 def isolated_cfg(tmp_path: Path) -> RuntimeConfig:
     return RuntimeConfig(
         chunk_minutes=1.0 / 60.0,  # 1-second chunks
+        # These pipeline tests assert the legacy fixed-interval rotation
+        # (partial chunks, rotation on the clock); speech-gating is covered by
+        # the unit tests in test_chunker.py.
+        speech_gated=False,
         output_root=tmp_path / "transcripts",
         audio_root=tmp_path / "audio",
         logs_root=tmp_path / "logs",

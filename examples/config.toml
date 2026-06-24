@@ -10,8 +10,19 @@
 # Recording & chunking
 # ============================================================
 
-# Chunk (rotation) duration in minutes (0.1–60). Default: 15.
-chunk_minutes = 15
+# Split audio on real pauses in speech instead of a fixed clock (default true).
+# A chunk opens when speech is first heard and closes after a pause; silence
+# between chunks is never recorded, so a quiet stretch produces no large
+# near-empty file and a conversation isn't cut mid-sentence. Set false for the
+# legacy fixed-interval rotation.
+speech_gated = true
+
+# Seconds of continuous silence that close the current chunk (2–600). Default 60.
+silence_split_seconds = 60
+
+# Maximum chunk length in minutes (0.1–60). With speech_gated on this is just a
+# safety cap on an unbroken monologue; chunks normally close on a pause.
+chunk_minutes = 30
 
 # Keep raw WAV chunks after successful transcription (they are deleted by
 # default once a chunk is transcribed).
@@ -36,14 +47,39 @@ system_audio_backend = "auto"
 # channels    = 2       # input channel count (1–2; mixed to mono internally)
 
 # ============================================================
-# Transcription (Whisper, on-device via mlx-whisper)
+# Transcription (on-device, Apple Silicon / MLX)
 # ============================================================
 
-# Model size: tiny | base | small | medium | large-v3
+# Transcription backend: parakeet | whisper
+#   parakeet — NVIDIA Parakeet via parakeet-mlx (default). Multilingual with
+#              automatic language detection; as a transducer it emits nothing on
+#              silence instead of hallucinating repeated filler.
+#   whisper  — legacy mlx-whisper path (uses `model` below + an energy gate).
+asr_engine = "parakeet"
+
+# Parakeet model id (HF repo or local dir), used when asr_engine = "parakeet".
+parakeet_model = "mlx-community/parakeet-tdt-0.6b-v3"
+
+# Suppress system audio that bleeds into the mic over speakers (no headphones)
+# before transcription — coherence-based echo suppression attenuates the mic
+# content coherent with the clean system channel. Self-gating (no effect with
+# headphones) and never touches your own voice. It reduces rather than fully
+# eliminates the bleed (the mic and system are captured on independent clocks,
+# so sample-precise cancellation is infeasible); `echo_dedup` removes the rest.
+echo_cancel = true
+
+# Remove a mic run that duplicates a near-simultaneous system run — the primary
+# fix for the double-counting, matching full lines and partial fragments:
+# drop it | annotate (tag it "· echo") | off (keep). One-way: your own voice and
+# the clean system line are never removed.
+echo_dedup = "drop"
+
+# Whisper model size when asr_engine = "whisper": tiny | base | small | medium | large-v3
 # Loaded on first use from the matching mlx-community/whisper-<size>-mlx repo.
 model = "base"
 
 # Optional language hint, ISO 639-1 (e.g. "pt", "en"). Omit for auto-detect.
+# Parakeet auto-detects regardless; this mainly steers the whisper engine.
 # language = "pt"
 
 # Compute type — kept for back-compat; the mlx-whisper backend always uses

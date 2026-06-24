@@ -21,17 +21,26 @@ contribution rules live in [CONTRIBUTING.md](CONTRIBUTING.md).
 modules that pass audio through a single pipeline:
 
 1. **`capture/`** runs the mic (sounddevice / PortAudio thread) and system
-   audio (ScreenCaptureKit on macOS) in parallel. A mixer thread sums both
-   ring buffers into a mono float32 stream and forwards 50 ms blocks to the
-   sink. If system audio fails, capture degrades to mic-only with a sticky
-   warning.
-2. **`chunker/rotator.py`** is that sink. It writes blocks to a WAV file under
-   `audio_root/<session>/`, rotates on the configured chunk boundary (default
-   15 min), and calls `on_finalized(AudioChunk)` per finalized file.
-3. **`transcribe/worker.py`** is a `multiprocessing` (spawn) subprocess.
-   Faster-whisper holds the GIL during inference, so it must not run in the
-   main process or it would starve the audio drainer. The orchestrator
-   `submit()`s jobs and `poll_result()`s asynchronously.
+   audio (Core Audio tap / ScreenCaptureKit on macOS) in parallel. A mixer
+   thread drains both ring buffers every 50 ms and forwards each source to the
+   sink *separately* (one WAV per source, frame-aligned on the mic clock — not
+   summed on disk). It runs `capture/vad.py` (an adaptive energy VAD) on the
+   combined signal once per tick and passes the speech verdict to the sink. If
+   system audio fails, capture degrades to mic-only with a sticky warning.
+2. **`chunker/rotator.py`** is that sink. It writes per-source WAVs under
+   `audio_root/<session>/`. With `speech_gated` (default) it opens a chunk when
+   speech starts and closes it after `silence_split_seconds` of silence or the
+   `chunk_minutes` cap — so silent gaps aren't recorded; `speech_gated = false`
+   restores fixed-interval rotation. Calls `on_finalized(AudioChunk)` per file.
+3. **`transcribe/worker.py`** is a `multiprocessing` (spawn) subprocess. It
+   builds a pluggable engine from `transcribe/engines/` — `parakeet` (default,
+   via `parakeet-mlx`) or `whisper` (legacy `mlx-whisper`) — transcribes each
+   per-source WAV, tags segments with their source, runs `transcribe/dedup.py`
+   to drop mic echo of system audio, and renders the transcript. MLX inference
+   releases the GIL but model loads / audio decode do not, so it must not run
+   in the main process or it would starve the audio drainer. The orchestrator
+   `submit()`s jobs and `poll_result()`s asynchronously. Audio is loaded +
+   resampled to 16 kHz via `soundfile`+`soxr` (no ffmpeg).
 4. **`transcribe/writer.py`** writes the Markdown transcript with YAML
    frontmatter under `output_root/YYYY-MM-DD/`. The contract for that
    filename and frontmatter is in

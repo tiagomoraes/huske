@@ -106,8 +106,11 @@ _SOURCE_LABEL = {"microphone": "mic", "system": "system"}
 _MAX_RUN_DURATION_SECONDS = 90.0
 
 
-def _label_for(source: str) -> str:
-    return _SOURCE_LABEL.get(source, source)
+def _label_for(source: str, *, echo: bool = False) -> str:
+    label = _SOURCE_LABEL.get(source, source)
+    # Echo-annotation mode keeps the mic copy of speaker bleed but tags it so a
+    # reader (and downstream tooling) can tell it apart from real mic speech.
+    return f"{label} · echo" if echo else label
 
 
 def body_from_source_segments(
@@ -127,18 +130,20 @@ def body_from_source_segments(
     """
     blocks: list[str] = []
     current_source: str | None = None
+    current_echo: bool = False
     current_ts: str | None = None
     current_run_start: float | None = None
     current_parts: list[str] = []
 
     def flush_current() -> None:
-        nonlocal current_source, current_ts, current_run_start, current_parts
+        nonlocal current_source, current_echo, current_ts, current_run_start, current_parts
         if current_source is None or current_ts is None or not current_parts:
             return
-        source = _label_for(current_source)
+        source = _label_for(current_source, echo=current_echo)
         text = " ".join(current_parts)
         blocks.append(f"[{current_ts} · {source}] {text}")
         current_source = None
+        current_echo = False
         current_ts = None
         current_run_start = None
         current_parts = []
@@ -150,13 +155,15 @@ def body_from_source_segments(
         offset = float(seg.get("start", 0.0))
         ts = (chunk_start + timedelta(seconds=offset)).strftime("%H:%M:%S")
         source = str(seg.get("source", ""))
+        echo = bool(seg.get("echo", False))
         run_too_long = (
             current_run_start is not None
             and offset - current_run_start > _MAX_RUN_DURATION_SECONDS
         )
-        if not source or current_source != source or run_too_long:
+        if not source or current_source != source or echo != current_echo or run_too_long:
             flush_current()
             current_source = source
+            current_echo = echo
             current_ts = ts
             current_run_start = offset
         current_parts.append(text)

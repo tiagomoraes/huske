@@ -12,14 +12,22 @@ from huske.config import RuntimeConfig, load_config, update_user_config
 
 def test_defaults_are_sane() -> None:
     cfg = RuntimeConfig()
-    assert cfg.chunk_minutes == 15.0
+    # chunk_minutes is now a safety cap, not the usual boundary — chunks split
+    # on real pauses (speech_gated / silence_split_seconds).
+    assert cfg.chunk_minutes == 30.0
+    assert cfg.speech_gated is True
+    assert cfg.silence_split_seconds == 60.0
+    assert cfg.echo_cancel is True
+    assert cfg.asr_engine == "parakeet"
+    assert cfg.parakeet_model == "mlx-community/parakeet-tdt-0.6b-v3"
+    assert cfg.echo_dedup == "drop"
     assert cfg.model == "base"
     assert cfg.compute_type == "int8"
     assert cfg.device == "auto"
     assert cfg.language is None
     assert cfg.sample_rate == 48000
     assert cfg.channels == 2
-    assert cfg.chunk_seconds == 900.0
+    assert cfg.chunk_seconds == 1800.0
 
 
 def test_distill_defaults_are_light_and_opt_in() -> None:
@@ -96,7 +104,7 @@ def test_load_config_cli_overrides_win(tmp_path: Path) -> None:
 
 def test_load_config_missing_toml_uses_defaults(tmp_path: Path) -> None:
     cfg = load_config(config_path=tmp_path / "missing.toml")
-    assert cfg.chunk_minutes == 15.0
+    assert cfg.chunk_minutes == 30.0
 
 
 def test_unknown_field_rejected() -> None:

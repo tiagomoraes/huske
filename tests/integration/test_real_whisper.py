@@ -45,6 +45,7 @@ def _generate_speechlike_wav(path: Path, seconds: float = 1.5, sr: int = 16000) 
 
 def test_worker_round_trip_with_tiny_model(tmp_path: Path) -> None:
     cfg = RuntimeConfig(
+        asr_engine="whisper",
         model="tiny",
         compute_type="int8",
         device="cpu",

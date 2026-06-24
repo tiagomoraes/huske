@@ -55,6 +55,7 @@ class BlockSink(Protocol):
         block: NDArrayF32,
         source: str = "microphone",
         now: datetime | None = None,
+        is_speech: bool = True,
     ) -> None: ...
 
 
@@ -156,6 +157,17 @@ class CaptureCoordinator:
         self._peak_lock = threading.Lock()
         self._mic_active = False
         self._sys_active = False
+
+        # Voice-activity gate for speech-gated segmentation. Computed once per
+        # mixer tick on the combined mic+system signal and forwarded to the
+        # chunker so it can split on real pauses (see chunker.rotator). None
+        # when speech-gating is off — the sink then treats every block as
+        # speech (legacy fixed-interval rotation).
+        self._vad = None
+        if getattr(cfg, "speech_gated", False):
+            from huske.capture.vad import EnergyVAD
+
+            self._vad = EnergyVAD(block_seconds=_MIXER_BLOCK_SECONDS)
 
     # ------------------------------------------------------------------ status
 
@@ -511,11 +523,15 @@ class CaptureCoordinator:
                     continue
                 sys_part = self._sys_buf.take(avail)
                 if sys_part.size:
+                    is_speech = self._vad.is_speech(sys_part) if self._vad is not None else True
                     with self._pause_lock:
                         if self._paused.is_set():
                             continue
                         self._sink.write_block(
-                            sys_part, source="system", now=datetime.now().astimezone()
+                            sys_part,
+                            source="system",
+                            now=datetime.now().astimezone(),
+                            is_speech=is_speech,
                         )
                 continue
 
@@ -549,16 +565,35 @@ class CaptureCoordinator:
         Both writes share a single captured ``now`` so they cannot land in
         different chunks if the tick crosses a rotation boundary.
         """
+        if self._sys_active:
+            sys_part = _pad_to_length(sys_part, mic_part.shape[0])
+
+        # One speech verdict per tick on the combined signal, so both per-source
+        # WAVs rotate together and a chunk stays open while either source has
+        # activity. Computed on the mixer thread (single-threaded — the VAD's
+        # adaptive state needs no lock).
+        is_speech = True
+        if self._vad is not None:
+            if self._sys_active and sys_part.size == mic_part.size:
+                combined = mic_part + sys_part
+            elif self._sys_active and sys_part.size:
+                combined = sys_part if not mic_part.size else mic_part
+            else:
+                combined = mic_part
+            is_speech = self._vad.is_speech(combined)
+
         with self._pause_lock:
             if self._paused.is_set():
                 return
             now = datetime.now().astimezone()
             if mic_part.size:
-                self._sink.write_block(mic_part, source="microphone", now=now)
-            if self._sys_active:
-                sys_part = _pad_to_length(sys_part, mic_part.shape[0])
-                if sys_part.size:
-                    self._sink.write_block(sys_part, source="system", now=now)
+                self._sink.write_block(
+                    mic_part, source="microphone", now=now, is_speech=is_speech
+                )
+            if self._sys_active and sys_part.size:
+                self._sink.write_block(
+                    sys_part, source="system", now=now, is_speech=is_speech
+                )
 
     def _drain_system(self, *, discard: bool = False) -> None:
         if self._system_stream is None:

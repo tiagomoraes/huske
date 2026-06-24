@@ -141,7 +141,7 @@ def test_emit_aligned_pair_shares_now_and_pads_system() -> None:
     calls: list[dict] = []
 
     class _FakeSink:
-        def write_block(self, block, source="microphone", now=None):
+        def write_block(self, block, source="microphone", now=None, is_speech=True):
             calls.append({"source": source, "frames": int(block.shape[0]), "now": now})
 
     cfg = RuntimeConfig(
@@ -176,7 +176,7 @@ def test_emit_aligned_pair_skips_system_when_inactive() -> None:
     calls: list[dict] = []
 
     class _FakeSink:
-        def write_block(self, block, source="microphone", now=None):
+        def write_block(self, block, source="microphone", now=None, is_speech=True):
             calls.append({"source": source, "frames": int(block.shape[0])})
 
     cfg = RuntimeConfig(
@@ -204,7 +204,7 @@ def test_pause_skips_emits_until_resume() -> None:
     calls: list[dict] = []
 
     class _FakeSink:
-        def write_block(self, block, source="microphone", now=None):
+        def write_block(self, block, source="microphone", now=None, is_speech=True):
             calls.append({"source": source, "frames": int(block.shape[0])})
 
     cfg = RuntimeConfig(
@@ -239,7 +239,7 @@ def test_pause_waits_for_inflight_emit_before_returning() -> None:
     calls: list[dict] = []
 
     class _BlockingSink:
-        def write_block(self, block, source="microphone", now=None):
+        def write_block(self, block, source="microphone", now=None, is_speech=True):
             entered_write.set()
             if not release_write.wait(timeout=2.0):
                 raise AssertionError("timed out waiting to release write")
@@ -293,7 +293,7 @@ def test_mic_callback_discards_audio_while_paused() -> None:
     from huske.config import RuntimeConfig
 
     class _FakeSink:
-        def write_block(self, block, source="microphone", now=None):
+        def write_block(self, block, source="microphone", now=None, is_speech=True):
             raise AssertionError("paused coordinator should not write")
 
     cfg = RuntimeConfig(

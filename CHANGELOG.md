@@ -6,6 +6,61 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.9.0 - 2026-06-24
+
+### Added
+
+- **Parakeet transcription engine, now the default.** huske transcribes with
+  NVIDIA Parakeet (`parakeet-tdt-0.6b-v3`) via `parakeet-mlx` on the Apple
+  Silicon GPU. As a transducer it emits nothing on silence/noise instead of
+  hallucinating repeated filler ("e aí e aí…", "sports sports…") the way Whisper
+  does, and it is multilingual with automatic language detection (~25 languages,
+  Portuguese included). The transcription backend is now pluggable
+  (`asr_engine = "parakeet" | "whisper"`, default `parakeet`); `--asr-engine
+  whisper` keeps the legacy mlx-whisper path, paired with its energy gate.
+  Audio is loaded and resampled to 16 kHz with `soundfile` + `soxr`, dropping
+  transcription's hidden dependency on the `ffmpeg` CLI.
+- **Speech-gated, silence-split segmentation** (`speech_gated`, on by default).
+  Chunks now open when speech is first heard and close after a real pause
+  (`silence_split_seconds`, default 60 s) or at the `chunk_minutes` cap (now a
+  safety cap, default 30 min). Silence between chunks is no longer recorded, so
+  a quiet stretch produces no large near-empty file, and a conversation is no
+  longer cut mid-sentence at a fixed 15-minute tick. `--no-speech-gated`
+  restores the legacy fixed-interval rotation. New flags: `--speech-gated /
+  --no-speech-gated`, `--silence-split`.
+- **Speaker-bleed removal** when recording mic + system on speakers (no
+  headphones), in two stages:
+  - **Echo suppression** (`echo_cancel`, default on) — coherence-based
+    suppression attenuates the mic content that is coherent with the clean
+    system channel (the bleed) before transcription. It is self-gating (no
+    coherence with headphones → the mic is untouched) and cannot remove the
+    local voice (incoherent with the system), so double-talk is preserved.
+    Sample-precise acoustic echo *cancellation* was investigated and simulated
+    but is infeasible here: the mic (PortAudio) and system (Core Audio tap) are
+    captured on independent clocks, so their alignment jitters and there is no
+    stable echo path to subtract (measured negative ERLE on real recordings).
+    Coherence suppression is robust to that jitter. `--no-echo-cancel` disables it.
+  - **Cross-channel dedup** (`echo_dedup`, default `drop`) — the reliable
+    remover: a mic run that echoes a near-simultaneous system run is dropped,
+    now matching **partial fragments** (a verbatim chunk of a system line), not
+    only whole-line duplicates, via token-set similarity + contiguous-run
+    containment + a temporal gate. One-way, so the local voice and the clean
+    system line are never removed. `--echo-dedup drop|annotate|off`.
+
+### Changed
+
+- `chunk_minutes` is now a maximum-length safety cap rather than the usual chunk
+  boundary, and its default rose from 15 to 30 minutes (see speech-gated
+  segmentation above). For speech-gated chunks, `duration_seconds` in the
+  frontmatter reports the recorded length and such chunks are no longer flagged
+  `incomplete`. The `model` frontmatter value is now e.g.
+  `parakeet:tdt-0.6b-v3`. See `specs/001-huske-recorder/contracts/transcript-format.md`.
+- The auto-generated `~/huske/transcripts/README.md` was rewritten as a proper
+  entry point for an LLM agent: it explains the speech-gated boundaries, the
+  corrected frontmatter schema, and what the `mic`/`system` source tags mean
+  (you/the room vs. audio played by the computer), with echo removed so system
+  audio isn't double-counted on the mic side.
+
 ## 0.8.2 - 2026-06-10
 
 ### Changed
