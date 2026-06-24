@@ -10,6 +10,16 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 ModelSize = Literal["tiny", "base", "small", "medium", "large-v3"]
+# Which ASR backend transcribes finalized chunks. `parakeet` (NVIDIA Parakeet
+# via parakeet-mlx) is the default: non-autoregressive, so it emits nothing on
+# silence/noise instead of hallucinating repeated phrases the way Whisper does,
+# and it auto-detects language across ~25 languages. `whisper` keeps the legacy
+# mlx-whisper path selectable.
+ASREngine = Literal["parakeet", "whisper"]
+# What to do with a microphone segment detected as an acoustic echo of a system
+# segment (speaker bleed when not wearing headphones): drop it, keep it but tag
+# it `· echo`, or skip the de-duplication entirely.
+EchoDedup = Literal["drop", "annotate", "off"]
 # Kept for back-compat with existing config files. `compute_type` and `device`
 # were CTranslate2 knobs; the mlx-whisper backend always runs fp16 on Metal.
 # We accept and store them but the worker only honors `float32` to opt out of fp16.
@@ -52,7 +62,23 @@ class RuntimeConfig(BaseModel):
 
     model_config = {"frozen": True, "extra": "forbid"}
 
-    chunk_minutes: float = Field(default=15.0, gt=0.0, le=60.0)
+    # Maximum length of one chunk. With speech-gated segmentation on (the
+    # default), this is a *safety cap*, not the usual boundary — chunks normally
+    # close on a real pause in speech (see `silence_split_seconds`), so a quiet
+    # period no longer wastes a 15-min file and a conversation is no longer cut
+    # mid-sentence at a fixed clock tick. The cap still bounds a single chunk's
+    # WAV/transcription memory for an unbroken monologue. With `speech_gated`
+    # off, this reverts to the legacy fixed-interval rotation.
+    chunk_minutes: float = Field(default=30.0, gt=0.0, le=60.0)
+    # Segment audio on speech activity instead of a fixed clock. A chunk opens
+    # when speech is first heard and closes after `silence_split_seconds` of
+    # continuous silence (or at the `chunk_minutes` cap). Silent gaps between
+    # chunks are not recorded, so there are no large near-empty files. Set false
+    # for the legacy behavior (open immediately, rotate strictly on the clock).
+    speech_gated: bool = True
+    # How long speech must be absent before the current chunk is finalized. A
+    # natural pause/turn boundary; tune lower to split more aggressively.
+    silence_split_seconds: float = Field(default=45.0, ge=2.0, le=600.0)
     output_root: Path = Field(default=Path.home() / "huske" / "transcripts")
     audio_root: Path = Field(default=Path.home() / "huske" / "audio")
     logs_root: Path = Field(default=Path.home() / "huske" / "logs")
@@ -61,10 +87,21 @@ class RuntimeConfig(BaseModel):
     # docs/adr/0002-local-search-stack.md.
     index_root: Path = Field(default=Path.home() / "huske" / "index")
 
+    # Transcription backend. Parakeet by default (silence-robust, multilingual,
+    # MLX-accelerated); `whisper` keeps the legacy mlx-whisper path.
+    asr_engine: ASREngine = "parakeet"
+    # Parakeet model id (HF repo or local dir), used when `asr_engine="parakeet"`.
+    # The v3 TDT model is multilingual and auto-detects language. `model`/
+    # `compute_type` below apply to the whisper engine only.
+    parakeet_model: str = "mlx-community/parakeet-tdt-0.6b-v3"
     model: ModelSize = "base"
     compute_type: ComputeType = "int8"
     device: Device = "auto"
     language: str | None = None
+    # When recording mic + system audio on speakers (no headphones), the system
+    # output bleeds into the mic and is transcribed twice. This drops (default),
+    # tags, or ignores the mic copy of a near-simultaneous system segment.
+    echo_dedup: EchoDedup = "drop"
 
     # When true, the transcription worker drops the whisper model from memory
     # after `whisper_idle_unload_seconds` of inactivity, letting the OS reclaim
