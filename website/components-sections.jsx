@@ -722,7 +722,17 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.8.2", date: "2026-06-10", tag: "latest",
+    ver: "0.9.0", date: "2026-06-24", tag: "latest",
+    items: [
+      { kind: "added", text: <><strong>Parakeet is the default transcription engine.</strong> NVIDIA Parakeet (<code>parakeet-tdt-0.6b-v3</code>) via <code>parakeet-mlx</code> on the Apple-Silicon GPU — multilingual with automatic language detection, and (being a transducer) it emits nothing on silence instead of hallucinating repeated filler the way Whisper does. The backend is pluggable (<code>asr_engine</code>); <code>--asr-engine whisper</code> keeps the legacy mlx-whisper path.</> },
+      { kind: "added", text: <><strong>Speech-gated segmentation.</strong> Files now split on real pauses in speech, not a fixed clock: a chunk opens when speech starts and closes after a pause (<code>--silence-split</code>, default 60 s) or the <code>--chunk-minutes</code> cap. Quiet stretches produce no file, and a conversation is no longer cut mid-sentence. <code>--no-speech-gated</code> restores fixed-interval rotation.</> },
+      { kind: "added", text: <><strong>Speaker-bleed removal</strong> for recording on speakers without headphones, so the system audio isn't transcribed twice: coherence-based echo <em>suppression</em> attenuates the bleed in the mic before transcription (<code>--echo-cancel</code>, self-gating — no effect with headphones, never touches your own voice), and a transcript-level dedup removes any residual mic copy of a system line, including partial fragments (<code>--echo-dedup</code>).</> },
+      { kind: "changed", text: <><code>chunk_minutes</code> is now a maximum-length safety cap (default raised 15 → 30 min); speech-gated chunks report their recorded length and are no longer flagged <code>incomplete</code>. The <code>model</code> frontmatter value is now e.g. <code>parakeet:tdt-0.6b-v3</code>.</> },
+      { kind: "changed", text: <>The auto-generated <code>~/huske/transcripts/README.md</code> is now a proper entry point for an LLM agent — speech-gated boundaries, the corrected frontmatter schema, and what the <code>mic</code>/<code>system</code> tags mean (you/the room vs. audio played by the computer).</> },
+    ],
+  },
+  {
+    ver: "0.8.2", date: "2026-06-10",
     items: [
       { kind: "changed", text: <><code>whisper_idle_unload</code> now defaults to <strong>on</strong>. The transcription worker drops the Whisper model after <code>whisper_idle_unload_seconds</code> of inactivity (default 120 s) and reloads it from the local cache on the next chunk, so huske idles at a few hundred MB instead of holding ~150 MB (<code>base</code>) to ~3 GB (<code>large-v3</code>) resident through the long gaps between chunks. Recording idles far more than it transcribes, and held RAM costs more than a network-free re-read. Pass <code>huske run --no-idle-unload</code> (or set <code>whisper_idle_unload = false</code>) to keep the model warm for back-to-back transcription.</> },
     ],
