@@ -278,9 +278,10 @@ const AutostartDoc = () => (
 const COMMON_CONFIG = [
   { key: "asr_engine", def: "parakeet", desc: "Transcription backend: parakeet (silence-robust, multilingual) or whisper (legacy mlx-whisper).", flag: "--asr-engine" },
   { key: "speech_gated", def: "true", desc: "Split files on real pauses in speech instead of a fixed clock. Quiet stretches aren't recorded.", flag: "--speech-gated / --no-speech-gated" },
-  { key: "silence_split_seconds", def: "45", desc: "Seconds of continuous silence that close the current file (2–600).", flag: "--silence-split" },
+  { key: "silence_split_seconds", def: "60", desc: "Seconds of continuous silence that close the current file (2–600).", flag: "--silence-split" },
   { key: "chunk_minutes", def: "30", desc: "Maximum chunk length (a safety cap; chunks normally close on a pause). 0.1–60.", flag: "--chunk-minutes" },
-  { key: "echo_dedup", def: "drop", desc: "Speaker bleed into the mic (no headphones): drop, annotate, or off.", flag: "--echo-dedup" },
+  { key: "echo_cancel", def: "true", desc: "Suppress system audio that bleeds into the mic over speakers (coherence-based echo suppression) before transcription. Self-gating with headphones.", flag: "--echo-cancel / --no-echo-cancel" },
+  { key: "echo_dedup", def: "drop", desc: "Remove a mic run duplicating a system line (full or partial fragment): drop, annotate, or off.", flag: "--echo-dedup" },
   { key: "system_audio_backend", def: "auto", desc: "System-audio capture: auto, tap, sck, or off (mic-only).", flag: "--system-audio-backend" },
   { key: "input_device", def: "system default", desc: "Microphone name, substring match. System audio is independent.", flag: "--input-device" },
   { key: "parakeet_model", def: "parakeet-tdt-0.6b-v3", desc: "Parakeet model id when asr_engine=parakeet (HF repo or local dir).", flag: "--parakeet-model" },

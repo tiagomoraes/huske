@@ -48,7 +48,7 @@ const Pillars = () => (
             process and <code>huske recover</code> reclaims orphaned audio.
           </p>
           <div className="stat">
-            <div><strong>45 s</strong>pause splits a file</div>
+            <div><strong>60 s</strong>pause splits a file</div>
             <div><strong>30 min</strong>safety cap</div>
             <div><strong>48 kHz</strong>mono wav</div>
           </div>
@@ -100,10 +100,10 @@ const HowItWorks = () => (
           <div className="n"><span className="digit">02</span></div>
           <div>
             <h4>Split on pauses, not a clock.</h4>
-            <p>A file opens when speech starts and closes after a real pause (<code>--silence-split</code>, default 45 s) or at the <code>--chunk-minutes</code> cap. Quiet stretches aren't recorded, so there are no large near-empty files and a conversation isn't cut mid-sentence. WAV written to <code>~/huske/audio/</code>, queued for transcription.</p>
+            <p>A file opens when speech starts and closes after a real pause (<code>--silence-split</code>, default 60 s) or at the <code>--chunk-minutes</code> cap. Quiet stretches aren't recorded, so there are no large near-empty files and a conversation isn't cut mid-sentence. WAV written to <code>~/huske/audio/</code>, queued for transcription.</p>
           </div>
           <div className="meta">
-            <div className="row"><span className="k">--silence-split</span><span className="v">seconds <span className="opt">(45 default)</span></span></div>
+            <div className="row"><span className="k">--silence-split</span><span className="v">seconds <span className="opt">(60 default)</span></span></div>
             <div className="row"><span className="k">--chunk-minutes</span><span className="v">cap <span className="opt">(30 default)</span></span></div>
             <div className="row"><span className="k">format</span><span className="v">wav · pcm_s16le · 48 kHz</span></div>
           </div>

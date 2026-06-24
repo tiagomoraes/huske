@@ -89,12 +89,22 @@ huske_version: 0.5.0
 
 > **Chunk boundaries (v0.9+).** By default huske segments on *speech activity*,
 > not a fixed clock: a chunk opens when speech is first heard and closes after a
-> configurable pause (`silence_split_seconds`, default 45 s) or at the
+> configurable pause (`silence_split_seconds`, default 60 s) or at the
 > `chunk_minutes` cap. Silence between chunks is not recorded, so there are no
 > large near-empty files and a conversation is not cut mid-sentence at an
 > arbitrary 15-minute tick. Setting `speech_gated = false` restores the legacy
 > fixed-interval rotation. Filenames, frontmatter keys, and sort order are
 > unchanged.
+>
+> **Echo handling (v0.9+).** When mic + system audio are recorded on speakers,
+> the system output that bleeds into the mic is handled in two stages so it is
+> not transcribed a second time on the `mic` side: coherence-based echo
+> *suppression* (`echo_cancel`, default on) attenuates the bleed in the mic
+> audio before transcription, and a transcript-level dedup (`echo_dedup`,
+> default `drop`) removes any residual mic run — whole line or partial fragment —
+> that duplicates a near-simultaneous system run. In `annotate` mode a surviving
+> mic echo is tagged `mic · echo` (see Body). The dedup is one-way: the local
+> voice and the clean system line are never removed.
 
 ### Body
 

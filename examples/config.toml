@@ -17,8 +17,8 @@
 # legacy fixed-interval rotation.
 speech_gated = true
 
-# Seconds of continuous silence that close the current chunk (2–600). Default 45.
-silence_split_seconds = 45
+# Seconds of continuous silence that close the current chunk (2–600). Default 60.
+silence_split_seconds = 60
 
 # Maximum chunk length in minutes (0.1–60). With speech_gated on this is just a
 # safety cap on an unbroken monologue; chunks normally close on a pause.
@@ -60,8 +60,18 @@ asr_engine = "parakeet"
 # Parakeet model id (HF repo or local dir), used when asr_engine = "parakeet".
 parakeet_model = "mlx-community/parakeet-tdt-0.6b-v3"
 
-# Drop the mic copy of system audio that bled in over speakers (no headphones):
-# drop | annotate (tag it "· echo") | off.
+# Suppress system audio that bleeds into the mic over speakers (no headphones)
+# before transcription — coherence-based echo suppression attenuates the mic
+# content coherent with the clean system channel. Self-gating (no effect with
+# headphones) and never touches your own voice. It reduces rather than fully
+# eliminates the bleed (the mic and system are captured on independent clocks,
+# so sample-precise cancellation is infeasible); `echo_dedup` removes the rest.
+echo_cancel = true
+
+# Remove a mic run that duplicates a near-simultaneous system run — the primary
+# fix for the double-counting, matching full lines and partial fragments:
+# drop it | annotate (tag it "· echo") | off (keep). One-way: your own voice and
+# the clean system line are never removed.
 echo_dedup = "drop"
 
 # Whisper model size when asr_engine = "whisper": tiny | base | small | medium | large-v3

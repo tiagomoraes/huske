@@ -42,9 +42,15 @@ it about your day.
   30 min). Quiet stretches produce no file, and a conversation isn't cut
   mid-sentence at an arbitrary tick. `--no-speech-gated` restores fixed-interval
   rotation.
-- **Echo de-duplication** — when you record mic + system on speakers (no
+- **Speaker-bleed removal** — when you record mic + system on speakers (no
   headphones), the system audio bleeds into the mic and would be transcribed
-  twice; huske detects and drops the mic copy (`--echo-dedup drop|annotate|off`).
+  twice. huske handles it in two stages: coherence-based echo *suppression*
+  attenuates the bleed in the mic audio before transcription (`--echo-cancel`,
+  on by default; self-gating — no effect with headphones, and it can't touch
+  your own voice), and a transcript-level dedup then *removes* any residual mic
+  copy of a system line, including partial fragments (`--echo-dedup
+  drop|annotate|off`). (True sample-precise cancellation isn't possible because
+  the mic and system are captured on independent clocks — see the PR notes.)
 - **Resilient** — graceful stop finalizes the partial chunk; SIGKILL + restart
   auto-recovers orphaned audio.
 - **Pretty terminal UI** — Rich Live panel with countdown, mic + system level

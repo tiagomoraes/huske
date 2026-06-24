@@ -9,30 +9,54 @@ from pathlib import Path
 
 _README_TEMPLATE = """# Huske transcripts
 
-This directory is managed by the `huske` terminal app. Each subdirectory is a
-local calendar date in `YYYY-MM-DD` form, holding all transcripts whose chunk
-**start time** falls on that date. Each `.md` file is a single transcribed
-audio chunk; filenames sort chronologically (`HHMMSS_<sessionid8>_<seq>.md`).
+This directory is managed by the `huske` terminal app. It is a day-organized,
+LLM-readable log of what was said on this machine. Point an agent here and ask
+about a day, a time range, or a topic — no bespoke tooling is required.
 
-The YAML frontmatter at the top of each file is the authoritative metadata —
-do not rely on the heading or filename alone. Schema (v1):
+## Layout
 
-- `session_id`     — full session id (`YYYYMMDDTHHMMSS_<rand>`)
+- One subdirectory per local calendar date (`YYYY-MM-DD`), holding every
+  transcript whose chunk **start time** falls on that date.
+- Each `.md` file is a single transcribed audio chunk. Filenames sort
+  chronologically: `HHMMSS_<sessionid8>_<seq>.md`.
+- A chunk is **not** a fixed time slice. huske splits on real pauses in speech:
+  a chunk opens when speech starts and closes after a pause (default 60 s) or a
+  safety cap. So each file is a self-contained stretch of conversation, and
+  silent periods produce no file.
+
+## Frontmatter (authoritative metadata — prefer it over the heading/filename)
+
+- `session_id`     — full session id (`YYYYMMDDTHHMMSS_<rand>`); a continuous
+                     recording shares one session id across its chunks
 - `chunk_seq`      — monotonic sequence number within the session
 - `date`           — local date of `start_time`
-- `start_time`     — ISO 8601, timezone-aware
-- `end_time`       — ISO 8601, timezone-aware
-- `duration_seconds` — configured chunk duration (typically 900)
-- `duration_actual_seconds` — what was actually captured (may be shorter)
+- `start_time` / `end_time` — ISO 8601, timezone-aware; the real recorded window
+- `duration_seconds` — recorded length of the chunk
+- `duration_actual_seconds` — seconds of audio actually captured
 - `gap_seconds`    — total silence/disconnect gaps within the chunk
-- `audio_sources`  — subset of [microphone, system]
-- `model`          — `<engine>:<size>`, e.g. `mlx-whisper:base`
-- `language`       — ISO 639-1 or `auto` if undetected
-- `incomplete`     — true if produced from recovery or graceful-stop
+- `audio_sources`  — subset of [microphone, system] effectively captured
+- `model`          — `<engine>:<size>`, e.g. `parakeet:tdt-0.6b-v3`
+- `language`       — ISO 639-1, or `auto` when the engine auto-detects
+- `incomplete`     — true only for recovery/partial chunks
 - `huske_version`  — semver of the producing huske binary
 
-To query: an LLM agent can be pointed at this directory and asked to read
-files by date/time directly. No bespoke tooling is required.
+## Reading the body
+
+Each paragraph is one run of speech, prefixed `[HH:MM:SS · <source>]`:
+
+- **`mic`** — this computer's microphone: the local person (you), and anyone
+  in the room.
+- **`system`** — audio played by this computer: the remote side of a call, a
+  video, music — i.e. the people/media you were listening to.
+
+The two sources are captured separately and interleaved by time, so an overlap
+of `mic` and `system` runs means both sides talked at once. When recording on
+speakers (no headphones), the system audio that leaks into the microphone is
+suppressed and de-duplicated, so it is **not** double-counted on the `mic`
+side. Timestamps are local wall-clock (`start_time` + offset within the chunk).
+
+For semantic search across all transcripts, the optional `huske mcp` server
+lets an agent query by meaning; otherwise just read the files by date/time.
 """
 
 
