@@ -6,6 +6,43 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+### Added
+
+- **Parakeet transcription engine, now the default.** huske transcribes with
+  NVIDIA Parakeet (`parakeet-tdt-0.6b-v3`) via `parakeet-mlx` on the Apple
+  Silicon GPU. As a transducer it emits nothing on silence/noise instead of
+  hallucinating repeated filler ("e aí e aí…", "sports sports…") the way Whisper
+  does, and it is multilingual with automatic language detection (~25 languages,
+  Portuguese included). The transcription backend is now pluggable
+  (`asr_engine = "parakeet" | "whisper"`, default `parakeet`); `--asr-engine
+  whisper` keeps the legacy mlx-whisper path, paired with its energy gate.
+  Audio is loaded and resampled to 16 kHz with `soundfile` + `soxr`, dropping
+  transcription's hidden dependency on the `ffmpeg` CLI.
+- **Speech-gated, silence-split segmentation** (`speech_gated`, on by default).
+  Chunks now open when speech is first heard and close after a real pause
+  (`silence_split_seconds`, default 45 s) or at the `chunk_minutes` cap (now a
+  safety cap, default 30 min). Silence between chunks is no longer recorded, so
+  a quiet stretch produces no large near-empty file, and a conversation is no
+  longer cut mid-sentence at a fixed 15-minute tick. `--no-speech-gated`
+  restores the legacy fixed-interval rotation. New flags: `--speech-gated /
+  --no-speech-gated`, `--silence-split`.
+- **Cross-channel echo de-duplication** (`echo_dedup`, default `drop`). When mic
+  + system audio are recorded on speakers (no headphones), the system output
+  bleeds into the mic and was transcribed twice. huske now detects the mic copy
+  of a near-simultaneous system segment (token-set similarity + a temporal gate,
+  one-way so the human's own speech and the clean system line are always kept)
+  and drops it (or tags it `· echo`, or leaves it, via `--echo-dedup
+  drop|annotate|off`).
+
+### Changed
+
+- `chunk_minutes` is now a maximum-length safety cap rather than the usual chunk
+  boundary, and its default rose from 15 to 30 minutes (see speech-gated
+  segmentation above). For speech-gated chunks, `duration_seconds` in the
+  frontmatter reports the recorded length and such chunks are no longer flagged
+  `incomplete`. The `model` frontmatter value is now e.g.
+  `parakeet:tdt-0.6b-v3`. See `specs/001-huske-recorder/contracts/transcript-format.md`.
+
 ## 0.8.2 - 2026-06-10
 
 ### Changed

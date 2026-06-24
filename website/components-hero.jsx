@@ -141,7 +141,7 @@ const LiveDemo = () => {
           <span className="val saved"><span className="glyph">✓</span> 2026-05-08/091500_4f9c2a31_002.md</span>
 
           <span className="lbl">model</span>
-          <span className="val">mlx-whisper:base · apple gpu</span>
+          <span className="val">parakeet:tdt-0.6b-v3 · apple gpu</span>
         </div>
 
         <div className="log">
@@ -181,7 +181,7 @@ const Hero = () => (
             <p className="gloss"><em className="norwegian">huske</em> — Norwegian for "to remember"</p>
             <p className="lede">
               A terminal app that quietly captures your microphone and your computer's system audio,
-              transcribes it on your machine with Whisper, and writes a day-organized
+              transcribes it on your machine with Parakeet, and writes a day-organized
               Markdown ledger of everything that was said. Then point your agent at it.
             </p>
           </div>

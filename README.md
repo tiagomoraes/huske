@@ -7,9 +7,9 @@
 
 A terminal app that runs in the background, continuously records your microphone
 plus your computer's system audio, and transcribes the audio locally with
-[mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) —
-producing a day-organized, LLM-friendly knowledge base of everything that was
-said on your machine throughout the day.
+[Parakeet](https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3) on Apple
+Silicon (MLX) — producing a day-organized, LLM-friendly knowledge base of
+everything that was said on your machine throughout the day.
 
 Point Claude Code (or any other LLM agent) at `~/huske/transcripts/` and ask
 it about your day.
@@ -30,9 +30,21 @@ it about your day.
   gapless at chunk boundaries.
 - **No drivers, no Audio MIDI Setup** — system audio comes through Apple's
   built-in capture APIs. Grant the macOS audio/screen capture permission once.
-- **Local transcription** — `mlx-whisper`, default `base` model, runs on the
-  Apple Silicon GPU via MLX. Audio never leaves your machine.
-- **Configurable chunk size** — default 15 minutes, anything from 6 s to 60 min.
+- **Local transcription** — [Parakeet](https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3)
+  (`parakeet-tdt-0.6b-v3`) on the Apple Silicon GPU via MLX. It is multilingual
+  (auto-detected, ~25 languages) and, being a transducer, emits nothing on
+  silence instead of hallucinating repeated filler the way Whisper does. Audio
+  never leaves your machine. `--asr-engine whisper` keeps the legacy mlx-whisper
+  path.
+- **Speech-gated segmentation** — files split on real pauses in speech, not a
+  fixed clock: a chunk opens when speech starts and closes after a pause
+  (`--silence-split`, default 45 s) or at the `--chunk-minutes` cap (default
+  30 min). Quiet stretches produce no file, and a conversation isn't cut
+  mid-sentence at an arbitrary tick. `--no-speech-gated` restores fixed-interval
+  rotation.
+- **Echo de-duplication** — when you record mic + system on speakers (no
+  headphones), the system audio bleeds into the mic and would be transcribed
+  twice; huske detects and drops the mic copy (`--echo-dedup drop|annotate|off`).
 - **Resilient** — graceful stop finalizes the partial chunk; SIGKILL + restart
   auto-recovers orphaned audio.
 - **Pretty terminal UI** — Rich Live panel with countdown, mic + system level
