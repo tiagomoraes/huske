@@ -79,8 +79,13 @@ class TranscriptionEngine(abc.ABC):
     model_label: str = "unknown"
 
     @abc.abstractmethod
-    def transcribe(self, wav_path: str) -> list[Segment]:
-        """Transcribe one source's WAV into time-ordered, non-empty segments."""
+    def transcribe(self, audio: npt.NDArray[np.float32]) -> list[Segment]:
+        """Transcribe a 16 kHz mono float32 array into time-ordered segments.
+
+        The worker owns audio I/O: it loads each source WAV with
+        ``load_mono_16k`` and (when enabled) runs acoustic echo cancellation
+        before calling this, so the engine receives ready-to-transcribe audio.
+        """
 
     def unload(self) -> None:
         """Drop the resident model so the OS can reclaim it during idle gaps.

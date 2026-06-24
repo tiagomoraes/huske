@@ -18,7 +18,6 @@ from huske.transcribe.engines.base import (
     TARGET_SAMPLE_RATE,
     Segment,
     TranscriptionEngine,
-    load_mono_16k,
 )
 
 if TYPE_CHECKING:
@@ -101,10 +100,9 @@ class WhisperEngine(TranscriptionEngine):
         self._language = language
         self.model_label = f"mlx-whisper:{model_size}"
 
-    def transcribe(self, wav_path: str) -> list[Segment]:
+    def transcribe(self, audio: npt.NDArray[np.float32]) -> list[Segment]:
         import mlx_whisper
 
-        audio = load_mono_16k(wav_path)
         if audio.size == 0:
             return []
         gate = _EnergyGate(audio, TARGET_SAMPLE_RATE)

@@ -16,7 +16,8 @@ def test_defaults_are_sane() -> None:
     # on real pauses (speech_gated / silence_split_seconds).
     assert cfg.chunk_minutes == 30.0
     assert cfg.speech_gated is True
-    assert cfg.silence_split_seconds == 45.0
+    assert cfg.silence_split_seconds == 60.0
+    assert cfg.echo_cancel is True
     assert cfg.asr_engine == "parakeet"
     assert cfg.parakeet_model == "mlx-community/parakeet-tdt-0.6b-v3"
     assert cfg.echo_dedup == "drop"

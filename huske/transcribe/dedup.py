@@ -35,13 +35,19 @@ from huske.transcribe.engines.base import Segment
 # words can land several seconds apart even though the acoustic delay is tiny;
 # the window is generous because the high text-similarity bar is what actually
 # prevents false matches.
-_MAX_LAG_SECONDS = 12.0
+_MAX_LAG_SECONDS = 15.0
 # Token-set similarity in [0, 100]. >= this and the mic segment is an echo.
 _SIMILARITY_THRESHOLD = 82.0
+# A mic run can also be a *fragment* of a system run (the bleed transcribed only
+# part of it, or a different split): if this fraction of the mic run's tokens
+# form a contiguous run that also appears in a near system run, it is an echo.
+_CONTAINMENT_THRESHOLD = 0.8
 # Don't remove very short mic segments — a one- or two-word match ("ok", "sim
 # claro") is too easily a genuine human reply that happens to echo a system
 # word, so it stays even at high similarity.
 _MIN_ECHO_WORDS = 3
+# Fragments may be marked with fewer words, but never a bare one-word run.
+_MIN_FRAGMENT_WORDS = 2
 
 _WORD_RE = re.compile(r"\w+", re.UNICODE)
 
@@ -85,6 +91,22 @@ def token_set_ratio(a: str, b: str) -> float:
     )
 
 
+def _containment(mic_tokens: list[str], sys_tokens: list[str]) -> float:
+    """Fraction of ``mic_tokens`` covered by their longest contiguous run that
+    also appears contiguously in ``sys_tokens``.
+
+    ~1.0 when the mic run is a verbatim chunk of the system run (a partial echo
+    the whole-string ratio would miss); low when the mic run is the local
+    speaker's own words, which do not appear contiguously in the system audio.
+    """
+    if not mic_tokens:
+        return 0.0
+    match = SequenceMatcher(None, mic_tokens, sys_tokens).find_longest_match(
+        0, len(mic_tokens), 0, len(sys_tokens)
+    )
+    return match.size / len(mic_tokens)
+
+
 def _temporally_near(mic: Segment, sys: Segment, max_lag: float) -> bool:
     # Overlap, or mic starts within the lag window around the system span.
     if mic.start <= sys.end and sys.start <= mic.end:
@@ -96,8 +118,10 @@ def mark_cross_channel_echoes(
     segments: list[Segment],
     *,
     similarity_threshold: float = _SIMILARITY_THRESHOLD,
+    containment_threshold: float = _CONTAINMENT_THRESHOLD,
     max_lag_seconds: float = _MAX_LAG_SECONDS,
     min_echo_words: int = _MIN_ECHO_WORDS,
+    min_fragment_words: int = _MIN_FRAGMENT_WORDS,
 ) -> int:
     """Flag mic segments that echo a system segment (sets ``.echo = True``).
 
@@ -112,19 +136,29 @@ def mark_cross_channel_echoes(
     for mic in segments:
         if mic.source != "microphone" or mic.echo:
             continue
-        mic_word_count = len(_tokens(mic.text))
-        # Length guard: a short mic segment is never removed on similarity
-        # alone — it is too likely to be a genuine brief human reply.
-        if mic_word_count < min_echo_words:
+        mic_tokens = _tokens(mic.text)
+        mic_word_count = len(mic_tokens)
+        if mic_word_count < min_fragment_words:
+            # A bare one-word run is too easily a genuine brief human reply.
             continue
-        best = 0.0
+        is_echo = False
         for sys in sys_segments:
             if not _temporally_near(mic, sys, max_lag_seconds):
                 continue
-            score = token_set_ratio(mic.text, sys.text)
-            if score > best:
-                best = score
-        if best >= similarity_threshold:
+            # Full match: the runs say (nearly) the same thing.
+            if mic_word_count >= min_echo_words and (
+                token_set_ratio(mic.text, sys.text) >= similarity_threshold
+            ):
+                is_echo = True
+                break
+            # Fragment match: the mic run is a verbatim chunk of the system run
+            # (a partial bleed). The contiguous-run requirement keeps a genuine
+            # short human reply — whose words don't line up as a run inside the
+            # system audio — from being removed.
+            if _containment(mic_tokens, _tokens(sys.text)) >= containment_threshold:
+                is_echo = True
+                break
+        if is_echo:
             mic.echo = True
             marked += 1
     return marked

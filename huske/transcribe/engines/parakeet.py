@@ -19,10 +19,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from huske.transcribe.engines.base import Segment, TranscriptionEngine, load_mono_16k
+from huske.transcribe.engines.base import Segment, TranscriptionEngine
 
 if TYPE_CHECKING:
     import mlx.core as mx
+    import numpy as np
+    import numpy.typing as npt
 
 
 def _short_model_name(model_id: str) -> str:
@@ -73,14 +75,13 @@ class ParakeetEngine(TranscriptionEngine):
 
     # -- transcription ------------------------------------------------------
 
-    def transcribe(self, wav_path: str) -> list[Segment]:
+    def transcribe(self, audio_np: npt.NDArray[np.float32]) -> list[Segment]:
         import mlx.core as mx
         from parakeet_mlx.audio import get_logmel
 
-        model = self._ensure_model()
-        audio_np = load_mono_16k(wav_path)
         if audio_np.size == 0:
             return []
+        model = self._ensure_model()
         sr = int(model.preprocessor_config.sample_rate)
         audio = mx.array(audio_np)
 

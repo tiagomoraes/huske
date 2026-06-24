@@ -169,6 +169,7 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
     from huske.paths import transcript_filename
     from huske.transcribe.dedup import mark_cross_channel_echoes
     from huske.transcribe.engines import Segment, build_engine
+    from huske.transcribe.engines.base import load_mono_16k
     from huske.transcribe.writer import (
         body_from_source_segments,
         build_transcript_from_segments,
@@ -222,12 +223,34 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
             audio_paths: dict[str, str] = dict(job_data["audio_paths"])
             sources = _ordered_sources(audio_paths, job_data.get("audio_sources") or [])
 
+            # Load each source as 16 kHz mono (the worker owns audio I/O so it
+            # can cancel echo before transcription).
+            arrays = {src: load_mono_16k(audio_paths[src]) for src in sources}
+
+            # Acoustic echo cancellation: remove the system audio that bled into
+            # the mic over speakers, using the clean system channel as the
+            # far-end reference, *before* transcription. Self-gating — with
+            # headphones there is no coherent echo path and the mic passes
+            # through. The transcript-level dedup below is the backstop.
+            if (
+                job_data.get("echo_cancel", True)
+                and "microphone" in arrays
+                and "system" in arrays
+                and arrays["microphone"].size
+                and arrays["system"].size
+            ):
+                from huske.transcribe.aec import cancel_echo
+
+                arrays["microphone"] = cancel_echo(
+                    arrays["microphone"], arrays["system"]
+                )
+
             # Arm idle-unload *before* the first transcribe loads weights, so a
             # mid-job throw still reaches the unload path next iteration.
             model_resident = True
             merged: list[Segment] = []
             for source in sources:
-                for seg in engine.transcribe(audio_paths[source]):
+                for seg in engine.transcribe(arrays[source]):
                     seg.source = source
                     merged.append(seg)
 
@@ -463,6 +486,7 @@ def chunk_to_job(
         "config_compute_type": cfg.compute_type,
         "config_device": cfg.device,
         "language": cfg.language,
+        "echo_cancel": cfg.echo_cancel,
         "echo_dedup": cfg.echo_dedup,
         "keep_audio": cfg.keep_audio,
         "keep_audio_format": cfg.keep_audio_format,

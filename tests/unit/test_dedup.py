@@ -32,6 +32,30 @@ def test_marks_mic_echo_of_system_segment() -> None:
     assert segs[1].echo is False
 
 
+def test_marks_partial_fragment_echo() -> None:
+    """A mic run that is only a *fragment* of the system run is still an echo."""
+    full = "according to the latest report quarterly revenue increased fifteen percent across all regions"
+    segs = [
+        _seg(0.0, 6.0, full, "system"),
+        # The bleed transcribed only the middle of the system line.
+        _seg(2.0, 5.0, "quarterly revenue increased fifteen percent", "microphone"),
+    ]
+    marked = mark_cross_channel_echoes(segs)
+    assert marked == 1
+    assert segs[1].echo is True
+
+
+def test_fragment_must_be_contiguous_run_not_scattered_words() -> None:
+    """A human reply reusing a few of the system's words (not as a run) survives."""
+    segs = [
+        _seg(0.0, 6.0, "the migration to the new database cluster improved latency a lot", "system"),
+        _seg(2.0, 5.0, "honestly the latency still worries me on mobile", "microphone"),
+    ]
+    marked = mark_cross_channel_echoes(segs)
+    assert marked == 0
+    assert segs[1].echo is False
+
+
 def test_never_marks_system_segments() -> None:
     phrase = "this exact sentence appears on both channels at once"
     segs = [

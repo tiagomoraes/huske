@@ -52,24 +52,26 @@ def _say_wav(path: Path, text: str, voice: str = "Luciana", sr: int = 48000) -> 
 def test_parakeet_emits_nothing_on_silence(tmp_path: Path) -> None:
     """The headline fix: Parakeet does not hallucinate text on silence."""
     _require_parakeet()
+    from huske.transcribe.engines.base import load_mono_16k
     from huske.transcribe.engines.parakeet import ParakeetEngine
 
     sil = tmp_path / "silence.wav"
     sf.write(str(sil), np.zeros(48000 * 5, dtype=np.float32), 48000, subtype="PCM_16")
 
     engine = ParakeetEngine()
-    assert engine.transcribe(str(sil)) == []
+    assert engine.transcribe(load_mono_16k(str(sil))) == []
 
 
 def test_parakeet_transcribes_portuguese(tmp_path: Path) -> None:
     _require_parakeet()
+    from huske.transcribe.engines.base import load_mono_16k
     from huske.transcribe.engines.parakeet import ParakeetEngine
 
     wav = tmp_path / "speech.wav"
     _say_wav(wav, "A reunião de hoje foi muito produtiva e terminamos no horário.")
 
     engine = ParakeetEngine()
-    segments = engine.transcribe(str(wav))
+    segments = engine.transcribe(load_mono_16k(str(wav)))
     assert segments, "expected at least one transcribed segment"
     text = " ".join(s.text for s in segments).lower()
     assert "reunião" in text

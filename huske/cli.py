@@ -87,12 +87,19 @@ def run(
         min=2.0,
         max=600.0,
         help="Seconds of continuous silence that close the current chunk "
-        "(default 45).",
+        "(default 60).",
+    ),
+    echo_cancel: bool | None = typer.Option(
+        None,
+        "--echo-cancel/--no-echo-cancel",
+        help="Suppress system audio that bleeds into the mic over speakers "
+        "(coherence-based echo suppression) before transcription. On by "
+        "default; self-gating (no effect with headphones).",
     ),
     echo_dedup: str | None = typer.Option(
         None,
         "--echo-dedup",
-        help="How to handle the mic echo of system audio without headphones: "
+        help="Remove a residual mic copy of a system line (full or partial): "
         "drop (default), annotate, or off.",
     ),
     model: str | None = typer.Option(None, "--model"),
@@ -182,6 +189,7 @@ def run(
         parakeet_model=parakeet_model,
         speech_gated=speech_gated,
         silence_split_seconds=silence_split,
+        echo_cancel=echo_cancel,
         echo_dedup=echo_dedup,
         model=model,
         compute_type=compute_type,

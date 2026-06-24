@@ -78,7 +78,7 @@ class RuntimeConfig(BaseModel):
     speech_gated: bool = True
     # How long speech must be absent before the current chunk is finalized. A
     # natural pause/turn boundary; tune lower to split more aggressively.
-    silence_split_seconds: float = Field(default=45.0, ge=2.0, le=600.0)
+    silence_split_seconds: float = Field(default=60.0, ge=2.0, le=600.0)
     output_root: Path = Field(default=Path.home() / "huske" / "transcripts")
     audio_root: Path = Field(default=Path.home() / "huske" / "audio")
     logs_root: Path = Field(default=Path.home() / "huske" / "logs")
@@ -99,8 +99,18 @@ class RuntimeConfig(BaseModel):
     device: Device = "auto"
     language: str | None = None
     # When recording mic + system audio on speakers (no headphones), the system
-    # output bleeds into the mic and is transcribed twice. This drops (default),
-    # tags, or ignores the mic copy of a near-simultaneous system segment.
+    # output is played acoustically and re-captured by the mic. `echo_cancel`
+    # *reduces* it before transcription via coherence-based echo suppression
+    # (it attenuates the mic content coherent with the clean system channel).
+    # Self-gating — with headphones there is no echo and the mic is untouched —
+    # and it cannot remove the local voice (incoherent with the system). Audio
+    # capture uses independent clocks (PortAudio mic, Core Audio system tap), so
+    # sample-precise cancellation is infeasible; this suppresses rather than
+    # eliminates, and `echo_dedup` below removes the residual at the text level.
+    echo_cancel: bool = True
+    # Primary removal of the duplicate: a mic run that echoes a near-simultaneous
+    # system run (full or partial) is dropped (default), tagged (`· echo`), or
+    # kept. One-way, so the local voice and the clean system line are never lost.
     echo_dedup: EchoDedup = "drop"
 
     # When true, the transcription worker drops the whisper model from memory
