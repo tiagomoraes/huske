@@ -14,5 +14,5 @@
 //
 // HUSKE_PYTHONS tracks `requires-python` in `pyproject.toml`. Update it by hand
 // when the supported Python range changes.
-window.HUSKE_VERSION = "0.8.2";
+window.HUSKE_VERSION = "0.9.0";
 window.HUSKE_PYTHONS = ["3.11", "3.12", "3.13", "3.14"];

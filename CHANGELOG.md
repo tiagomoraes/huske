@@ -6,6 +6,8 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.9.0 - 2026-06-24
+
 ### Added
 
 - **Parakeet transcription engine, now the default.** huske transcribes with
