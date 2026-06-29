@@ -263,7 +263,7 @@ This adds two subcommands and one config flag:
 1. **Build the index.** `huske index` embeds every transcript under
    `output_root` into a single local vector file (`~/huske/index/passages.db`)
    using a multilingual model that runs on the Apple Silicon GPU via MLX —
-   the same Metal stack `mlx-whisper` already uses. Nothing leaves your machine.
+   the same Metal stack `parakeet-mlx` already uses. Nothing leaves your machine.
 
    ```bash
    huske index                 # backfill your whole history (incremental)
