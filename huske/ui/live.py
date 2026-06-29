@@ -110,6 +110,10 @@ def _render_running(state: RenderState) -> Panel:
     else:
         screenshot_status = Text("off", style="dim")
     main_table.add_row(Text("screenshots", style="dim"), screenshot_status)
+    distill_status = (
+        Text("on", style="cyan") if state.distill_enabled else Text("off", style="dim")
+    )
+    main_table.add_row(Text("distillation", style="dim"), distill_status)
     last_saved = (
         Text(str(state.last_saved), style="green")
         if state.last_saved
@@ -185,6 +189,7 @@ def _render_help() -> Panel:
     table.add_column(justify="left")
     table.add_row("p", "pause or resume audio recording")
     table.add_row("s", "toggle periodic screenshots")
+    table.add_row("d", "toggle LLM distillation (statements)")
     table.add_row("i", "choose microphone input device")
     table.add_row("?", "show or hide this help")
     table.add_row("q", "graceful stop")

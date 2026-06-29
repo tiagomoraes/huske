@@ -111,6 +111,7 @@ def run_helper(socket_path: Path, *, style: str = "text") -> int:
             menu.addItem_(NSMenuItem.separatorItem())
             self._add_action(menu, "Pause / Resume", "pauseResume:")
             self._add_action(menu, "Toggle screenshots", "toggleScreenshots:")
+            self._add_action(menu, "Toggle distillation", "toggleDistill:")
             menu.addItem_(NSMenuItem.separatorItem())
             self._add_action(menu, "Open transcripts folder", "openTranscripts:")
             self._add_action(menu, "Open latest transcript", "openLatestTranscript:")
@@ -193,8 +194,9 @@ def run_helper(socket_path: Path, *, style: str = "text") -> int:
             )
             queue = f"queue {snap.queue_depth}"
             shots = "screenshots on" if snap.screenshots_enabled else "screenshots off"
+            distill = "distill on" if snap.distill_enabled else "distill off"
             self._status_label.setTitle_(  # type: ignore[union-attr]
-                f"{state_text} · {chunk} · {queue} · {shots}"
+                f"{state_text} · {chunk} · {queue} · {shots} · {distill}"
             )
 
         def terminateApp_(self, _):  # type: ignore[no-untyped-def]
@@ -207,6 +209,9 @@ def run_helper(socket_path: Path, *, style: str = "text") -> int:
 
         def toggleScreenshots_(self, _):  # type: ignore[no-untyped-def]
             self._send(Command.TOGGLE_SCREENSHOTS)
+
+        def toggleDistill_(self, _):  # type: ignore[no-untyped-def]
+            self._send(Command.TOGGLE_DISTILL)
 
         def openTranscripts_(self, _):  # type: ignore[no-untyped-def]
             self._send(Command.OPEN_TRANSCRIPTS)
