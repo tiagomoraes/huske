@@ -346,41 +346,16 @@ def _distill_checks(cfg: RuntimeConfig) -> list[Check]:
                 "off (opt-in: set distill_enabled; needs a local LLM daemon like Ollama)",
             )
         ]
-    if cfg.distill_model in ("heuristic", "fake"):
-        return [Check("distill", True, f"backend '{cfg.distill_model}' (no daemon needed)")]
 
-    from huske.distill.client import DistillError, OllamaClient
+    from huske.distill.health import probe_distill
 
-    client = OllamaClient(cfg.distill_endpoint, timeout=5.0)
-    try:
-        models = client.list_models()
-    except DistillError as exc:
-        return [
-            Check(
-                "distill",
-                False,
-                f"LLM daemon unreachable at {cfg.distill_endpoint}: {exc}",
-                "Start it (e.g. `ollama serve`) or fix distill_endpoint.",
-            )
-        ]
-    wanted = cfg.distill_model
-    present = (
-        wanted in models
-        or f"{wanted}:latest" in models
-        or any(m.split(":", 1)[0] == wanted.split(":", 1)[0] and wanted in m for m in models)
+    r = probe_distill(
+        cfg.distill_model,
+        backend=cfg.distill_backend,
+        endpoint=cfg.distill_endpoint,
+        timeout=5.0,
     )
-    if present:
-        return [
-            Check("distill", True, f"{cfg.distill_backend}: model '{wanted}' ready ({len(models)} pulled)")
-        ]
-    return [
-        Check(
-            "distill",
-            False,
-            f"model '{wanted}' not pulled (have: {', '.join(models) or 'none'})",
-            f"Run `ollama pull {wanted}`.",
-        )
-    ]
+    return [Check("distill", r.ok, r.detail, r.hint)]
 
 
 def _autostart_check() -> Check | None:

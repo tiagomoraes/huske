@@ -108,6 +108,13 @@ continue and `huske distill` catches up later. Enabling it mid-history does **no
 trigger a surprise whole-corpus backfill — run `huske distill` for that
 explicitly.
 
+You can also flip distillation on or off **without restarting** a session: press
+`d` in the live UI's `?` controls overlay, or pick **Toggle distillation** from
+the macOS menu-bar dropdown. Turning it on first checks that the daemon and model
+are ready (the same probe as `huske doctor`) and warns with a fix-it hint if they
+are not. This runtime toggle is session-only; set `distill_enabled = true` above
+to make distillation the default for every run.
+
 ## Configuration
 
 All keys live in `~/.config/huske/config.toml` (CLI flags on `huske run` /

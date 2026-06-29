@@ -15,6 +15,7 @@ from enum import StrEnum
 class Command(StrEnum):
     PAUSE_RESUME = "pause_resume"
     TOGGLE_SCREENSHOTS = "toggle_screenshots"
+    TOGGLE_DISTILL = "toggle_distill"
     STOP = "stop"
     OPEN_TRANSCRIPTS = "open_transcripts"
     OPEN_LATEST_TRANSCRIPT = "open_latest_transcript"

@@ -130,11 +130,12 @@ def run_session(
                 str(paths.index_db_path(cfg)),
                 cfg.embedding_model,
                 batch_size=cfg.embed_batch_size,
-                # When distillation is also on, the same embedder embeds each
-                # transcript's distilled statements into a second store.
-                statements_db_path=(
-                    str(paths.statements_db_path(cfg)) if cfg.distill_enabled else None
-                ),
+                # The same embedder embeds each transcript's distilled statements
+                # into a second store. Provision it whenever indexing is on — not
+                # only when distillation starts enabled — so toggling distillation
+                # on mid-session (via the `?` panel / menu bar) still routes its
+                # statements into the searchable statement store.
+                statements_db_path=str(paths.statements_db_path(cfg)),
             )
             embed_worker.start()
             _print("[huske] indexing enabled — transcripts will be embedded in background")
@@ -179,30 +180,35 @@ def run_session(
 
     # Optional: background LLM distillation into searchable Statements. A daemon
     # *thread* — the LLM runs in its own process (Ollama), so from here it is
-    # loopback HTTP, GIL-releasing, like sync. Off unless `distill_enabled`. Each
-    # finished sidecar is handed to the embed worker so its statements get
-    # embedded too. It does NOT reconcile history here (that's `huske distill`):
-    # it only distills this session's transcripts, so enabling it never kicks off
-    # a surprise whole-corpus backfill. See docs/adr/0005-llm-distillation.md.
-    distill_worker = None
-    if cfg.distill_enabled:
+    # loopback HTTP, GIL-releasing, like sync. Off unless `distill_enabled` (but
+    # it can be toggled on live from the `?` panel / menu bar — see
+    # `_toggle_distill`). Each finished sidecar is handed to the embed worker so
+    # its statements get embedded too. It does NOT reconcile history here (that's
+    # `huske distill`): it only distills this session's transcripts, so enabling
+    # it never kicks off a surprise whole-corpus backfill. See
+    # docs/adr/0005-llm-distillation.md.
+    def _build_distill_worker() -> Any:
         from huske.distill.distiller import build_distiller
         from huske.distill.worker import DistillWorker
 
+        distiller = build_distiller(
+            cfg.distill_model,
+            endpoint=cfg.distill_endpoint,
+            timeout=cfg.distill_timeout_seconds,
+            max_statements=cfg.distill_max_statements_per_passage,
+            think=cfg.distill_think,
+        )
+        return DistillWorker(
+            cfg.output_root,
+            distiller,
+            max_statements_per_passage=cfg.distill_max_statements_per_passage,
+            on_sidecar=(embed_worker.submit if embed_worker is not None else None),
+        )
+
+    distill_worker = None
+    if cfg.distill_enabled:
         try:
-            distiller = build_distiller(
-                cfg.distill_model,
-                endpoint=cfg.distill_endpoint,
-                timeout=cfg.distill_timeout_seconds,
-                max_statements=cfg.distill_max_statements_per_passage,
-                think=cfg.distill_think,
-            )
-            distill_worker = DistillWorker(
-                cfg.output_root,
-                distiller,
-                max_statements_per_passage=cfg.distill_max_statements_per_passage,
-                on_sidecar=(embed_worker.submit if embed_worker is not None else None),
-            )
+            distill_worker = _build_distill_worker()
             distill_worker.start()
             _print(
                 f"[huske] distillation enabled — transcripts distilled to statements "
@@ -211,6 +217,7 @@ def run_session(
         except Exception as exc:
             log.warning("distill_worker_start_failed", error=str(exc))
             distill_worker = None
+    state.update(distill_enabled=distill_worker is not None)
 
     def _on_written(path: Path) -> None:
         if embed_worker is not None:
@@ -420,6 +427,62 @@ def run_session(
                 f"screenshots enabled every {cfg.screenshots_interval_seconds:g}s",
             )
 
+    # Distillation toggles run off the main loop: turning on probes the LLM
+    # daemon (a ~seconds network call) and turning off drains the worker — either
+    # would stall the ~50 ms audio drainer if run inline. A non-blocking lock
+    # serialises toggles so rapid presses don't race on `distill_worker`.
+    distill_toggle_lock = threading.Lock()
+
+    def _distill_toggle_run() -> None:
+        nonlocal distill_worker
+        try:
+            if stop_flag.is_set():
+                return
+            if distill_worker is not None:
+                w = distill_worker
+                distill_worker = None  # stop submitting before the (slow) drain
+                state.update(distill_enabled=False)
+                state.clear_warning("distill")
+                on_event("info", "distillation off")
+                w.stop(drain_timeout=15.0)
+                return
+
+            from huske.distill.health import probe_distill
+
+            on_event("info", f"distillation: checking {cfg.distill_model}…")
+            r = probe_distill(
+                cfg.distill_model,
+                backend=cfg.distill_backend,
+                endpoint=cfg.distill_endpoint,
+            )
+            if not r.ok:
+                msg = f"distillation unavailable: {r.detail}"
+                state.set_warning("distill", msg)
+                on_event("warn", msg + (f" — {r.hint}" if r.hint else ""))
+                return
+            if stop_flag.is_set():
+                return
+            try:
+                worker = _build_distill_worker()
+                worker.start()
+            except Exception as exc:
+                on_event("error", f"distillation: could not start: {exc}")
+                return
+            distill_worker = worker
+            state.update(distill_enabled=True)
+            state.clear_warning("distill")
+            on_event("info", f"distillation on ({cfg.distill_model})")
+        finally:
+            distill_toggle_lock.release()
+
+    def _toggle_distill() -> None:
+        if not distill_toggle_lock.acquire(blocking=False):
+            on_event("info", "distillation: still switching — hold on")
+            return
+        threading.Thread(
+            target=_distill_toggle_run, name="huske-distill-toggle", daemon=True
+        ).start()
+
     def _toggle_pause() -> None:
         if state.paused:
             capture.resume()
@@ -467,6 +530,7 @@ def run_session(
     dispatch: dict[Command, Callable[[], None]] = {
         Command.PAUSE_RESUME: _toggle_pause,
         Command.TOGGLE_SCREENSHOTS: _toggle_screenshots,
+        Command.TOGGLE_DISTILL: _toggle_distill,
         Command.STOP: _stop,
         Command.OPEN_TRANSCRIPTS: _open_transcripts,
         Command.OPEN_LATEST_TRANSCRIPT: _open_latest_transcript,
@@ -534,6 +598,7 @@ def run_session(
             current_chunk_seq=state.current_chunk_seq,
             queue_depth=state.queue_depth,
             screenshots_enabled=state.screenshots_enabled,
+            distill_enabled=state.distill_enabled,
             last_saved_name=state.last_saved.name if state.last_saved else None,
         )
         if snap == last_snap:
@@ -621,6 +686,9 @@ def run_session(
             state.update(help_visible=False)
         elif normalized == "s":
             commands.send(Command.TOGGLE_SCREENSHOTS)
+            state.update(help_visible=False)
+        elif normalized == "d":
+            commands.send(Command.TOGGLE_DISTILL)
             state.update(help_visible=False)
         elif normalized == "i":
             _open_input_picker()

@@ -27,6 +27,7 @@ class ControlSnapshot:
     current_chunk_seq: int
     queue_depth: int
     screenshots_enabled: bool
+    distill_enabled: bool
     last_saved_name: str | None
 
 
@@ -53,6 +54,7 @@ def decode_message(line: str) -> ControlSnapshot | Command:
             current_chunk_seq=obj["current_chunk_seq"],
             queue_depth=obj["queue_depth"],
             screenshots_enabled=obj["screenshots_enabled"],
+            distill_enabled=obj["distill_enabled"],
             last_saved_name=obj["last_saved_name"],
         )
     if kind == "cmd":
