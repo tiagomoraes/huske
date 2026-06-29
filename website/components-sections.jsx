@@ -936,7 +936,7 @@ const FAQ = () => (
         <details open>
           <summary>Does any audio leave my machine? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>No. Capture and transcription both run locally — <code>mlx-whisper</code> on Apple Silicon. The only network call huske makes is a once-a-day, opt-out version check against PyPI.</p>
+            <p>No. Capture and transcription both run locally — <code>Parakeet</code> on Apple Silicon. The only network call huske makes is a once-a-day, opt-out version check against PyPI.</p>
             <p>If you want to keep it fully offline, <code>HUSKE_NO_UPDATE_CHECK=1</code> turns even that off. <code>huske doctor</code> validates local setup without uploading recordings.</p>
           </div>
         </details>
@@ -976,7 +976,7 @@ const FAQ = () => (
         <details>
           <summary>Is this only for Apple Silicon? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>Apple Silicon Mac is the supported target in {HUSKE_VERSION}. The transcription engine (<code>mlx-whisper</code>) runs on the M-series GPU via MLX, and system-audio capture uses macOS-only Core Audio / ScreenCaptureKit APIs.</p>
+            <p>Apple Silicon Mac is the supported target in {HUSKE_VERSION}. The transcription engine (<code>Parakeet</code>) runs on the M-series GPU via MLX, and system-audio capture uses macOS-only Core Audio / ScreenCaptureKit APIs.</p>
           </div>
         </details>
         <details>
