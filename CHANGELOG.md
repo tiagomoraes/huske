@@ -6,6 +6,8 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.10.0 - 2026-06-29
+
 ### Added
 
 - **Toggle distillation live from the TUI and menu bar.** Distillation no longer
