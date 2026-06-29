@@ -722,7 +722,14 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.9.0", date: "2026-06-24", tag: "latest",
+    ver: "0.9.1", date: "2026-06-28", tag: "latest",
+    items: [
+      { kind: "fixed", text: <><strong>Speaker-bleed alignment.</strong> Echo cancellation now lines up the mic and system channels correctly even when the saved system reference arrives late, or a chunk opens with only your voice before any system audio — cases the 0.9.0 estimator missed, which left the bleed in the transcript. The delay search now scans for an energetic window, allows a negative lag, and widens to 2 s.</> },
+      { kind: "fixed", text: <><strong>Residual-bleed backstop.</strong> When the mic's copy of system audio is too garbled to match by text, an audio-coherence check now drops it if it is acoustically the same as the near-simultaneous system channel. Your own voice is never removed.</> },
+    ],
+  },
+  {
+    ver: "0.9.0", date: "2026-06-24",
     items: [
       { kind: "added", text: <><strong>Parakeet is the default transcription engine.</strong> NVIDIA Parakeet (<code>parakeet-tdt-0.6b-v3</code>) via <code>parakeet-mlx</code> on the Apple-Silicon GPU — multilingual with automatic language detection, and (being a transducer) it emits nothing on silence instead of hallucinating repeated filler the way Whisper does. The backend is pluggable (<code>asr_engine</code>); <code>--asr-engine whisper</code> keeps the legacy mlx-whisper path.</> },
       { kind: "added", text: <><strong>Speech-gated segmentation.</strong> Files now split on real pauses in speech, not a fixed clock: a chunk opens when speech starts and closes after a pause (<code>--silence-split</code>, default 60 s) or the <code>--chunk-minutes</code> cap. Quiet stretches produce no file, and a conversation is no longer cut mid-sentence. <code>--no-speech-gated</code> restores fixed-interval rotation.</> },
@@ -936,7 +943,7 @@ const FAQ = () => (
         <details open>
           <summary>Does any audio leave my machine? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>No. Capture and transcription both run locally — <code>mlx-whisper</code> on Apple Silicon. The only network call huske makes is a once-a-day, opt-out version check against PyPI.</p>
+            <p>No. Capture and transcription both run locally — <code>Parakeet</code> on Apple Silicon. The only network call huske makes is a once-a-day, opt-out version check against PyPI.</p>
             <p>If you want to keep it fully offline, <code>HUSKE_NO_UPDATE_CHECK=1</code> turns even that off. <code>huske doctor</code> validates local setup without uploading recordings.</p>
           </div>
         </details>
@@ -976,7 +983,7 @@ const FAQ = () => (
         <details>
           <summary>Is this only for Apple Silicon? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>Apple Silicon Mac is the supported target in {HUSKE_VERSION}. The transcription engine (<code>mlx-whisper</code>) runs on the M-series GPU via MLX, and system-audio capture uses macOS-only Core Audio / ScreenCaptureKit APIs.</p>
+            <p>Apple Silicon Mac is the supported target in {HUSKE_VERSION}. The transcription engine (<code>Parakeet</code>) runs on the M-series GPU via MLX, and system-audio capture uses macOS-only Core Audio / ScreenCaptureKit APIs.</p>
           </div>
         </details>
         <details>

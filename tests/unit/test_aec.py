@@ -10,6 +10,7 @@ import numpy as np
 from scipy.signal import fftconvolve
 
 from huske.transcribe.aec import cancel_echo, erle_db, estimate_delay
+from huske.transcribe.engines.base import Segment
 
 SR = 16000
 
@@ -84,6 +85,74 @@ def test_estimate_delay_finds_offset() -> None:
     delay = 200
     near = np.concatenate([np.zeros(delay, dtype=np.float32), system])[: len(system)]
     assert abs(estimate_delay(near, system, SR) - delay) <= 16
+
+
+def test_estimate_delay_handles_late_system_reference() -> None:
+    system = _rng_speech(4.0, seed=9)
+    delay = 800
+    far = np.concatenate([np.zeros(delay, dtype=np.float32), system])[: len(system)]
+
+    assert abs(estimate_delay(system, far, SR) + delay) <= 16
+
+
+def test_estimate_delay_uses_later_energetic_window() -> None:
+    system = np.concatenate(
+        [
+            np.zeros(10 * SR, dtype=np.float32),
+            _rng_speech(4.0, seed=10),
+        ]
+    )
+    delay = 320
+    near = np.concatenate([np.zeros(delay, dtype=np.float32), system])[: len(system)]
+
+    assert abs(estimate_delay(near, system, SR) - delay) <= 16
+
+
+def test_cancel_echo_handles_late_system_reference() -> None:
+    system = _rng_speech(6.0, seed=11)
+    echo = fftconvolve(system, _rir(0.7))[: len(system)].astype(np.float32)
+    late_by = int(0.25 * SR)
+    late_system = np.concatenate(
+        [np.zeros(late_by, dtype=np.float32), system]
+    )[: len(system)]
+
+    cleaned = cancel_echo(echo, late_system, SR)
+
+    assert erle_db(echo, cleaned) > 4.0
+
+
+def test_marks_acoustic_echo_segment_without_text_match() -> None:
+    from huske.transcribe.aec import mark_acoustic_echoes
+
+    system = _rng_speech(6.0, seed=12)
+    echo = fftconvolve(system, _rir(0.8))[: len(system)].astype(np.float32)
+    segs = [
+        Segment(0.5, 4.5, "garbled words from the noisy mic path", "microphone"),
+        Segment(0.5, 4.5, "clean system transcript with different words", "system"),
+    ]
+
+    marked = mark_acoustic_echoes(segs, echo, system, SR)
+
+    assert marked == 1
+    assert segs[0].echo is True
+
+
+def test_acoustic_echo_marker_preserves_local_voice() -> None:
+    from huske.transcribe.aec import mark_acoustic_echoes
+
+    near = _rng_speech(6.0, seed=13)
+    system = _rng_speech(6.0, seed=14)
+    echo = fftconvolve(system, _rir(0.25))[: len(system)].astype(np.float32)
+    mic = near + echo
+    segs = [
+        Segment(0.5, 4.5, "local speaker talking over playback", "microphone"),
+        Segment(0.5, 4.5, "system playback", "system"),
+    ]
+
+    marked = mark_acoustic_echoes(segs, mic, system, SR)
+
+    assert marked == 0
+    assert segs[0].echo is False
 
 
 def test_empty_inputs_are_safe() -> None:

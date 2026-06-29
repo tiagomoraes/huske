@@ -138,7 +138,7 @@ screenshots directory and interval.
 For prerelease builds or exact GitHub tags, install directly from the repository:
 
 ```bash
-uv tool install "git+https://github.com/tiagomoraes/huske.git@v0.9.0"
+uv tool install "git+https://github.com/tiagomoraes/huske.git@v0.9.1"
 ```
 
 See [quickstart.md](specs/001-huske-recorder/quickstart.md) for the full setup.
@@ -263,7 +263,7 @@ This adds two subcommands and one config flag:
 1. **Build the index.** `huske index` embeds every transcript under
    `output_root` into a single local vector file (`~/huske/index/passages.db`)
    using a multilingual model that runs on the Apple Silicon GPU via MLX —
-   the same Metal stack `mlx-whisper` already uses. Nothing leaves your machine.
+   the same Metal stack `parakeet-mlx` already uses. Nothing leaves your machine.
 
    ```bash
    huske index                 # backfill your whole history (incremental)
