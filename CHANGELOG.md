@@ -6,6 +6,23 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.9.1 - 2026-06-28
+
+### Fixed
+
+- **Speaker-bleed alignment.** The echo canceller now aligns the mic and system
+  channels correctly when the saved system reference arrives *late* relative to
+  the mic echo (the two are captured on independent clocks) and when a chunk
+  opens with only the local speaker before the first system audio — cases the
+  0.9.0 delay estimator missed, leaving the bleed in the transcript. The delay
+  search now scans for a jointly-energetic window, allows a negative lag, and
+  widens to 2 s.
+- **Residual-bleed backstop.** When the mic's transcript of system audio is too
+  garbled to match by text, an audio-coherence check now flags and drops the mic
+  segment if it is acoustically a copy of the near-simultaneous system channel,
+  so bleed no longer survives text de-dup. Your own voice (incoherent with the
+  system) is never dropped.
+
 ## 0.9.0 - 2026-06-24
 
 ### Added
