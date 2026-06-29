@@ -12,6 +12,7 @@ import numpy as np
 import soundfile as sf
 
 from huske.transcribe import worker
+from huske.transcribe.engines.base import Segment
 
 
 def _sigint_ignoring_child(ready_q: Any) -> None:
@@ -132,6 +133,53 @@ def test_chunk_to_job_carries_engine_selection(tmp_path: Path) -> None:
     assert job["asr_engine"] == "parakeet"
     assert job["parakeet_model"] == "mlx-community/parakeet-tdt-0.6b-v3"
     assert job["echo_dedup"] == "annotate"
+
+
+def _speechlike(seconds: float, seed: int, sr: int = 16_000) -> np.ndarray:
+    from scipy.signal import butter, lfilter
+
+    rng = np.random.default_rng(seed)
+    x = rng.standard_normal(int(seconds * sr)).astype(np.float32)
+    b, a = butter(4, 3500 / (sr / 2))
+    y = lfilter(b, a, x).astype(np.float32)
+    return (y / (np.sqrt(np.mean(y**2)) + 1e-9) * 0.1).astype(np.float32)
+
+
+def _room_echo(system: np.ndarray, *, gain: float = 0.8, sr: int = 16_000) -> np.ndarray:
+    from scipy.signal import fftconvolve
+
+    rir = np.zeros(int(0.12 * sr), dtype=np.float32)
+    delay = int(0.008 * sr)
+    rir[delay] = 1.0
+    rir[delay + int(0.02 * sr)] = 0.4
+    return fftconvolve(system, rir * gain)[: len(system)].astype(np.float32)
+
+
+def test_mark_echoes_uses_acoustic_backstop_for_garbled_text() -> None:
+    system = _speechlike(6.0, seed=21)
+    mic = _room_echo(system)
+    segs = [
+        Segment(0.5, 4.5, "noisy unrelated words from microphone ASR", "microphone"),
+        Segment(0.5, 4.5, "clean system transcript", "system"),
+    ]
+
+    worker._mark_echoes(segs, {"microphone": mic, "system": system}, "drop")
+
+    assert segs[0].echo is True
+
+
+def test_mark_echoes_off_skips_text_and_acoustic_marking() -> None:
+    system = _speechlike(6.0, seed=22)
+    mic = _room_echo(system)
+    phrase = "the same phrase appears on both sources"
+    segs = [
+        Segment(0.5, 4.5, phrase, "microphone"),
+        Segment(0.5, 4.5, phrase, "system"),
+    ]
+
+    worker._mark_echoes(segs, {"microphone": mic, "system": system}, "off")
+
+    assert segs[0].echo is False
 
 
 class _FakeQueue:

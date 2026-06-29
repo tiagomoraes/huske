@@ -139,6 +139,22 @@ def _ordered_sources(audio_paths: dict[str, str], audio_sources: list[str]) -> l
     return ordered
 
 
+def _mark_echoes(segments: list[Any], arrays: dict[str, Any], echo_mode: str) -> None:
+    """Apply text and audio-level echo marking in-place."""
+    if echo_mode == "off":
+        return
+
+    from huske.transcribe.dedup import mark_cross_channel_echoes
+
+    mark_cross_channel_echoes(segments)
+    if "microphone" not in arrays or "system" not in arrays:
+        return
+
+    from huske.transcribe.aec import mark_acoustic_echoes
+
+    mark_acoustic_echoes(segments, arrays["microphone"], arrays["system"])
+
+
 def _worker_main(in_q: Any, out_q: Any) -> None:
     """Subprocess entry point. Loops on jobs until sentinel arrives."""
     _configure_worker_signal_handlers()
@@ -167,7 +183,6 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
 
     from huske.models import AudioChunk
     from huske.paths import transcript_filename
-    from huske.transcribe.dedup import mark_cross_channel_echoes
     from huske.transcribe.engines import Segment, build_engine
     from huske.transcribe.engines.base import load_mono_16k
     from huske.transcribe.writer import (
@@ -258,8 +273,7 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
             merged.sort(key=lambda s: (s.start, s.source))
 
             echo_mode = job_data.get("echo_dedup", "drop")
-            if echo_mode != "off":
-                mark_cross_channel_echoes(merged)
+            _mark_echoes(merged, arrays, echo_mode)
 
             seg_dicts: list[dict[str, Any]] = []
             for s in merged:
