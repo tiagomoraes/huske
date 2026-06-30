@@ -50,3 +50,19 @@ def test_daemon_unreachable_is_not_ready(monkeypatch: pytest.MonkeyPatch) -> Non
     assert r.ok is False
     assert "unreachable" in r.detail
     assert "ollama serve" in (r.hint or "")
+
+
+def test_reason_codes_drive_auto_management(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert probe_distill("heuristic").reason == "no_daemon"
+
+    monkeypatch.setattr(client_mod.OllamaClient, "list_models", lambda self: ["qwen3.5:0.8b"])
+    assert probe_distill("qwen3.5:0.8b").reason == "ready"
+
+    monkeypatch.setattr(client_mod.OllamaClient, "list_models", lambda self: ["other:1b"])
+    assert probe_distill("qwen3.5:0.8b").reason == "model_missing"
+
+    def boom(self: object) -> list[str]:
+        raise client_mod.DistillError("connection refused")
+
+    monkeypatch.setattr(client_mod.OllamaClient, "list_models", boom)
+    assert probe_distill("qwen3.5:0.8b").reason == "unreachable"

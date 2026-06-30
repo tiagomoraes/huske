@@ -14,10 +14,12 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from typing import Any
 
 _CHAT_PATH = "/api/chat"
 _TAGS_PATH = "/api/tags"
+_PULL_PATH = "/api/pull"
 
 
 class DistillError(RuntimeError):
@@ -92,6 +94,55 @@ class OllamaClient:
             if isinstance(m, dict) and isinstance(m.get("name"), str):
                 names.append(m["name"])
         return names
+
+    def pull(
+        self,
+        model: str,
+        *,
+        on_progress: Callable[[str, int, int], None] | None = None,
+    ) -> None:
+        """Pull ``model`` via the daemon's streaming ``POST /api/pull``.
+
+        Ollama streams newline-delimited JSON status objects while it downloads;
+        each may carry ``completed``/``total`` byte counts. ``on_progress`` is
+        called per status line with ``(status, completed, total)`` so a caller can
+        surface progress. Raises :class:`DistillError` on a daemon-reported error
+        or a transport failure. ``on_progress`` may raise to abort the stream.
+        """
+        req = urllib.request.Request(
+            self._base + _PULL_PATH,
+            data=json.dumps({"model": model, "stream": True}).encode("utf-8"),
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+                for raw in resp:
+                    line = raw.decode("utf-8", errors="replace").strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    err = obj.get("error")
+                    if err:
+                        raise DistillError(f"pull failed: {err}")
+                    if on_progress is not None:
+                        on_progress(
+                            str(obj.get("status", "")),
+                            int(obj.get("completed", 0) or 0),
+                            int(obj.get("total", 0) or 0),
+                        )
+        except urllib.error.HTTPError as exc:
+            raise DistillError(
+                f"LLM daemon rejected pull: HTTP {exc.code} {_safe_error_detail(exc)}",
+                status=exc.code,
+            ) from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise DistillError(
+                f"could not reach LLM daemon at {self._base}: {exc}"
+            ) from exc
 
     # -- transport ---------------------------------------------------------
 

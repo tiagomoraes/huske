@@ -261,6 +261,13 @@ class RuntimeConfig(BaseModel):
     # `think: false`, which the daemon honors for thinking models and ignores for
     # the rest. Set true only if a model's reasoning measurably helps extraction.
     distill_think: bool = False
+    # When distillation is enabled (at launch or via the live `?`/menu-bar toggle),
+    # huske will best-effort make the local Ollama daemon ready instead of only
+    # warning: start `ollama serve` if the CLI is installed but the daemon is down,
+    # and `ollama pull` the configured model if it is missing. Both are bounded and
+    # still degrade to the same actionable warning. Set false to manage Ollama
+    # yourself. Only ever runs the local `ollama` CLI — never installs it.
+    distill_auto_manage: bool = True
 
     @field_validator(
         "output_root",

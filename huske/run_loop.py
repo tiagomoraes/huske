@@ -218,6 +218,25 @@ def run_session(
             log.warning("distill_worker_start_failed", error=str(exc))
             distill_worker = None
     state.update(distill_enabled=distill_worker is not None)
+    if distill_worker is not None and cfg.distill_auto_manage:
+        # Make Ollama ready off the hot path so the worker (already running)
+        # succeeds without the user pre-starting the daemon or pulling the model.
+        # Best-effort: a failure leaves the worker's own graceful degradation.
+        def _prepare_ollama() -> None:
+            from huske.distill import ollama_manage
+
+            ollama_manage.ensure_ready(
+                cfg.distill_model,
+                backend=cfg.distill_backend,
+                endpoint=cfg.distill_endpoint,
+                auto_manage=True,
+                emit=lambda sev, msg: state.push_event(sev, msg),  # type: ignore[arg-type]
+                serve_log=cfg.logs_root / f"ollama_{session.session_id}.log",
+            )
+
+        threading.Thread(
+            target=_prepare_ollama, name="huske-distill-prep", daemon=True
+        ).start()
 
     def _on_written(path: Path) -> None:
         if embed_worker is not None:
@@ -447,13 +466,17 @@ def run_session(
                 w.stop(drain_timeout=15.0)
                 return
 
-            from huske.distill.health import probe_distill
+            from huske.distill import ollama_manage
 
             on_event("info", f"distillation: checking {cfg.distill_model}…")
-            r = probe_distill(
+            r = ollama_manage.ensure_ready(
                 cfg.distill_model,
                 backend=cfg.distill_backend,
                 endpoint=cfg.distill_endpoint,
+                auto_manage=cfg.distill_auto_manage,
+                emit=on_event,
+                should_abort=stop_flag.is_set,
+                serve_log=cfg.logs_root / f"ollama_{session.session_id}.log",
             )
             if not r.ok:
                 msg = f"distillation unavailable: {r.detail}"
