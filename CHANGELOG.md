@@ -6,6 +6,19 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.10.0 - 2026-06-29
+
+### Added
+
+- **Toggle distillation live from the TUI and menu bar.** Distillation no longer
+  has to be chosen at launch — press `d` in the live UI's `?` controls overlay,
+  or pick **Toggle distillation** from the macOS menu-bar dropdown, to turn it on
+  or off for the running session. Turning it on first runs the same readiness
+  check as `huske doctor` (local LLM daemon reachable + model pulled) and warns
+  with a fix-it hint if it is not ready; both surfaces show the current on/off
+  state. The toggle is session-only — set `distill_enabled` in config to make it
+  the default.
+
 ## 0.9.1 - 2026-06-28
 
 ### Fixed

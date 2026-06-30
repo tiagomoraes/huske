@@ -722,7 +722,13 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.9.1", date: "2026-06-28", tag: "latest",
+    ver: "0.10.0", date: "2026-06-29", tag: "latest",
+    items: [
+      { kind: "added", text: <><strong>Toggle distillation live from the TUI and menu bar.</strong> Distillation no longer has to be chosen at launch — press <code>d</code> in the live UI's <code>?</code> controls overlay, or pick <strong>Toggle distillation</strong> from the macOS menu-bar dropdown, to turn it on or off for the running session. Turning it on first runs the same readiness check as <code>huske doctor</code> (LLM daemon reachable, model pulled) and warns with a fix-it hint if not. It's session-only, so <code>distill_enabled</code> still sets the default.</> },
+    ],
+  },
+  {
+    ver: "0.9.1", date: "2026-06-28",
     items: [
       { kind: "fixed", text: <><strong>Speaker-bleed alignment.</strong> Echo cancellation now lines up the mic and system channels correctly even when the saved system reference arrives late, or a chunk opens with only your voice before any system audio — cases the 0.9.0 estimator missed, which left the bleed in the transcript. The delay search now scans for an energetic window, allows a negative lag, and widens to 2 s.</> },
       { kind: "fixed", text: <><strong>Residual-bleed backstop.</strong> When the mic's copy of system audio is too garbled to match by text, an audio-coherence check now drops it if it is acoustically the same as the near-simultaneous system channel. Your own voice is never removed.</> },

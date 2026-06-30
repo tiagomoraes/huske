@@ -124,6 +124,7 @@ Runtime controls in the live UI:
 Inside controls:
 p       pause or resume audio recording
 s       enable or disable periodic screenshots
+d       toggle LLM distillation (statements)
 i       choose microphone input device
 q       graceful stop
 Esc     close controls
@@ -133,12 +134,16 @@ Ctrl+C  graceful stop from anywhere
 
 Pausing finalizes the current partial chunk and stops writing audio until you
 resume. Toggling screenshots takes effect immediately, using the configured
-screenshots directory and interval.
+screenshots directory and interval. Toggling distillation flips it on or off for
+the running session: turning it on checks that the local LLM daemon and model are
+ready before it starts (and warns with a fix-it hint if they are not). On macOS
+the same actions are available from the menu-bar dropdown. The toggle is
+session-only — set `distill_enabled` in config to make it the default.
 
 For prerelease builds or exact GitHub tags, install directly from the repository:
 
 ```bash
-uv tool install "git+https://github.com/tiagomoraes/huske.git@v0.9.1"
+uv tool install "git+https://github.com/tiagomoraes/huske.git@v0.10.0"
 ```
 
 See [quickstart.md](specs/001-huske-recorder/quickstart.md) for the full setup.

@@ -40,6 +40,7 @@ def _snap(**overrides: object) -> ControlSnapshot:
         current_chunk_seq=2,
         queue_depth=1,
         screenshots_enabled=False,
+        distill_enabled=False,
         last_saved_name="120015_abcd0000_001.md",
     )
     base.update(overrides)
@@ -61,6 +62,20 @@ def test_snapshot_round_trip() -> None:
 def test_command_round_trip() -> None:
     line = encode_command(Command.PAUSE_RESUME).decode("utf-8").rstrip("\n")
     assert decode_message(line) is Command.PAUSE_RESUME
+
+
+def test_toggle_distill_command_round_trip() -> None:
+    line = encode_command(Command.TOGGLE_DISTILL).decode("utf-8").rstrip("\n")
+    assert decode_message(line) is Command.TOGGLE_DISTILL
+
+
+def test_snapshot_carries_distill_state() -> None:
+    snap = _snap(distill_enabled=True)
+    line = encode_snapshot(snap).decode("utf-8").rstrip("\n")
+    decoded = decode_message(line)
+    assert isinstance(decoded, ControlSnapshot)
+    assert decoded.distill_enabled is True
+    assert decoded == snap
 
 
 def test_decode_unknown_type_raises() -> None:
