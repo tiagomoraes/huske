@@ -1,7 +1,7 @@
 import HuskeKit
 import SwiftUI
 
-enum SidebarItem: String, CaseIterable, Identifiable {
+enum Pane: String, CaseIterable, Identifiable {
     case record
     case transcripts
     case doctor
@@ -21,16 +21,26 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .record: return "waveform"
-        case .transcripts: return "doc.text"
+        case .transcripts: return "text.document"
         case .doctor: return "stethoscope"
         case .configuration: return "slider.horizontal.3"
         }
     }
+
+    var shortcut: KeyEquivalent {
+        switch self {
+        case .record: return "1"
+        case .transcripts: return "2"
+        case .doctor: return "3"
+        case .configuration: return "4"
+        }
+    }
 }
 
+/// Custom chrome: the system title bar is hidden; a branded rail owns
+/// navigation (traffic lights float over its top-left corner).
 struct RootView: View {
     @Environment(AppModel.self) private var model
-    @State private var selection: SidebarItem = .record
 
     var body: some View {
         @Bindable var model = model
@@ -38,63 +48,162 @@ struct RootView: View {
             if model.binaryMissing {
                 OnboardingView()
             } else {
-                NavigationSplitView {
-                    sidebar
-                } detail: {
+                HStack(spacing: 0) {
+                    SidebarView()
+                    Rectangle()
+                        .fill(Theme.divider)
+                        .frame(width: 1)
                     detail
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Theme.bg)
                 }
             }
         }
+        .ignoresSafeArea()
         .background(Theme.bg)
         .sheet(isPresented: $model.recoverSheetVisible) {
             RecoverSheet()
         }
     }
 
-    private var sidebar: some View {
-        List(selection: $selection) {
-            Section {
-                ForEach(SidebarItem.allCases) { item in
-                    Label(item.title, systemImage: item.symbol)
-                        .tag(item)
+    @ViewBuilder
+    private var detail: some View {
+        switch model.pane {
+        case .record: RecordView()
+        case .transcripts: TranscriptsView()
+        case .doctor: DoctorView()
+        case .configuration: ConfigView()
+        }
+    }
+}
+
+// MARK: - sidebar
+
+struct SidebarView: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Clearance for the traffic lights, then the wordmark.
+            wordmark
+                .padding(.top, 44)
+                .padding(.horizontal, 18)
+                .padding(.bottom, 22)
+
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(Pane.allCases) { pane in
+                    SidebarItemView(pane: pane)
                 }
             }
-            Section {
-                sessionBadge
-            }
+            .padding(.horizontal, 10)
+
+            Spacer()
+
+            sessionBadge
+                .padding(.horizontal, 14)
+                .padding(.bottom, 8)
+
+            footer
+                .padding(.horizontal, 18)
+                .padding(.bottom, 14)
         }
-        .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 260)
-        .listStyle(.sidebar)
+        .frame(width: 216)
+        .frame(maxHeight: .infinity)
+        .background(Theme.bgSidebar)
+    }
+
+    private var wordmark: some View {
+        HStack(spacing: 9) {
+            LogoMark(size: 26)
+            // The one soft moment in the system: "huske" in italic serif.
+            Text("huske")
+                .font(.brandSerifItalic(19))
+                .foregroundStyle(Theme.fg)
+                .baselineOffset(1)
+        }
+        .accessibilityAddTraits(.isHeader)
     }
 
     @ViewBuilder
     private var sessionBadge: some View {
         let session = model.session
         if session.isBusy, let snap = session.snapshot {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(snap.stopping ? Theme.warn : (snap.paused ? Theme.warn : Theme.recordRed))
-                        .frame(width: 7, height: 7)
-                    Text(snap.stopping ? "Finishing…" : (snap.paused ? "Paused" : "Recording"))
-                        .font(.system(size: 11, weight: .semibold))
+                        .fill(snap.stopping || snap.paused ? Theme.warn : Theme.recordRed)
+                        .frame(width: 6, height: 6)
+                    Text(
+                        snap.stopping
+                            ? "FINISHING" : (snap.paused ? "PAUSED" : "RECORDING")
+                    )
+                    .font(.brandMono(10, .semibold))
+                    .kerning(1.0)
+                    .foregroundStyle(Theme.fg)
                 }
                 Text("chunk \(String(format: "%03d", snap.currentChunkSeq)) · queue \(snap.queueDepth)")
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.brandMono(10))
                     .foregroundStyle(Theme.fgMuted)
             }
-            .padding(.vertical, 2)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
+                    .fill(Theme.bgSunken.opacity(0.6))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
+                    .strokeBorder(Theme.divider, lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+            .onTapGesture { model.pane = .record }
         }
     }
 
-    @ViewBuilder
-    private var detail: some View {
-        switch selection {
-        case .record: RecordView()
-        case .transcripts: TranscriptsView()
-        case .doctor: DoctorView()
-        case .configuration: ConfigView()
+    private var footer: some View {
+        Text(model.isDemo ? "demo session" : "v\(model.binaryVersion ?? "—")")
+            .font(.brandMono(10))
+            .foregroundStyle(Theme.fgFaint)
+    }
+}
+
+struct SidebarItemView: View {
+    @Environment(AppModel.self) private var model
+    let pane: Pane
+    @State private var hovering = false
+
+    var body: some View {
+        let selected = model.pane == pane
+        Button {
+            model.pane = pane
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: pane.symbol)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(selected ? Theme.amber : Theme.fgMuted)
+                    .frame(width: 18)
+                Text(pane.title)
+                    .font(.brandSans(13, selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? Theme.fg : Theme.fgMuted)
+                Spacer()
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
+                    .fill(
+                        selected
+                            ? Theme.amber.opacity(0.14)
+                            : (hovering ? Theme.divider.opacity(0.7) : Color.clear))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: Theme.radiusMD))
         }
+        .buttonStyle(.plain)
+        .keyboardShortcut(pane.shortcut, modifiers: [.command])
+        .onHover { hovering = $0 }
+        .animation(Theme.easeFast, value: hovering)
+        .accessibilityLabel(pane.title)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 }
 
@@ -107,34 +216,41 @@ struct OnboardingView: View {
     var body: some View {
         VStack(spacing: 0) {
             Spacer()
-            VStack(spacing: 20) {
+            VStack(spacing: 22) {
                 LogoMark(size: 76)
-                Text("Welcome to huske")
-                    .font(.system(size: 26, weight: .bold))
-                Text(
-                    "This app drives the huske command-line engine, and it "
-                        + "doesn't seem to be installed yet. Install it, then come back."
-                )
-                .multilineTextAlignment(.center)
-                .foregroundStyle(Theme.fgMuted)
-                .frame(maxWidth: 440)
+                VStack(spacing: 10) {
+                    (Text("Welcome to ").font(.brandSans(26, .semibold))
+                        + Text("huske").font(.brandSerifItalic(26)))
+                        .foregroundStyle(Theme.fg)
+                    Text(
+                        "This app drives the huske command-line engine, and it "
+                            + "doesn't seem to be installed yet. Install it, then come back."
+                    )
+                    .font(.brandSans(13))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(Theme.fgMuted)
+                    .lineSpacing(3)
+                    .frame(maxWidth: 420)
+                }
 
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 8) {
                     InstallCommandRow(label: "uv", command: "uv tool install \"huske[mcp]\"")
                     InstallCommandRow(label: "brew", command: "brew install tiagomoraes/huske/huske")
                 }
                 .frame(maxWidth: 440)
 
-                HStack(spacing: 12) {
+                HStack(spacing: 10) {
                     Button {
                         model.refreshBinary()
                         Task { await model.bootstrap() }
                     } label: {
                         Label("Check Again", systemImage: "arrow.clockwise")
                     }
+                    .buttonStyle(PrimaryButtonStyle())
                     .keyboardShortcut(.defaultAction)
 
                     Button("Locate huske…") { pickingBinary = true }
+                        .buttonStyle(SecondaryButtonStyle())
                         .fileImporter(
                             isPresented: $pickingBinary,
                             allowedContentTypes: [.unixExecutable, .executable, .item]
@@ -147,9 +263,9 @@ struct OnboardingView: View {
             }
             Spacer()
             Text("huske records and transcribes entirely on this Mac — nothing leaves your machine.")
-                .font(.footnote)
+                .font(.brandSans(12))
                 .foregroundStyle(Theme.fgFaint)
-                .padding(.bottom, 24)
+                .padding(.bottom, 26)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.bg)
@@ -162,13 +278,14 @@ struct InstallCommandRow: View {
     @State private var copied = false
 
     var body: some View {
-        HStack {
+        HStack(spacing: 0) {
             Text(label)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.brandMono(11, .medium))
                 .foregroundStyle(Theme.fgMuted)
-                .frame(width: 42, alignment: .leading)
+                .frame(width: 48, alignment: .leading)
             Text(command)
-                .font(.system(size: 12, design: .monospaced))
+                .font(.brandMono(12))
+                .foregroundStyle(Theme.fg)
                 .textSelection(.enabled)
             Spacer()
             Button {
@@ -181,20 +298,21 @@ struct InstallCommandRow: View {
                 }
             } label: {
                 Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 11))
                     .foregroundStyle(copied ? Theme.ok : Theme.fgMuted)
             }
             .buttonStyle(.plain)
             .help("Copy")
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.vertical, 9)
         .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
                 .fill(Theme.bgElevated)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Theme.cardBorder.opacity(0.6), lineWidth: 1)
+            RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
+                .strokeBorder(Theme.cardBorder, lineWidth: 1)
         )
     }
 }

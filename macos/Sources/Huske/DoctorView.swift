@@ -5,14 +5,40 @@ struct DoctorView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        ScrollView {
+        PaneScroll {
             VStack(alignment: .leading, spacing: 14) {
-                header
+                PaneHeader(
+                    "Doctor",
+                    subtitle: "Validates audio devices, permissions, models, and write paths."
+                ) {
+                    if model.doctorRunning {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("listening to the mic for a second…")
+                                .font(.brandSans(11.5))
+                                .foregroundStyle(Theme.fgMuted)
+                        }
+                    } else {
+                        Button {
+                            model.runDoctor()
+                        } label: {
+                            Label(model.doctorReport == nil ? "Run Checks" : "Run Again",
+                                  systemImage: "stethoscope")
+                        }
+                        .buttonStyle(PrimaryButtonStyle())
+                        .keyboardShortcut(.defaultAction)
+                    }
+                }
+                .padding(.top, 30)
+
                 if let error = model.doctorError {
                     Card {
-                        Label(error, systemImage: "xmark.octagon.fill")
-                            .foregroundStyle(Theme.err)
-                            .font(.system(size: 12))
+                        Label {
+                            Text(error).font(.brandSans(12.5))
+                        } icon: {
+                            Image(systemName: "xmark.octagon.fill")
+                        }
+                        .foregroundStyle(Theme.err)
                     }
                 }
                 if let report = model.doctorReport {
@@ -22,53 +48,26 @@ struct DoctorView: View {
                     emptyState
                 }
             }
-            .padding(20)
-            .frame(maxWidth: 760)
+            .padding(.horizontal, 28)
+            .padding(.bottom, 24)
+            .frame(maxWidth: 780)
             .frame(maxWidth: .infinity)
         }
         .background(Theme.bg)
-        .navigationTitle("Doctor")
-    }
-
-    private var header: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Environment check")
-                    .font(.system(size: 17, weight: .bold))
-                Text("Validates audio devices, permissions, models, and write paths.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.fgMuted)
-            }
-            Spacer()
-            if model.doctorRunning {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("listening to the mic for a second…")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.fgMuted)
-                }
-            } else {
-                Button {
-                    model.runDoctor()
-                } label: {
-                    Label(model.doctorReport == nil ? "Run Checks" : "Run Again", systemImage: "stethoscope")
-                }
-                .keyboardShortcut(.defaultAction)
-            }
-        }
     }
 
     private var emptyState: some View {
         Card {
             HStack(spacing: 12) {
                 Image(systemName: "stethoscope")
-                    .font(.system(size: 22))
+                    .font(.system(size: 20))
                     .foregroundStyle(Theme.fgFaint)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("No results yet")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.brandSans(13, .semibold))
+                        .foregroundStyle(Theme.fg)
                     Text("Run the checks after installing, changing audio devices, or granting permissions.")
-                        .font(.system(size: 12))
+                        .font(.brandSans(12))
                         .foregroundStyle(Theme.fgMuted)
                 }
             }
@@ -82,7 +81,7 @@ struct DoctorView: View {
                     SectionLabel("Checks")
                     Spacer()
                     Text(report.ok ? "all passed" : "issues found")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.brandMono(11, .medium))
                         .foregroundStyle(report.ok ? Theme.ok : Theme.err)
                 }
                 .padding(.horizontal, 16)
@@ -90,7 +89,10 @@ struct DoctorView: View {
                 .padding(.bottom, 6)
                 ForEach(Array(report.checks.enumerated()), id: \.offset) { index, check in
                     if index > 0 {
-                        Divider().overlay(Theme.divider).padding(.leading, 44)
+                        Rectangle()
+                            .fill(Theme.divider)
+                            .frame(height: 1)
+                            .padding(.leading, 44)
                     }
                     CheckRow(check: check)
                 }
@@ -101,18 +103,19 @@ struct DoctorView: View {
 
     private func devicesCard(_ report: DoctorReport) -> some View {
         Card {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 9) {
                 SectionLabel("Input devices")
                 ForEach(report.inputDevices) { device in
                     HStack(spacing: 8) {
                         Image(systemName: "mic")
-                            .font(.system(size: 11))
+                            .font(.system(size: 10))
                             .foregroundStyle(Theme.fgMuted)
                         Text(device.name)
-                            .font(.system(size: 12))
+                            .font(.brandSans(12.5))
+                            .foregroundStyle(Theme.fg)
                         Spacer()
                         Text("\(device.channels)ch · \(Int(device.sampleRate)) Hz")
-                            .meterFigure(size: 11)
+                            .font(.brandMono(11))
                             .foregroundStyle(Theme.fgFaint)
                     }
                 }
@@ -127,20 +130,22 @@ struct CheckRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Image(systemName: check.ok ? "checkmark.circle.fill" : "xmark.octagon.fill")
+                .font(.system(size: 12))
                 .foregroundStyle(check.ok ? Theme.ok : Theme.err)
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(check.name)
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .font(.brandMono(12, .medium))
+                        .foregroundStyle(Theme.fg)
                     Text(check.detail)
-                        .font(.system(size: 12))
+                        .font(.brandSans(12.5))
                         .foregroundStyle(Theme.fgMuted)
                         .textSelection(.enabled)
                 }
                 if !check.ok, let hint = check.hint {
                     Text(hint)
-                        .font(.system(size: 11.5))
+                        .font(.brandSans(12))
                         .foregroundStyle(Theme.warn)
                         .textSelection(.enabled)
                 }

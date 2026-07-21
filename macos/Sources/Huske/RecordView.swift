@@ -7,24 +7,77 @@ struct RecordView: View {
     var body: some View {
         let session = model.session
         Group {
-            switch session.phase {
-            case .idle:
-                IdleView()
-            case .launching(let status):
-                LaunchingView(status: status)
-            case .active(let attached):
-                if let snapshot = session.snapshot {
-                    ActiveSessionView(snapshot: snapshot, attached: attached)
-                } else {
-                    LaunchingView(status: "connecting to the session…")
+            if model.engineOutdated {
+                EngineOutdatedView()
+            } else {
+                switch session.phase {
+                case .idle:
+                    IdleView()
+                case .launching(let status):
+                    LaunchingView(status: status)
+                case .active(let attached):
+                    if let snapshot = session.snapshot {
+                        ActiveSessionView(snapshot: snapshot, attached: attached)
+                    } else {
+                        LaunchingView(status: "connecting to the session…")
+                    }
+                case .failed(let message):
+                    FailedView(message: message)
                 }
-            case .failed(let message):
-                FailedView(message: message)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.bg)
-        .navigationTitle("Record")
+    }
+}
+
+// MARK: - engine outdated
+
+struct EngineOutdatedView: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        VStack(spacing: 22) {
+            Spacer()
+            LogoMark(size: 60)
+            VStack(spacing: 10) {
+                Text("Your huske engine needs an update")
+                    .font(.brandSans(22, .semibold))
+                    .foregroundStyle(Theme.fg)
+                Text(
+                    "huske \(model.binaryVersion ?? "?") at \(model.binaryURL?.path ?? "?") "
+                        + "predates app control. Update it, or point the app at a newer build."
+                )
+                .font(.brandSans(13))
+                .foregroundStyle(Theme.fgMuted)
+                .lineSpacing(3)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 460)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                InstallCommandRow(label: "uv", command: "uv tool upgrade huske")
+                InstallCommandRow(label: "brew", command: "brew upgrade huske")
+            }
+            .frame(maxWidth: 440)
+            HStack(spacing: 10) {
+                Button {
+                    model.refreshBinary()
+                    Task { await model.bootstrap() }
+                } label: {
+                    Label("Check Again", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(PrimaryButtonStyle())
+            }
+            Text("Building from source? Point the app at your dev binary in Settings (⌘,) — e.g. <repo>/.venv/bin/huske.")
+                .font(.brandSans(11.5))
+                .foregroundStyle(Theme.fgFaint)
+            Spacer()
+            Text("Transcripts and Doctor still work with this engine version.")
+                .font(.brandSans(12))
+                .foregroundStyle(Theme.fgFaint)
+                .padding(.bottom, 24)
+        }
+        .padding(32)
     }
 }
 
@@ -34,63 +87,54 @@ struct IdleView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 0) {
             Spacer()
             LogoMark(size: 64)
-            VStack(spacing: 8) {
-                Text("Ready to record")
-                    .font(.system(size: 24, weight: .bold))
-                Text("Microphone and system audio, transcribed on this Mac as you go.")
-                    .foregroundStyle(Theme.fgMuted)
-            }
+                .padding(.bottom, 26)
+            Text("Ready to record")
+                .font(.brandSans(24, .semibold))
+                .kerning(-0.3)
+                .foregroundStyle(Theme.fg)
+                .padding(.bottom, 8)
+            Text("Microphone and system audio, transcribed on this Mac as you go.")
+                .font(.brandSans(13))
+                .foregroundStyle(Theme.fgMuted)
+                .padding(.bottom, 30)
 
             Button {
                 model.startRecording()
             } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "record.circle.fill")
-                        .font(.system(size: 17, weight: .semibold))
+                HStack(spacing: 9) {
+                    Circle()
+                        .fill(Theme.fgOnRed)
+                        .frame(width: 9, height: 9)
                     Text("Start Recording")
-                        .font(.system(size: 15, weight: .semibold))
                 }
-                .padding(.horizontal, 26)
-                .padding(.vertical, 12)
             }
-            .buttonStyle(RecordButtonStyle())
+            .buttonStyle(StopButtonStyle(size: .large))
             .keyboardShortcut("r", modifiers: [.command])
+            .padding(.bottom, 26)
 
-            VStack(spacing: 6) {
-                if let version = model.binaryVersion {
-                    Text("huske \(version) · \(model.binaryURL?.path ?? "")")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(Theme.fgFaint)
-                }
-                Button("Recover orphaned audio from a previous crash…") {
-                    model.runRecover()
-                }
-                .buttonStyle(.link)
-                .font(.system(size: 12))
+            if let version = model.binaryVersion {
+                Text("huske \(version) · \(model.binaryURL?.path ?? "")")
+                    .font(.brandMono(10.5))
+                    .foregroundStyle(Theme.fgFaint)
+                    .padding(.bottom, 10)
             }
+            Button("Recover orphaned audio from a previous crash…") {
+                model.runRecover()
+            }
+            .buttonStyle(.plain)
+            .font(.brandSans(12))
+            .foregroundStyle(Theme.amber)
+
             Spacer()
             Text("The first chunk takes ~30 s while the speech model warms up.")
-                .font(.footnote)
+                .font(.brandSans(12))
                 .foregroundStyle(Theme.fgFaint)
-                .padding(.bottom, 18)
+                .padding(.bottom, 22)
         }
         .padding(32)
-    }
-}
-
-struct RecordButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(.white)
-            .background(
-                Capsule().fill(
-                    configuration.isPressed ? Theme.amberPressed : Theme.recordRed)
-            )
-            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
@@ -101,23 +145,26 @@ struct LaunchingView: View {
     let status: String
 
     var body: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 16) {
             Spacer()
             ProgressView()
                 .controlSize(.large)
+                .padding(.bottom, 6)
             Text("Starting session")
-                .font(.system(size: 20, weight: .semibold))
+                .font(.brandSans(20, .semibold))
+                .foregroundStyle(Theme.fg)
             Text(status)
-                .font(.system(size: 12, design: .monospaced))
+                .font(.brandMono(12))
                 .foregroundStyle(Theme.fgMuted)
                 .lineLimit(2)
                 .frame(maxWidth: 520)
                 .multilineTextAlignment(.center)
             Text("Loading the speech model onto the GPU — usually ~30 seconds.")
-                .font(.footnote)
+                .font(.brandSans(12))
                 .foregroundStyle(Theme.fgFaint)
             Button("Cancel") { model.session.cancelLaunch() }
-                .padding(.top, 8)
+                .buttonStyle(SecondaryButtonStyle())
+                .padding(.top, 10)
             Spacer()
         }
         .padding(32)
@@ -134,28 +181,35 @@ struct FailedView: View {
         VStack(spacing: 16) {
             Spacer()
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 34))
+                .font(.system(size: 30))
                 .foregroundStyle(Theme.err)
             Text("The session ended unexpectedly")
-                .font(.system(size: 20, weight: .semibold))
+                .font(.brandSans(20, .semibold))
+                .foregroundStyle(Theme.fg)
             Text(message)
-                .font(.system(size: 12, design: .monospaced))
+                .font(.brandMono(11.5))
                 .foregroundStyle(Theme.fgMuted)
                 .frame(maxWidth: 560)
                 .multilineTextAlignment(.center)
+                .lineSpacing(3)
                 .textSelection(.enabled)
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 Button("Dismiss") { model.session.dismissFailure() }
+                    .buttonStyle(SecondaryButtonStyle())
                 Button("Run Doctor") {
                     model.session.dismissFailure()
+                    model.pane = .doctor
                     model.runDoctor()
                 }
+                .buttonStyle(SecondaryButtonStyle())
                 Button("Try Again") {
                     model.session.dismissFailure()
                     model.startRecording()
                 }
+                .buttonStyle(PrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)
             }
+            .padding(.top, 6)
             Spacer()
         }
         .padding(32)
@@ -172,6 +226,7 @@ struct ActiveSessionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
+                .padding(.top, 30)
             if !snapshot.warnings.isEmpty {
                 WarningBanner(warnings: snapshot.warnings)
             }
@@ -181,31 +236,33 @@ struct ActiveSessionView: View {
                 ExtrasCard(snapshot: snapshot)
             }
             EventFeed()
+            Spacer(minLength: 0)
         }
-        .padding(20)
-        .frame(maxWidth: 760)
+        .padding(.horizontal, 28)
+        .padding(.bottom, 20)
+        .frame(maxWidth: 780)
         .frame(maxWidth: .infinity)
     }
 
     private var header: some View {
         HStack(spacing: 12) {
             if snapshot.stopping {
-                StatusPill(text: "FINISHING", color: Theme.warn, pulsing: true)
+                StatusPill(text: "finishing", color: Theme.warn, pulsing: true)
             } else if snapshot.paused {
-                StatusPill(text: "PAUSED", color: Theme.warn)
+                StatusPill(text: "paused", color: Theme.warn)
             } else if snapshot.recording {
-                StatusPill(text: "RECORDING", color: Theme.recordRed, pulsing: true)
+                StatusPill(text: "recording", color: Theme.recordRed, pulsing: true)
             } else {
-                StatusPill(text: "IDLE", color: Theme.fgFaint)
+                StatusPill(text: "idle", color: Theme.fgFaint)
             }
 
             if attached {
-                Text("attached to a session started outside the app")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Theme.fgMuted)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Capsule().fill(Theme.info.opacity(0.15)))
+                Text("attached · started outside the app")
+                    .font(.brandMono(10.5))
+                    .foregroundStyle(Theme.info)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Theme.info.opacity(0.13)))
             }
 
             Spacer()
@@ -223,13 +280,15 @@ struct ActiveSessionView: View {
                         snapshot.paused ? "Resume" : "Pause",
                         systemImage: snapshot.paused ? "play.fill" : "pause.fill")
                 }
+                .buttonStyle(SecondaryButtonStyle())
                 .help(snapshot.paused ? "Resume recording" : "Pause recording")
 
-                Button(role: .destructive) {
+                Button {
                     model.session.requestStop()
                 } label: {
                     Label("Stop", systemImage: "stop.fill")
                 }
+                .buttonStyle(StopButtonStyle())
                 .help("Finalize the current chunk, transcribe what's pending, and stop")
             }
         }
@@ -243,7 +302,7 @@ struct SessionClock: View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             if let startedAt {
                 Text(Self.format(context.date.timeIntervalSince(startedAt)))
-                    .meterFigure(size: 13)
+                    .font(.brandMono(13, .medium))
                     .foregroundStyle(Theme.fgMuted)
                     .help("Session duration")
             }
@@ -271,10 +330,10 @@ struct WarningBanner: View {
             ForEach(warnings.sorted(by: { $0.key < $1.key }), id: \.key) { _, message in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 12))
+                        .font(.system(size: 11))
                         .foregroundStyle(Theme.warn)
                     Text(message)
-                        .font(.system(size: 12))
+                        .font(.brandSans(12.5))
                         .foregroundStyle(Theme.fg)
                 }
             }
@@ -282,12 +341,12 @@ struct WarningBanner: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Theme.warn.opacity(0.12))
+            RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
+                .fill(Theme.warn.opacity(0.11))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(Theme.warn.opacity(0.4), lineWidth: 1)
+            RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
+                .strokeBorder(Theme.warn.opacity(0.38), lineWidth: 1)
         )
     }
 }
@@ -314,7 +373,7 @@ struct MetersCard: View {
 
     var body: some View {
         Card {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 15) {
                 HStack {
                     SectionLabel("Levels")
                     Spacer()
@@ -326,7 +385,7 @@ struct MetersCard: View {
                         systemDb: snapshot.paused ? -120 : snapshot.peakSystemDb,
                         at: context.date
                     )
-                    VStack(spacing: 12) {
+                    VStack(spacing: 13) {
                         MeterRow(
                             label: "Microphone",
                             db: snapshot.paused ? -120 : snapshot.peakMicDb,
@@ -366,11 +425,12 @@ struct MicrophoneMenu: View {
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: "mic")
-                    .font(.system(size: 11))
+                    .font(.system(size: 10))
                 Text(snapshot.inputDeviceName ?? "Microphone")
-                    .font(.system(size: 12))
+                    .font(.brandSans(12))
                     .lineLimit(1)
             }
+            .foregroundStyle(Theme.fgMuted)
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
@@ -387,15 +447,15 @@ struct MeterRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Text(label)
-                .font(.system(size: 12))
+                .font(.brandSans(12))
                 .foregroundStyle(Theme.fgMuted)
                 .frame(width: 92, alignment: .leading)
             MeterBar(level: meter.level, peak: meter.peak)
-                .frame(height: 10)
-            Text(db <= -119 ? "—" : String(format: "%5.1f dB", db))
-                .meterFigure(size: 11)
+                .frame(height: 9)
+            Text(db <= -119 ? "  —  " : String(format: "%5.1f dB", db))
+                .font(.brandMono(11))
                 .foregroundStyle(Theme.fgMuted)
-                .frame(width: 64, alignment: .trailing)
+                .frame(width: 62, alignment: .trailing)
         }
     }
 }
@@ -431,7 +491,7 @@ struct MeterBar: View {
                     )
                 if peak > 0.01 {
                     RoundedRectangle(cornerRadius: 1)
-                        .fill(Theme.fg.opacity(0.85))
+                        .fill(Theme.fg.opacity(0.8))
                         .frame(width: 2)
                         .offset(x: max(0, geo.size.width * peak - 2))
                 }
@@ -452,22 +512,23 @@ struct ChunkCard: View {
         Card {
             VStack(alignment: .leading, spacing: 10) {
                 SectionLabel("Current chunk")
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text(String(format: "%03d", snapshot.currentChunkSeq))
-                        .font(.system(size: 28, weight: .bold, design: .monospaced))
+                        .font(.brandMono(28, .semibold))
+                        .foregroundStyle(Theme.fg)
                     if let started = snapshot.chunkStartedAt {
                         TimelineView(.periodic(from: .now, by: 1)) { context in
                             Text(SessionClock.format(context.date.timeIntervalSince(started)))
-                                .meterFigure(size: 14)
+                                .font(.brandMono(14))
                                 .foregroundStyle(Theme.fgMuted)
                         }
                     } else {
                         Text("waiting for speech")
-                            .font(.system(size: 12))
+                            .font(.brandSans(12))
                             .foregroundStyle(Theme.fgFaint)
                     }
                 }
-                Divider().overlay(Theme.divider)
+                Rectangle().fill(Theme.divider).frame(height: 1)
                 HStack(spacing: 6) {
                     if snapshot.queueDepth > 0 {
                         ProgressView().controlSize(.mini)
@@ -477,7 +538,7 @@ struct ChunkCard: View {
                             ? "transcriptions up to date"
                             : "\(snapshot.queueDepth) transcription\(snapshot.queueDepth == 1 ? "" : "s") pending"
                     )
-                    .font(.system(size: 12))
+                    .font(.brandSans(12))
                     .foregroundStyle(snapshot.queueDepth > 0 ? Theme.fg : Theme.fgMuted)
                 }
                 if let name = snapshot.lastSavedName {
@@ -499,10 +560,10 @@ struct LastSavedLink: View {
             }
         } label: {
             HStack(spacing: 5) {
-                Image(systemName: "doc.text")
-                    .font(.system(size: 11))
+                Image(systemName: "text.document")
+                    .font(.system(size: 10))
                 Text(name)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.brandMono(11))
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -520,7 +581,7 @@ struct ExtrasCard: View {
 
     var body: some View {
         Card {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 11) {
                 SectionLabel("Extras")
                 Toggle(isOn: Binding(
                     get: { snapshot.screenshotsEnabled },
@@ -528,10 +589,11 @@ struct ExtrasCard: View {
                 )) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Periodic screenshots")
-                            .font(.system(size: 12))
+                            .font(.brandSans(12))
+                            .foregroundStyle(Theme.fg)
                         if snapshot.screenshotsEnabled {
                             Text("\(snapshot.screenshotsCount) captured")
-                                .font(.system(size: 10, design: .monospaced))
+                                .font(.brandMono(10))
                                 .foregroundStyle(Theme.fgMuted)
                         }
                     }
@@ -545,28 +607,29 @@ struct ExtrasCard: View {
                 )) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text("LLM distillation")
-                            .font(.system(size: 12))
+                            .font(.brandSans(12))
+                            .foregroundStyle(Theme.fg)
                         Text("statements for semantic search")
-                            .font(.system(size: 10))
+                            .font(.brandSans(10.5))
                             .foregroundStyle(Theme.fgMuted)
                     }
                 }
                 .toggleStyle(.switch)
                 .controlSize(.small)
 
-                Divider().overlay(Theme.divider)
+                Rectangle().fill(Theme.divider).frame(height: 1)
 
                 Button {
                     model.session.send(.openTranscripts)
                 } label: {
                     Label("Open transcripts folder", systemImage: "folder")
-                        .font(.system(size: 12))
+                        .font(.brandSans(12, .medium))
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Theme.amber)
             }
         }
-        .frame(width: 250)
+        .frame(width: 252)
     }
 }
 
@@ -574,6 +637,7 @@ struct ExtrasCard: View {
 
 struct EventFeed: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.screenRendering) private var rendering
 
     var body: some View {
         Card(padding: 0) {
@@ -582,28 +646,37 @@ struct EventFeed: View {
                     .padding(.horizontal, 16)
                     .padding(.top, 14)
                     .padding(.bottom, 8)
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 5) {
-                            ForEach(model.session.eventLog) { event in
-                                EventRow(event: event)
-                                    .id(event.id)
-                            }
+                if rendering {
+                    rows
+                } else {
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            rows
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 12)
-                    }
-                    .frame(minHeight: 90, maxHeight: 170)
-                    .onChange(of: model.session.eventLog.count) {
-                        if let last = model.session.eventLog.last {
-                            withAnimation(.easeOut(duration: 0.2)) {
-                                proxy.scrollTo(last.id, anchor: .bottom)
+                        .frame(minHeight: 90, maxHeight: 170)
+                        .onChange(of: model.session.eventLog.count) {
+                            if let last = model.session.eventLog.last {
+                                withAnimation(Theme.ease) {
+                                    proxy.scrollTo(last.id, anchor: .bottom)
+                                }
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    private var rows: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            ForEach(model.session.eventLog) { event in
+                EventRow(event: event)
+                    .id(event.id)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -613,14 +686,14 @@ struct EventRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(timeText)
-                .meterFigure(size: 10)
+                .font(.brandMono(10))
                 .foregroundStyle(Theme.fgFaint)
             Circle()
                 .fill(color)
                 .frame(width: 5, height: 5)
                 .offset(y: -1)
             Text(event.message)
-                .font(.system(size: 11.5))
+                .font(.brandSans(12))
                 .foregroundStyle(event.severity == .info ? Theme.fgMuted : Theme.fg)
                 .textSelection(.enabled)
         }

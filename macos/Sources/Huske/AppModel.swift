@@ -12,11 +12,21 @@ import SwiftUI
 final class AppModel {
     static let binaryOverrideKey = "huskeBinaryPath"
 
+    /// Current sidebar pane.
+    var pane: Pane = .record
+
     // MARK: engine binary
 
     private(set) var binaryURL: URL?
     private(set) var binaryVersion: String?
+    /// nil while probing; set once the CLI has been feature-detected.
+    private(set) var capabilities: EngineCapabilities?
     var binaryMissing: Bool { binaryURL == nil && !isDemo }
+    /// The binary exists but predates the app's control protocol.
+    var engineOutdated: Bool {
+        guard !isDemo, binaryURL != nil, let capabilities else { return false }
+        return !capabilities.controlSocket
+    }
 
     // MARK: subsystems
 
@@ -56,7 +66,15 @@ final class AppModel {
             transcripts.setRoot(defaultTranscriptRoot())
             return
         }
-        await config.reload(binary: binaryURL)
+        if let binaryURL {
+            let caps = await EngineCapabilities.probe(binary: binaryURL)
+            guard self.binaryURL == binaryURL else { return }
+            capabilities = caps
+            binaryVersion = caps.version ?? binaryVersion
+            if caps.configCLI {
+                await config.reload(binary: binaryURL)
+            }
+        }
         syncTranscriptRoot()
         // If a TUI/LaunchAgent session is already recording, surface it.
         session.attachIfEngineRunning()
@@ -68,15 +86,7 @@ final class AppModel {
         let override = UserDefaults.standard.string(forKey: Self.binaryOverrideKey)
         binaryURL = BinaryLocator.locate(override: override)
         binaryVersion = nil
-        guard let url = binaryURL else { return }
-        Task {
-            let result = try? await CLIRunner.run(
-                binary: url, arguments: ["--version"], timeout: 30)
-            guard self.binaryURL == url else { return }
-            self.binaryVersion = result?.stdout
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .replacingOccurrences(of: "huske ", with: "")
-        }
+        capabilities = nil
     }
 
     func setBinaryOverride(_ path: String?) {
@@ -128,7 +138,7 @@ final class AppModel {
     // MARK: devices
 
     func refreshDevices() {
-        guard let binaryURL else { return }
+        guard let binaryURL, capabilities?.devicesCLI == true else { return }
         Task {
             self.devicesReport = try? await DevicesBridge.list(binary: binaryURL)
         }
@@ -161,6 +171,15 @@ final class AppModel {
             }
             self.recoverRunning = false
         }
+    }
+
+    /// Preview/render seam for the offscreen screen renderer.
+    func _previewInject(
+        doctor: DoctorReport? = nil,
+        capabilities caps: EngineCapabilities? = nil
+    ) {
+        if let doctor { doctorReport = doctor }
+        if let caps { capabilities = caps }
     }
 
     static func describe(_ error: Error) -> String {
@@ -207,6 +226,11 @@ final class ConfigStore {
     }
 
     func clearWriteError() { writeError = nil }
+
+    /// Preview/render seam.
+    func _previewInject(snapshot snap: HuskeConfigSnapshot) {
+        snapshot = snap
+    }
 
     // MARK: typed accessors (override-aware)
 

@@ -76,7 +76,7 @@ public enum ConfigBridge {
         return try parseShowJSON(result.stdout)
     }
 
-    static func parseShowJSON(_ text: String) throws -> HuskeConfigSnapshot {
+    public static func parseShowJSON(_ text: String) throws -> HuskeConfigSnapshot {
         guard let data = text.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let path = obj["path"] as? String,

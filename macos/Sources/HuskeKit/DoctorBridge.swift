@@ -24,6 +24,13 @@ public struct DoctorReport: Equatable, Sendable {
     public let ok: Bool
     public let checks: [DoctorCheck]
     public let inputDevices: [InputDeviceEntry]
+
+    public init(version: String, ok: Bool, checks: [DoctorCheck], inputDevices: [InputDeviceEntry]) {
+        self.version = version
+        self.ok = ok
+        self.checks = checks
+        self.inputDevices = inputDevices
+    }
 }
 
 public enum DoctorBridgeError: Error, Equatable {

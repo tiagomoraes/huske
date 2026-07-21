@@ -7,6 +7,7 @@ struct HuskeApp: App {
     @State private var model = AppModel()
 
     init() {
+        BrandFonts.registerAll()
         if ScreenRenderer.runIfRequested() {
             exit(0)
         }
@@ -16,18 +17,20 @@ struct HuskeApp: App {
         WindowGroup(id: "main") {
             RootView()
                 .environment(model)
-                .frame(minWidth: 860, minHeight: 560)
+                .tint(Theme.amber)
+                .frame(minWidth: 880, minHeight: 580)
                 .task {
                     delegate.model = model
                     await model.bootstrap()
                 }
         }
-        .defaultSize(width: 1040, height: 700)
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 1080, height: 720)
         .commands {
             CommandGroup(after: .newItem) {
                 Button("Start Recording") { model.startRecording() }
                     .keyboardShortcut("r", modifiers: [.command])
-                    .disabled(model.session.isBusy || model.binaryMissing)
+                    .disabled(model.session.isBusy || model.binaryMissing || model.engineOutdated)
                 Button("Stop Recording") { model.session.requestStop() }
                     .keyboardShortcut(".", modifiers: [.command])
                     .disabled(!model.session.isBusy)
@@ -44,6 +47,7 @@ struct HuskeApp: App {
         Settings {
             AppSettingsView()
                 .environment(model)
+                .tint(Theme.amber)
         }
     }
 

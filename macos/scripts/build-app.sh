@@ -37,6 +37,12 @@ cp .cache/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 echo "==> bundle"
 cp "$BIN" "$APP/Contents/MacOS/Huske"
+# SwiftPM resource bundle (IBM Plex fonts) — Bundle.module finds it in
+# Contents/Resources at runtime.
+BUNDLE_DIR=$(dirname "$BIN")
+if [[ -d "$BUNDLE_DIR/Huske_Huske.bundle" ]]; then
+    cp -R "$BUNDLE_DIR/Huske_Huske.bundle" "$APP/Contents/Resources/"
+fi
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

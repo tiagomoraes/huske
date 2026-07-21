@@ -16,7 +16,10 @@ let package = Package(
         .executableTarget(
             name: "Huske",
             dependencies: ["HuskeKit"],
-            path: "Sources/Huske"
+            path: "Sources/Huske",
+            resources: [
+                .copy("Resources/Fonts")
+            ]
         ),
         .testTarget(
             name: "HuskeKitTests",

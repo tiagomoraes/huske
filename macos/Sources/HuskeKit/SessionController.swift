@@ -160,7 +160,7 @@ public final class SessionController {
         }
     }
 
-    func setPhaseForDemo(_ newPhase: Phase) {
+    public func setPhaseForDemo(_ newPhase: Phase) {
         phase = newPhase
     }
 
@@ -207,7 +207,7 @@ public final class SessionController {
         if stopRequested || (status == 0 && !wasLaunching) {
             phase = .idle
         } else {
-            let tail = engineLog.suffix(3).joined(separator: "\n")
+            let tail = EngineOutput.sanitize(Array(engineLog.suffix(6)))
             let context = wasLaunching ? "the engine exited during startup" : "the engine exited unexpectedly"
             phase = .failed(tail.isEmpty ? "\(context) (exit \(status))" : "\(context) (exit \(status))\n\(tail)")
         }

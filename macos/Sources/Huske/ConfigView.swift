@@ -9,39 +9,53 @@ struct ConfigView: View {
 
     var body: some View {
         let config = model.config
-        ScrollView {
+        PaneScroll {
             VStack(alignment: .leading, spacing: 14) {
-                header
+                PaneHeader("Configuration", subtitle: config.snapshot?.path) {
+                    if model.capabilities?.configCLI == true {
+                        Button {
+                            Task { await model.config.reload(binary: model.binaryURL) }
+                        } label: {
+                            Label("Reload", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(SecondaryButtonStyle())
+                    }
+                }
+                .padding(.top, 30)
 
-                if model.session.isBusy {
-                    noteBanner(
-                        "A session is running — changes here apply when the next session starts.")
-                }
-                if let error = config.writeError {
-                    errorBanner(error)
-                }
-                if let error = config.loadError {
-                    errorBanner(error)
-                } else if config.snapshot != nil {
-                    transcriptionCard
-                    chunkingCard
-                    audioCard
-                    storageCard
-                    extrasCard
-                } else if config.loading {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 60)
+                if model.capabilities != nil, model.capabilities?.configCLI != true, !model.isDemo {
+                    outdatedNotice
+                } else {
+                    if model.session.isBusy {
+                        noteBanner(
+                            "A session is running — changes here apply when the next session starts.")
+                    }
+                    if let error = config.writeError {
+                        errorBanner(error)
+                    }
+                    if let error = config.loadError {
+                        errorBanner(error)
+                    } else if config.snapshot != nil {
+                        transcriptionCard
+                        chunkingCard
+                        audioCard
+                        storageCard
+                        extrasCard
+                    } else if config.loading {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 60)
+                    }
                 }
             }
-            .padding(20)
-            .frame(maxWidth: 700)
+            .padding(.horizontal, 28)
+            .padding(.bottom, 24)
+            .frame(maxWidth: 720)
             .frame(maxWidth: .infinity)
         }
         .background(Theme.bg)
-        .navigationTitle("Configuration")
         .task {
-            if model.config.snapshot == nil {
+            if model.config.snapshot == nil, model.capabilities?.configCLI == true {
                 await model.config.reload(binary: model.binaryURL)
             }
             model.refreshDevices()
@@ -51,23 +65,30 @@ struct ConfigView: View {
         }
     }
 
-    private var header: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Engine configuration")
-                    .font(.system(size: 17, weight: .bold))
-                if let path = model.config.snapshot?.path {
-                    Text(path)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(Theme.fgFaint)
-                        .textSelection(.enabled)
+    private var outdatedNotice: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 8) {
+                Label {
+                    Text("In-app configuration needs a newer engine")
+                        .font(.brandSans(13, .semibold))
+                        .foregroundStyle(Theme.fg)
+                } icon: {
+                    Image(systemName: "arrow.up.circle")
+                        .foregroundStyle(Theme.warn)
                 }
-            }
-            Spacer()
-            Button {
-                Task { await model.config.reload(binary: model.binaryURL) }
-            } label: {
-                Label("Reload", systemImage: "arrow.clockwise")
+                Text(
+                    "huske \(model.binaryVersion ?? "?") has no `config` command. Upgrade the engine "
+                        + "(uv tool upgrade huske / brew upgrade huske), or edit "
+                        + "~/.config/huske/config.toml directly."
+                )
+                .font(.brandSans(12.5))
+                .foregroundStyle(Theme.fgMuted)
+                .lineSpacing(3)
+                Button("Open config.toml") {
+                    let path = NSString(string: "~/.config/huske/config.toml").expandingTildeInPath
+                    NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                }
+                .buttonStyle(SecondaryButtonStyle(size: .small))
             }
         }
     }
@@ -75,26 +96,39 @@ struct ConfigView: View {
     private func noteBanner(_ text: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "info.circle.fill")
+                .font(.system(size: 11))
                 .foregroundStyle(Theme.info)
-            Text(text).font(.system(size: 12))
+            Text(text)
+                .font(.brandSans(12))
+                .foregroundStyle(Theme.fg)
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.info.opacity(0.1)))
+        .background(
+            RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
+                .fill(Theme.info.opacity(0.1))
+        )
     }
 
     private func errorBanner(_ text: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "xmark.octagon.fill")
+                .font(.system(size: 11))
                 .foregroundStyle(Theme.err)
-            Text(text).font(.system(size: 12)).textSelection(.enabled)
+            Text(text)
+                .font(.brandSans(12))
+                .foregroundStyle(Theme.fg)
+                .textSelection(.enabled)
             Spacer()
             Button("Dismiss") { model.config.clearWriteError() }
-                .controlSize(.small)
+                .buttonStyle(SecondaryButtonStyle(size: .small))
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.err.opacity(0.1)))
+        .background(
+            RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
+                .fill(Theme.err.opacity(0.1))
+        )
     }
 
     // MARK: cards
@@ -102,7 +136,7 @@ struct ConfigView: View {
     private var transcriptionCard: some View {
         let config = model.config
         return Card {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 13) {
                 SectionLabel("Transcription")
                 LabeledRow("Engine", explicit: config.isExplicit("asr_engine")) {
                     Picker("", selection: config.stringBinding("asr_engine", default: "parakeet")) {
@@ -150,6 +184,7 @@ struct ConfigView: View {
                         "Frees RAM between chunks; the next chunk pays a few-second reload.")
                 }
                 .toggleStyle(.switch)
+                .controlSize(.small)
             }
         }
     }
@@ -157,7 +192,7 @@ struct ConfigView: View {
     private var chunkingCard: some View {
         let config = model.config
         return Card {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 13) {
                 SectionLabel("Chunking")
                 Toggle(isOn: config.boolBinding("speech_gated", default: true)) {
                     settingLabel(
@@ -165,6 +200,7 @@ struct ConfigView: View {
                         "Chunks close on real silence instead of a fixed clock; quiet gaps aren't recorded.")
                 }
                 .toggleStyle(.switch)
+                .controlSize(.small)
                 if config.bool("speech_gated", default: true) {
                     CommittingSlider(
                         label: "Split after silence",
@@ -186,7 +222,7 @@ struct ConfigView: View {
     private var audioCard: some View {
         let config = model.config
         return Card {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 13) {
                 SectionLabel("Audio")
                 LabeledRow("Microphone", explicit: config.isExplicit("input_device")) {
                     Picker(
@@ -229,6 +265,7 @@ struct ConfigView: View {
                         "Reduces speaker bleed into the mic when not wearing headphones.")
                 }
                 .toggleStyle(.switch)
+                .controlSize(.small)
                 LabeledRow("Echo de-duplication", explicit: config.isExplicit("echo_dedup")) {
                     Picker("", selection: config.stringBinding("echo_dedup", default: "drop")) {
                         Text("Drop duplicated lines").tag("drop")
@@ -245,7 +282,7 @@ struct ConfigView: View {
     private var storageCard: some View {
         let config = model.config
         return Card {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 13) {
                 SectionLabel("Storage")
                 PathRow(
                     label: "Transcripts",
@@ -258,9 +295,10 @@ struct ConfigView: View {
                 Toggle(isOn: config.boolBinding("keep_audio")) {
                     settingLabel(
                         "Keep audio after transcription",
-                        "Retains a compressed copy of each chunk next to its WAV lifecycle.")
+                        "Retains a compressed copy of each chunk next to the transcript.")
                 }
                 .toggleStyle(.switch)
+                .controlSize(.small)
                 if config.bool("keep_audio") {
                     LabeledRow("Kept audio format", explicit: config.isExplicit("keep_audio_format")) {
                         Picker("", selection: config.stringBinding("keep_audio_format", default: "opus")) {
@@ -279,7 +317,7 @@ struct ConfigView: View {
     private var extrasCard: some View {
         let config = model.config
         return Card {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 13) {
                 SectionLabel("Extras")
                 Toggle(isOn: config.boolBinding("screenshots_enabled")) {
                     settingLabel(
@@ -287,6 +325,7 @@ struct ConfigView: View {
                         "Capture every display on an interval alongside the transcript.")
                 }
                 .toggleStyle(.switch)
+                .controlSize(.small)
                 if config.bool("screenshots_enabled") {
                     CommittingSlider(
                         label: "Screenshot interval",
@@ -301,12 +340,14 @@ struct ConfigView: View {
                         "Embed finished transcripts for `huske mcp` search (needs the mcp extra).")
                 }
                 .toggleStyle(.switch)
+                .controlSize(.small)
                 Toggle(isOn: config.boolBinding("distill_enabled")) {
                     settingLabel(
                         "LLM distillation",
                         "Distill transcripts into searchable statements with a local LLM (Ollama).")
                 }
                 .toggleStyle(.switch)
+                .controlSize(.small)
                 if config.bool("distill_enabled") {
                     LabeledRow("Distill model", explicit: config.isExplicit("distill_model")) {
                         CommittingTextField(
@@ -322,15 +363,18 @@ struct ConfigView: View {
                         "Shown when recording with `huske run` in a terminal — this app has its own.")
                 }
                 .toggleStyle(.switch)
+                .controlSize(.small)
             }
         }
     }
 
     private func settingLabel(_ title: String, _ subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(title).font(.system(size: 12.5))
+            Text(title)
+                .font(.brandSans(12.5))
+                .foregroundStyle(Theme.fg)
             Text(subtitle)
-                .font(.system(size: 11))
+                .font(.brandSans(11))
                 .foregroundStyle(Theme.fgMuted)
         }
     }
@@ -351,9 +395,10 @@ struct LabeledRow<Content: View>: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
-            HStack(spacing: 4) {
+            HStack(spacing: 5) {
                 Text(label)
-                    .font(.system(size: 12.5))
+                    .font(.brandSans(12.5))
+                    .foregroundStyle(Theme.fg)
                 if explicit {
                     Circle()
                         .fill(Theme.amber)
@@ -379,9 +424,9 @@ struct CommittingTextField: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        TextField(prompt, text: $draft)
+        TextField("", text: $draft, prompt: Text(prompt).font(.brandMono(11.5)))
             .textFieldStyle(.roundedBorder)
-            .font(.system(size: 12, design: .monospaced))
+            .font(.brandMono(11.5))
             .focused($focused)
             .onAppear { draft = value }
             .onChange(of: value) { _, newValue in
@@ -414,7 +459,8 @@ struct CommittingSlider: View {
     var body: some View {
         HStack {
             Text(label)
-                .font(.system(size: 12.5))
+                .font(.brandSans(12.5))
+                .foregroundStyle(Theme.fg)
                 .frame(width: 160, alignment: .leading)
             Slider(
                 value: $draft,
@@ -428,7 +474,7 @@ struct CommittingSlider: View {
             )
             .frame(maxWidth: 260)
             Text(format(draft))
-                .meterFigure(size: 11)
+                .font(.brandMono(11))
                 .foregroundStyle(Theme.fgMuted)
                 .frame(width: 56, alignment: .trailing)
         }
@@ -447,10 +493,11 @@ struct PathRow: View {
     var body: some View {
         HStack {
             Text(label)
-                .font(.system(size: 12.5))
+                .font(.brandSans(12.5))
+                .foregroundStyle(Theme.fg)
                 .frame(width: 160, alignment: .leading)
             Text(path.isEmpty ? "—" : path)
-                .font(.system(size: 11.5, design: .monospaced))
+                .font(.brandMono(11))
                 .foregroundStyle(Theme.fgMuted)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -467,13 +514,14 @@ struct PathRow: View {
                     onPick(url.path)
                 }
             }
-            .controlSize(.small)
+            .buttonStyle(SecondaryButtonStyle(size: .small))
             Button {
                 NSWorkspace.shared.open(URL(fileURLWithPath: path))
             } label: {
                 Image(systemName: "folder")
+                    .font(.system(size: 11))
             }
-            .controlSize(.small)
+            .buttonStyle(SecondaryButtonStyle(size: .small))
             .disabled(path.isEmpty)
             .help("Open in Finder")
         }

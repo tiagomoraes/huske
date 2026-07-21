@@ -10,13 +10,14 @@ struct RecoverSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
                 Image(systemName: "bandage")
-                    .font(.system(size: 18))
+                    .font(.system(size: 17))
                     .foregroundStyle(Theme.amber)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Recovering orphaned audio")
-                        .font(.system(size: 15, weight: .bold))
+                        .font(.brandSans(15, .semibold))
+                        .foregroundStyle(Theme.fg)
                     Text("Scans for chunks a previous crash left behind and transcribes them.")
-                        .font(.system(size: 11.5))
+                        .font(.brandSans(11.5))
                         .foregroundStyle(Theme.fgMuted)
                 }
                 Spacer()
@@ -30,7 +31,7 @@ struct RecoverSheet: View {
                     VStack(alignment: .leading, spacing: 2) {
                         ForEach(Array(model.recoverLog.enumerated()), id: \.offset) { index, line in
                             Text(line)
-                                .font(.system(size: 11, design: .monospaced))
+                                .font(.brandMono(11))
                                 .foregroundStyle(Theme.fg)
                                 .textSelection(.enabled)
                                 .id(index)
@@ -41,7 +42,8 @@ struct RecoverSheet: View {
                 }
                 .frame(height: 260)
                 .background(
-                    RoundedRectangle(cornerRadius: 8).fill(Theme.bgSunken.opacity(0.6))
+                    RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
+                        .fill(Theme.bgSunken.opacity(0.6))
                 )
                 .onChange(of: model.recoverLog.count) {
                     proxy.scrollTo(model.recoverLog.count - 1, anchor: .bottom)
@@ -54,13 +56,14 @@ struct RecoverSheet: View {
                         code == 0 ? "Done" : "Finished with issues (exit \(code))",
                         systemImage: code == 0 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
                     )
+                    .font(.brandSans(12, .semibold))
                     .foregroundStyle(code == 0 ? Theme.ok : Theme.warn)
-                    .font(.system(size: 12, weight: .semibold))
                 }
                 Spacer()
                 Button(model.recoverRunning ? "Run in Background" : "Close") {
                     dismiss()
                 }
+                .buttonStyle(PrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)
             }
         }

@@ -13,6 +13,14 @@ public struct TranscriptEntry: Equatable, Sendable, Identifiable, Hashable {
     public let chunkSeq: Int
 
     public var id: URL { url }
+
+    public init(url: URL, filename: String, timeString: String, sessionId8: String, chunkSeq: Int) {
+        self.url = url
+        self.filename = filename
+        self.timeString = timeString
+        self.sessionId8 = sessionId8
+        self.chunkSeq = chunkSeq
+    }
 }
 
 public struct TranscriptDay: Equatable, Sendable, Identifiable {
@@ -20,6 +28,11 @@ public struct TranscriptDay: Equatable, Sendable, Identifiable {
     public let entries: [TranscriptEntry] // chronological
 
     public var id: String { date }
+
+    public init(date: String, entries: [TranscriptEntry]) {
+        self.date = date
+        self.entries = entries
+    }
 }
 
 public enum TranscriptScanner {
@@ -68,6 +81,13 @@ public final class TranscriptStore {
     public init() {}
 
     public var totalCount: Int { days.reduce(0) { $0 + $1.entries.count } }
+
+    /// Preview/render seam: set contents synchronously without scanning.
+    public func _previewInject(root: URL?, days: [TranscriptDay]) {
+        stopWatching()
+        self.root = root
+        self.days = days
+    }
 
     public func setRoot(_ url: URL?) {
         guard url != root else { return }

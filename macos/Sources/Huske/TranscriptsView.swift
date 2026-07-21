@@ -9,57 +9,79 @@ struct TranscriptsView: View {
     @State private var searchTask: Task<Void, Never>?
 
     var body: some View {
-        HSplitView {
+        HStack(spacing: 0) {
             listPane
-                .frame(minWidth: 260, idealWidth: 300, maxWidth: 380)
+                .frame(width: 302)
+            Rectangle()
+                .fill(Theme.divider)
+                .frame(width: 1)
             detailPane
-                .frame(minWidth: 400, maxWidth: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Theme.bg)
-        .navigationTitle("Transcripts")
-        .toolbar {
-            ToolbarItemGroup {
-                Button {
-                    model.transcripts.refresh()
-                } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
-                }
-                .help("Rescan the transcripts folder")
-                Button {
-                    if let root = model.transcripts.root {
-                        NSWorkspace.shared.open(root)
-                    }
-                } label: {
-                    Label("Show in Finder", systemImage: "folder")
-                }
-                .help("Open the transcripts folder in Finder")
-            }
-        }
         .onAppear { model.transcripts.refresh() }
     }
 
     // MARK: list
 
     private var listPane: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Transcripts")
+                    .font(.brandSans(17, .semibold))
+                    .foregroundStyle(Theme.fg)
+                Spacer()
+                Button {
+                    model.transcripts.refresh()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Theme.fgMuted)
+                }
+                .buttonStyle(.plain)
+                .help("Rescan the transcripts folder")
+                Button {
+                    if let root = model.transcripts.root {
+                        NSWorkspace.shared.open(root)
+                    }
+                } label: {
+                    Image(systemName: "folder")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Theme.fgMuted)
+                }
+                .buttonStyle(.plain)
+                .help("Open the transcripts folder in Finder")
+            }
+            .padding(.top, 34)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
+
             searchField
-            Divider()
+                .padding(.horizontal, 12)
+                .padding(.bottom, 10)
+
             if let hits = searchHits {
-                searchResults(hits)
+                resultsList(sections: [("\(hits.count) match\(hits.count == 1 ? "" : "es")", hits)], showDay: true)
             } else if model.transcripts.days.isEmpty {
                 emptyState
             } else {
-                dayList
+                resultsList(
+                    sections: model.transcripts.days.map { (Self.dayTitle($0.date), $0.entries) },
+                    showDay: false)
             }
         }
+        .background(Theme.bgSubtle.opacity(0.35))
     }
 
     private var searchField: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 7) {
             Image(systemName: "magnifyingglass")
-                .foregroundStyle(Theme.fgFaint)
-            TextField("Search transcripts", text: $query)
+                .font(.system(size: 11))
+                .foregroundStyle(Theme.fgMuted)
+            TextField("", text: $query, prompt: Text("Search transcripts").font(.brandSans(12)).foregroundStyle(Theme.fgMuted))
                 .textFieldStyle(.plain)
+                .font(.brandSans(12.5))
+                .foregroundStyle(Theme.fg)
                 .onChange(of: query) { _, newValue in
                     scheduleSearch(newValue)
                 }
@@ -69,13 +91,22 @@ struct TranscriptsView: View {
                     searchHits = nil
                 } label: {
                     Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11))
                         .foregroundStyle(Theme.fgFaint)
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
+                .fill(Theme.bgSunken.opacity(0.65))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
+                .strokeBorder(Theme.divider, lineWidth: 1)
+        )
     }
 
     private func scheduleSearch(_ text: String) {
@@ -94,44 +125,47 @@ struct TranscriptsView: View {
         }
     }
 
-    private func searchResults(_ hits: [TranscriptEntry]) -> some View {
-        List(selection: $selection) {
-            Section("\(hits.count) match\(hits.count == 1 ? "" : "es")") {
-                ForEach(hits) { entry in
-                    TranscriptRow(entry: entry, showDay: true)
-                        .tag(entry)
-                }
-            }
-        }
-        .listStyle(.inset)
-    }
-
-    private var dayList: some View {
-        List(selection: $selection) {
-            ForEach(model.transcripts.days) { day in
-                Section(Self.dayTitle(day.date)) {
-                    ForEach(day.entries) { entry in
-                        TranscriptRow(entry: entry, showDay: false)
-                            .tag(entry)
+    private func resultsList(sections: [(String, [TranscriptEntry])], showDay: Bool) -> some View {
+        PaneScroll {
+            LazyVStack(alignment: .leading, spacing: 1, pinnedViews: []) {
+                ForEach(sections, id: \.0) { title, entries in
+                    Text(title)
+                        .font(.brandMono(10.5, .medium))
+                        .kerning(0.6)
+                        .foregroundStyle(Theme.fgMuted)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 14)
+                        .padding(.bottom, 5)
+                    ForEach(entries) { entry in
+                        TranscriptRowView(
+                            entry: entry,
+                            showDay: showDay,
+                            selected: selection == entry
+                        ) {
+                            selection = entry
+                        }
+                        .padding(.horizontal, 8)
                     }
                 }
             }
+            .padding(.bottom, 14)
         }
-        .listStyle(.inset)
     }
 
     private var emptyState: some View {
         VStack(spacing: 10) {
             Spacer()
-            Image(systemName: "doc.text.magnifyingglass")
-                .font(.system(size: 30))
+            Image(systemName: "text.document")
+                .font(.system(size: 26))
                 .foregroundStyle(Theme.fgFaint)
             Text("No transcripts yet")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.brandSans(13, .semibold))
+                .foregroundStyle(Theme.fg)
             Text("Finished chunks land here as Markdown,\norganized by day.")
-                .font(.system(size: 12))
+                .font(.brandSans(12))
                 .foregroundStyle(Theme.fgMuted)
                 .multilineTextAlignment(.center)
+                .lineSpacing(2)
             Spacer()
         }
         .frame(maxWidth: .infinity)
@@ -145,9 +179,13 @@ struct TranscriptsView: View {
             TranscriptDetailView(entry: selection)
                 .id(selection.url)
         } else {
-            VStack {
+            VStack(spacing: 8) {
                 Spacer()
+                Image(systemName: "text.line.first.and.arrowtriangle.forward")
+                    .font(.system(size: 22))
+                    .foregroundStyle(Theme.fgFaint)
                 Text("Select a transcript")
+                    .font(.brandSans(13))
                     .foregroundStyle(Theme.fgFaint)
                 Spacer()
             }
@@ -159,33 +197,55 @@ struct TranscriptsView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         guard let date = formatter.date(from: isoDay) else { return isoDay }
-        if Calendar.current.isDateInToday(date) { return "Today · \(isoDay)" }
-        if Calendar.current.isDateInYesterday(date) { return "Yesterday · \(isoDay)" }
+        if Calendar.current.isDateInToday(date) { return "today · \(isoDay)" }
+        if Calendar.current.isDateInYesterday(date) { return "yesterday · \(isoDay)" }
         let out = DateFormatter()
-        out.dateFormat = "EEE · yyyy-MM-dd"
-        return out.string(from: date)
+        out.dateFormat = "EEE"
+        return "\(out.string(from: date).lowercased()) · \(isoDay)"
     }
 }
 
-struct TranscriptRow: View {
+struct TranscriptRowView: View {
     let entry: TranscriptEntry
     let showDay: Bool
+    let selected: Bool
+    let action: () -> Void
+
+    @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 10) {
-            Text(entry.timeString)
-                .meterFigure(size: 12)
-                .foregroundStyle(Theme.fgMuted)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("chunk \(String(format: "%03d", entry.chunkSeq))")
-                    .font(.system(size: 12, weight: .medium))
-                Text(showDay ? entry.url.deletingLastPathComponent().lastPathComponent : "session \(entry.sessionId8)")
-                    .font(.system(size: 10, design: .monospaced))
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Text(entry.timeString)
+                    .font(.brandMono(11.5, selected ? .medium : .regular))
+                    .foregroundStyle(selected ? Theme.amber : Theme.fgMuted)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("chunk \(String(format: "%03d", entry.chunkSeq))")
+                        .font(.brandSans(12.5, .medium))
+                        .foregroundStyle(Theme.fg)
+                    Text(
+                        showDay
+                            ? entry.url.deletingLastPathComponent().lastPathComponent
+                            : "session \(entry.sessionId8)"
+                    )
+                    .font(.brandMono(10))
                     .foregroundStyle(Theme.fgFaint)
+                }
+                Spacer(minLength: 0)
             }
-            Spacer()
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
+                    .fill(
+                        selected
+                            ? Theme.amber.opacity(0.14)
+                            : (hovering ? Theme.divider.opacity(0.6) : Color.clear))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: Theme.radiusMD))
         }
-        .padding(.vertical, 2)
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
     }
 }
 
@@ -207,6 +267,7 @@ struct TranscriptDetailView: View {
                 VStack {
                     Spacer()
                     Text("Could not read this transcript")
+                        .font(.brandSans(13))
                         .foregroundStyle(Theme.err)
                     Spacer()
                 }
@@ -229,66 +290,68 @@ struct TranscriptDetailView: View {
     private func loaded(_ document: TranscriptDocument) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             detailHeader(document)
-            Divider().overlay(Theme.divider)
+            Rectangle().fill(Theme.divider).frame(height: 1)
             if showRaw {
                 ScrollView {
                     Text(document.rawBody)
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.brandMono(12))
+                        .foregroundStyle(Theme.fg)
+                        .lineSpacing(3)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(16)
+                        .padding(20)
                 }
             } else if document.isEmpty {
                 VStack {
                     Spacer()
                     Text("(no speech detected in this chunk)")
+                        .font(.brandSans(13))
                         .foregroundStyle(Theme.fgFaint)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 14) {
+                    LazyVStack(alignment: .leading, spacing: 16) {
                         ForEach(document.runs) { run in
                             RunRow(run: run)
                         }
                     }
-                    .padding(16)
+                    .padding(20)
+                    .frame(maxWidth: 720, alignment: .leading)
                 }
-            }
-        }
-        .toolbar {
-            ToolbarItemGroup {
-                Toggle(isOn: $showRaw) {
-                    Label("Raw Markdown", systemImage: "chevron.left.forwardslash.chevron.right")
-                }
-                .help("Show the raw Markdown")
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([entry.url])
-                } label: {
-                    Label("Reveal in Finder", systemImage: "folder")
-                }
-                .help("Reveal this file in Finder")
-                Button {
-                    NSWorkspace.shared.open(entry.url)
-                } label: {
-                    Label("Open", systemImage: "arrow.up.forward.app")
-                }
-                .help("Open in the default Markdown editor")
             }
         }
     }
 
     private func detailHeader(_ document: TranscriptDocument) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(document.heading ?? entry.filename)
-                .font(.system(size: 17, weight: .bold))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(document.heading ?? entry.filename)
+                    .font(.brandSans(17, .semibold))
+                    .kerning(-0.2)
+                    .foregroundStyle(Theme.fg)
+                Spacer()
+                HStack(spacing: 2) {
+                    IconAction(
+                        symbol: "chevron.left.forwardslash.chevron.right",
+                        help: "Show the raw Markdown",
+                        active: showRaw
+                    ) { showRaw.toggle() }
+                    IconAction(symbol: "folder", help: "Reveal in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([entry.url])
+                    }
+                    IconAction(symbol: "arrow.up.forward.app", help: "Open in the default editor") {
+                        NSWorkspace.shared.open(entry.url)
+                    }
+                }
+            }
             HStack(spacing: 6) {
                 MetaChip(
                     text: Self.durationText(document.meta.durationActualSeconds),
                     symbol: "clock")
                 MetaChip(text: document.meta.model, symbol: "cpu")
-                if document.meta.language != "" {
+                if !document.meta.language.isEmpty {
                     MetaChip(text: document.meta.language, symbol: "globe")
                 }
                 ForEach(document.meta.audioSources, id: \.self) { source in
@@ -298,18 +361,47 @@ struct TranscriptDetailView: View {
                 }
                 if document.meta.incomplete {
                     MetaChip(text: "incomplete", symbol: "exclamationmark.triangle")
-                        .foregroundStyle(Theme.warn)
                 }
                 Spacer()
             }
         }
-        .padding(16)
+        .padding(.top, 30)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 14)
     }
 
     static func durationText(_ seconds: Double) -> String {
         let total = Int(seconds.rounded())
         if total < 60 { return "\(total)s" }
         return "\(total / 60)m \(total % 60)s"
+    }
+}
+
+struct IconAction: View {
+    let symbol: String
+    let help: String
+    var active = false
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(active ? Theme.amber : Theme.fgMuted)
+                .frame(width: 27, height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.radiusSM, style: .continuous)
+                        .fill(
+                            active
+                                ? Theme.amber.opacity(0.13)
+                                : (hovering ? Theme.divider.opacity(0.7) : Color.clear))
+                )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(help)
     }
 }
 
@@ -320,14 +412,17 @@ struct MetaChip: View {
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: symbol)
-                .font(.system(size: 9))
+                .font(.system(size: 8.5))
             Text(text)
-                .font(.system(size: 10.5, design: .monospaced))
+                .font(.brandMono(10.5))
         }
         .foregroundStyle(Theme.fgMuted)
         .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .background(Capsule().fill(Theme.bgSunken.opacity(0.7)))
+        .padding(.vertical, 3.5)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.radiusSM, style: .continuous)
+                .fill(Theme.bgSunken.opacity(0.65))
+        )
     }
 }
 
@@ -335,17 +430,18 @@ struct RunRow: View {
     let run: TranscriptRun
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .trailing, spacing: 2) {
+        HStack(alignment: .top, spacing: 14) {
+            VStack(alignment: .trailing, spacing: 3) {
                 Text(run.time)
-                    .meterFigure(size: 11)
+                    .font(.brandMono(11))
                     .foregroundStyle(Theme.fgFaint)
                 sourceBadge
             }
             .frame(width: 74, alignment: .trailing)
             Text(run.text)
-                .font(.system(size: 13))
-                .lineSpacing(3)
+                .font(.brandSans(13.5))
+                .foregroundStyle(Theme.fg)
+                .lineSpacing(4)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -353,17 +449,21 @@ struct RunRow: View {
 
     private var sourceBadge: some View {
         Text(label)
-            .font(.system(size: 9, weight: .semibold))
+            .font(.brandMono(8.5, .semibold))
+            .kerning(0.5)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(Capsule().fill(color.opacity(0.16)))
+            .background(
+                RoundedRectangle(cornerRadius: Theme.radiusXS, style: .continuous)
+                    .fill(color.opacity(0.15))
+            )
             .foregroundStyle(color)
     }
 
     private var label: String {
         switch run.source {
         case .mic: return "MIC"
-        case .system: return "SYSTEM"
+        case .system: return "SYS"
         case .micEcho: return "ECHO"
         case .unknown: return "?"
         }
