@@ -68,6 +68,7 @@ def test_snapshot_v2_fields_round_trip() -> None:
         peak_mic_db=-23.5,
         peak_system_db=-41.0,
         chunk_started_at="2026-05-09T12:00:00-03:00",
+        next_rotation_at="2026-05-09T12:30:00-03:00",
         session_started_at="2026-05-09T11:59:00-03:00",
         huske_version="0.11.0",
         output_root="/Users/me/huske/transcripts",

@@ -46,6 +46,56 @@ def _print(msg: str) -> None:
     print(msg, flush=True)
 
 
+def build_control_snapshot(
+    state: RenderState,
+    *,
+    session_id: str,
+    session_started_at: datetime,
+    output_root: Path,
+    input_device_name: str | None,
+) -> ControlSnapshot:
+    """Serialize the live render state into a v2 control-plane snapshot.
+
+    Pure so the wire shape the native app depends on stays unit-testable
+    without running a capture session.
+    """
+    peaks = state.peak_levels
+    return ControlSnapshot(
+        session_id=session_id,
+        recording=state.recording,
+        paused=state.paused,
+        stopping=state.stopping,
+        current_chunk_seq=state.current_chunk_seq,
+        queue_depth=state.queue_depth,
+        screenshots_enabled=state.screenshots_enabled,
+        distill_enabled=state.distill_enabled,
+        last_saved_name=state.last_saved.name if state.last_saved else None,
+        peak_mic_db=round(float(peaks[0]), 1) if len(peaks) >= 1 else -120.0,
+        peak_system_db=round(float(peaks[1]), 1) if len(peaks) >= 2 else -120.0,
+        chunk_started_at=(
+            state.chunk_started_at.isoformat() if state.chunk_started_at else None
+        ),
+        next_rotation_at=(
+            state.next_rotation_at.isoformat() if state.next_rotation_at else None
+        ),
+        session_started_at=session_started_at.isoformat(),
+        huske_version=__version__,
+        output_root=str(output_root),
+        last_saved_path=str(state.last_saved) if state.last_saved else None,
+        screenshots_count=state.screenshots_count,
+        input_device_name=input_device_name,
+        warnings=dict(state.warnings),
+        events=[
+            {
+                "ts": ev.timestamp.isoformat(),
+                "severity": ev.severity,
+                "message": ev.message,
+            }
+            for ev in list(state.events)
+        ],
+    )
+
+
 # ---------------------------------------------------------------------------
 # huske run
 # ---------------------------------------------------------------------------
@@ -666,37 +716,12 @@ def run_session(
         nonlocal last_snap
         if server is None:
             return
-        peaks = state.peak_levels
-        snap = ControlSnapshot(
+        snap = build_control_snapshot(
+            state,
             session_id=session.session_id,
-            recording=state.recording,
-            paused=state.paused,
-            stopping=state.stopping,
-            current_chunk_seq=state.current_chunk_seq,
-            queue_depth=state.queue_depth,
-            screenshots_enabled=state.screenshots_enabled,
-            distill_enabled=state.distill_enabled,
-            last_saved_name=state.last_saved.name if state.last_saved else None,
-            peak_mic_db=round(float(peaks[0]), 1) if len(peaks) >= 1 else -120.0,
-            peak_system_db=round(float(peaks[1]), 1) if len(peaks) >= 2 else -120.0,
-            chunk_started_at=(
-                state.chunk_started_at.isoformat() if state.chunk_started_at else None
-            ),
-            session_started_at=session.started_at.isoformat(),
-            huske_version=__version__,
-            output_root=str(cfg.output_root),
-            last_saved_path=str(state.last_saved) if state.last_saved else None,
-            screenshots_count=state.screenshots_count,
+            session_started_at=session.started_at,
+            output_root=cfg.output_root,
             input_device_name=active_mic["name"],
-            warnings=dict(state.warnings),
-            events=[
-                {
-                    "ts": ev.timestamp.isoformat(),
-                    "severity": ev.severity,
-                    "message": ev.message,
-                }
-                for ev in list(state.events)
-            ],
         )
         if snap == last_snap:
             return

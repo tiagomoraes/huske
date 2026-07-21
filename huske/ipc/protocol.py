@@ -43,6 +43,7 @@ class ControlSnapshot:
     peak_mic_db: float = -120.0
     peak_system_db: float = -120.0
     chunk_started_at: str | None = None  # ISO 8601
+    next_rotation_at: str | None = None  # ISO 8601 (chunk cap deadline)
     session_started_at: str | None = None  # ISO 8601
     huske_version: str = ""
     output_root: str | None = None
@@ -122,6 +123,7 @@ def decode_message(line: str) -> ControlSnapshot | CommandMessage | DeviceList:
             peak_mic_db=float(obj.get("peak_mic_db", -120.0)),
             peak_system_db=float(obj.get("peak_system_db", -120.0)),
             chunk_started_at=obj.get("chunk_started_at"),
+            next_rotation_at=obj.get("next_rotation_at"),
             session_started_at=obj.get("session_started_at"),
             huske_version=obj.get("huske_version", ""),
             output_root=obj.get("output_root"),

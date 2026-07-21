@@ -49,3 +49,32 @@ jobs:
 
       - name: Fast integration tests
         run: pytest tests/integration/test_pipeline_no_whisper.py tests/integration/test_smoke.py
+
+  swift:
+    name: macOS app (Swift)
+    runs-on: macos-15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Build
+        run: swift build
+        working-directory: macos
+
+      - name: Tests
+        run: swift test
+        working-directory: macos
+
+      - name: Package Huske.app
+        run: ./scripts/build-app.sh
+        working-directory: macos
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Huske.app
+          path: macos/dist/Huske.app
+          if-no-files-found: error

@@ -148,9 +148,9 @@ public final class SessionController {
         send(.setInputDevice, arg: name)
     }
 
-    // MARK: message ingestion (also used by the demo driver)
+    // MARK: message ingestion (public so demo/preview drivers can feed state)
 
-    func ingest(message: ControlMessage) {
+    public func ingest(message: ControlMessage) {
         switch message {
         case .state(let snap):
             snapshot = snap

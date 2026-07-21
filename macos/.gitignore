@@ -2,3 +2,5 @@
 *.xcodeproj
 xcuserdata/
 .DS_Store
+.cache/
+dist/
