@@ -116,3 +116,16 @@ def test_sync_invokes_runner(monkeypatch: pytest.MonkeyPatch) -> None:
     result = CliRunner().invoke(app, ["sync"])
     assert result.exit_code == 0, result.output
     assert captured["cli_overrides"] == {}
+
+
+def test_autostart_stop_reports_when_already_stopped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("huske.agent._ensure_macos", lambda: None)
+    monkeypatch.setattr("huske.agent.stop_agent", lambda: False)
+    monkeypatch.setattr("huske.update_check.notify_if_outdated", lambda: None)
+
+    result = CliRunner().invoke(app, ["autostart", "stop"])
+
+    assert result.exit_code == 0, result.output
+    assert "already stopped" in result.output

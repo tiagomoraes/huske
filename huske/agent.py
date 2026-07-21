@@ -239,14 +239,21 @@ def start_agent() -> None:
         raise _launchctl_failure("kickstart", result)
 
 
-def stop_agent() -> None:
-    """Send ``SIGTERM`` to the running agent.
+def stop_agent() -> bool:
+    """Send ``SIGTERM`` to the running agent; return whether one was sent.
 
     With ``KeepAlive={SuccessfulExit:false}``, a graceful exit (code 0) keeps
     the agent stopped until the next login. If huske exits non-zero, launchd
-    will restart it.
+    will restart it. Asking launchd to stop an already-idle service is a
+    successful no-op.
     """
     _ensure_macos()
     result = _run_launchctl(["kill", "TERM", _service_target()])
-    if result.returncode != 0:
-        raise _launchctl_failure("kill TERM", result)
+    if result.returncode == 0:
+        return True
+
+    detail = result.stderr.strip() or result.stdout.strip()
+    if result.returncode == 3 and "No process to signal" in detail:
+        return False
+
+    raise _launchctl_failure("kill TERM", result)

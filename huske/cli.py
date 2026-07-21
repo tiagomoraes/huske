@@ -576,11 +576,14 @@ def autostart_stop() -> None:
     from huske.agent import LAUNCHD_LABEL, stop_agent
 
     try:
-        stop_agent()
+        stopped = stop_agent()
     except RuntimeError as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
-    typer.secho(f"✓ Sent SIGTERM to {LAUNCHD_LABEL}.", fg=typer.colors.GREEN)
+    if stopped:
+        typer.secho(f"✓ Sent SIGTERM to {LAUNCHD_LABEL}.", fg=typer.colors.GREEN)
+    else:
+        typer.echo(f"{LAUNCHD_LABEL} is already stopped.")
 
 
 def _collect_overrides(**kwargs: object) -> dict[str, object]:

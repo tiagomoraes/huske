@@ -172,7 +172,7 @@ huske autostart install [OPTIONS]   Write the plist and load it via launchctl bo
 huske autostart uninstall           Bootout and remove the plist.
 huske autostart status              Print install/load/pid state. Exit 0 if loaded, 1 otherwise.
 huske autostart start               launchctl kickstart (no-op if already running).
-huske autostart stop                launchctl kill TERM (graceful exit).
+huske autostart stop                launchctl kill TERM (no-op if already stopped).
 ```
 
 **`install` options**:
