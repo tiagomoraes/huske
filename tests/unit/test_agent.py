@@ -396,8 +396,20 @@ def test_stop_agent_sends_sigterm(
     force_macos: None,
     fake_launchctl: list[list[str]],
 ) -> None:
-    agent.stop_agent()
+    assert agent.stop_agent() is True
     assert any(call[:2] == ["kill", "TERM"] for call in fake_launchctl)
+
+
+def test_stop_agent_is_noop_when_already_stopped(
+    force_macos: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _stub(args: list[str]) -> FakeResult:
+        return FakeResult(returncode=3, stderr="No process to signal.")
+
+    monkeypatch.setattr(agent, "_run_launchctl", _stub)
+
+    assert agent.stop_agent() is False
 
 
 def test_start_agent_raises_on_failure(

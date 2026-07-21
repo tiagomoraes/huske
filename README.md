@@ -164,7 +164,7 @@ huske autostart install --config ~/.config/huske/config.toml --log-level DEBUG
 # Show current state (installed, loaded, pid, last exit code).
 huske autostart status
 
-# Manually start/stop without uninstalling.
+# Manually start/stop without uninstalling (repeated stop is a no-op).
 huske autostart start
 huske autostart stop
 
