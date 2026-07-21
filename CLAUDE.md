@@ -8,8 +8,17 @@ contribution rules live in [CONTRIBUTING.md](CONTRIBUTING.md).
 ## Project Shape
 
 - Python CLI/TUI package in `huske/` (entry point: `huske.cli:app`, exposed as
-  the `huske` console script — subcommands: `run`, `recover`, `doctor`, and the
-  opt-in `index` / `mcp` for local semantic search).
+  the `huske` console script — subcommands: `run`, `recover`, `doctor`,
+  `devices`, `config`, and the opt-in `index` / `mcp` for local semantic
+  search).
+- Native macOS app in `macos/` (SwiftPM: `HuskeKit` library + `Huske` SwiftUI
+  executable + XCTests). It is a shell over the engine's control socket and
+  CLI — never re-implement pipeline logic there (ADR 0006). Build/test with
+  `cd macos && swift build && swift test`; package with
+  `macos/scripts/build-app.sh`. When you add snapshot fields or commands to
+  `huske/ipc/protocol.py`, mirror them in
+  `macos/Sources/HuskeKit/ControlProtocol.swift` (add-only, defaulted) and
+  update both test suites.
 - Unit and integration tests in `tests/`.
 - Product specs and contracts in `specs/001-huske-recorder/`.
 - Public contributor documentation in `README.md`, `CONTRIBUTING.md`, and

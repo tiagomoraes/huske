@@ -6,8 +6,12 @@ add local workflow notes, but this file is the shared baseline.
 
 ## Project Map
 
-- `huske/`: Python CLI/TUI package.
-- `tests/`: unit and integration tests.
+- `huske/`: Python CLI/TUI package — the engine.
+- `macos/`: native macOS app (SwiftPM; SwiftUI shell over the engine's
+  control socket — see `docs/adr/0006-native-macos-app.md`). Check with
+  `cd macos && swift build && swift test`.
+- `tests/`: unit and integration tests (Python; Swift tests live in
+  `macos/Tests/`).
 - `examples/`: example user configuration.
 - `specs/`: feature specs, contracts, and planning artifacts.
 - `docs/`: maintainer and contributor documentation.
@@ -77,6 +81,13 @@ Current CI baseline:
 ```bash
 pytest tests/unit
 pytest tests/integration/test_pipeline_no_whisper.py tests/integration/test_smoke.py
+```
+
+When touching `macos/` (or `huske/ipc/` — the app consumes its wire format),
+also run the Swift side:
+
+```bash
+cd macos && swift build && swift test
 ```
 
 Additional local quality checks:

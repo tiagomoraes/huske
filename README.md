@@ -56,6 +56,11 @@ it about your day.
 - **Pretty terminal UI** — Rich Live panel with countdown, mic + system level
   meters, queue depth, last-saved transcript, rolling event log, and runtime
   controls for pause/resume and screenshots.
+- **Native macOS app** — the same engine in a real window: live level meters,
+  start/stop/pause, mid-session toggles, a transcript browser with search, a
+  Doctor pane, and an engine-validated settings editor, plus a menu bar extra.
+  It also attaches to sessions started from the terminal or at login. Built
+  from source in `macos/`; see [docs/macos-app.md](docs/macos-app.md).
 - **LLM-ready output** — every transcript is a single Markdown file with full
   YAML frontmatter; the directory layout is documented in
   `~/huske/transcripts/README.md` (auto-generated).
@@ -447,6 +452,7 @@ metadata can contain private or legally sensitive information.
 - [Transcript format contract](specs/001-huske-recorder/contracts/transcript-format.md) — the LLM-consumer interface.
 - [Quickstart](specs/001-huske-recorder/quickstart.md) — end-to-end setup.
 - [Glossary](CONTEXT.md) — domain language (Chunk, Segment, Passage, …).
+- [macOS app](docs/macos-app.md) — the native SwiftUI app over the same engine.
 - [Off-device server](docs/server.md) — replicate transcripts to a VPS and serve
   them to a co-located agent (opt-in).
 - [Transcript distillation](docs/distillation.md) — distil transcripts into

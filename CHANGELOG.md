@@ -6,6 +6,31 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+### Added
+
+- **Native macOS app.** A SwiftUI app (`macos/`, built with
+  `macos/scripts/build-app.sh` → `Huske.app`) that drives the same engine as
+  the terminal UI: start/stop/pause with live mic + system level meters,
+  chunk/queue state and a live activity feed, mid-session screenshot and
+  distillation toggles, live microphone switching, a day-grouped transcript
+  browser with per-run rendering and full-text search, a Doctor pane, an
+  engine-validated Configuration editor, a menu bar extra, and crash
+  recovery. It attaches to sessions started by the TUI or the login
+  LaunchAgent, and quitting while recording drains gracefully like Ctrl+C.
+  See `docs/macos-app.md` and `docs/adr/0006-native-macos-app.md`.
+- **Richer control protocol (v2) for external UIs.** `huske run` gained
+  `--control-socket PATH` to serve its JSON-line control protocol at an
+  explicit socket for an external UI (no bundled menu bar helper). Snapshots
+  now carry peak levels, chunk/session timing, warnings, recent events,
+  output paths, and the active input device — all backward compatible — and
+  clients can switch the microphone (`set_input_device`) and request the
+  device list over the socket.
+- **`huske config show|set|unset`** — inspect and edit
+  `~/.config/huske/config.toml` from the command line with the same
+  validation as `huske run` (`--json` output for tooling), and
+  **`huske devices [--json]`** — list microphone inputs and how the
+  configured one resolves.
+
 ## 0.10.0 - 2026-06-29
 
 ### Added
