@@ -13,9 +13,13 @@ import pytest
 
 from huske.control import Command, CommandChannel
 from huske.ipc.protocol import (
+    CommandMessage,
     ControlSnapshot,
+    DeviceList,
+    InputDeviceEntry,
     decode_message,
     encode_command,
+    encode_devices,
     encode_snapshot,
 )
 from huske.ipc.server import ControlServer
@@ -59,14 +63,73 @@ def test_snapshot_round_trip() -> None:
     assert decoded == snap
 
 
+def test_snapshot_v2_fields_round_trip() -> None:
+    snap = _snap(
+        peak_mic_db=-23.5,
+        peak_system_db=-41.0,
+        chunk_started_at="2026-05-09T12:00:00-03:00",
+        session_started_at="2026-05-09T11:59:00-03:00",
+        huske_version="0.11.0",
+        output_root="/Users/me/huske/transcripts",
+        last_saved_path="/Users/me/huske/transcripts/2026-05-09/120015_abcd0000_001.md",
+        screenshots_count=4,
+        input_device_name="MacBook Pro Microphone",
+        warnings={"heartbeat": "no audio for 6s"},
+        events=[
+            {"ts": "2026-05-09T12:00:01-03:00", "severity": "info", "message": "hi"}
+        ],
+    )
+    line = encode_snapshot(snap).decode("utf-8").rstrip("\n")
+    assert decode_message(line) == snap
+
+
+def test_v1_snapshot_line_decodes_with_defaults() -> None:
+    """A wire line from a pre-v2 server must still decode (defaults fill in)."""
+    v1_line = (
+        '{"type":"state","session_id":"20260509T120000_abcd","recording":true,'
+        '"paused":false,"stopping":false,"current_chunk_seq":2,"queue_depth":1,'
+        '"screenshots_enabled":false,"distill_enabled":false,'
+        '"last_saved_name":"120015_abcd0000_001.md"}'
+    )
+    decoded = decode_message(v1_line)
+    assert isinstance(decoded, ControlSnapshot)
+    assert decoded.peak_mic_db == -120.0
+    assert decoded.warnings == {}
+    assert decoded.events == []
+    assert decoded.input_device_name is None
+
+
 def test_command_round_trip() -> None:
     line = encode_command(Command.PAUSE_RESUME).decode("utf-8").rstrip("\n")
-    assert decode_message(line) is Command.PAUSE_RESUME
+    assert decode_message(line) == CommandMessage(Command.PAUSE_RESUME)
+
+
+def test_command_with_arg_round_trip() -> None:
+    line = encode_command(Command.SET_INPUT_DEVICE, "AirPods Pro")
+    decoded = decode_message(line.decode("utf-8").rstrip("\n"))
+    assert decoded == CommandMessage(Command.SET_INPUT_DEVICE, "AirPods Pro")
+
+
+def test_command_with_unsupported_arg_type_raises() -> None:
+    with pytest.raises(ValueError):
+        decode_message('{"type":"cmd","name":"set_input_device","arg":[1,2]}')
+
+
+def test_devices_round_trip() -> None:
+    devices = DeviceList(
+        devices=(
+            InputDeviceEntry(index=1, name="MacBook Pro Microphone", channels=1, sample_rate=48000.0),
+            InputDeviceEntry(index=3, name="AirPods Pro", channels=1, sample_rate=24000.0),
+        ),
+        current_index=1,
+    )
+    line = encode_devices(devices).decode("utf-8").rstrip("\n")
+    assert decode_message(line) == devices
 
 
 def test_toggle_distill_command_round_trip() -> None:
     line = encode_command(Command.TOGGLE_DISTILL).decode("utf-8").rstrip("\n")
-    assert decode_message(line) is Command.TOGGLE_DISTILL
+    assert decode_message(line) == CommandMessage(Command.TOGGLE_DISTILL)
 
 
 def test_snapshot_carries_distill_state() -> None:
@@ -158,12 +221,59 @@ def test_server_translates_client_command_to_channel(short_tmp: Path) -> None:
         try:
             client.sendall(encode_command(Command.STOP))
             deadline = time.monotonic() + 1.0
-            drained: list[Command] = []
+            drained: list[tuple[Command, object]] = []
             while time.monotonic() < deadline and not drained:
                 drained = commands.drain()
                 if not drained:
                     time.sleep(0.02)
-            assert drained == [Command.STOP]
+            assert drained == [(Command.STOP, None)]
+        finally:
+            client.close()
+    finally:
+        server.stop()
+
+
+def test_server_translates_command_arg_to_channel(short_tmp: Path) -> None:
+    commands = CommandChannel()
+    server = ControlServer(short_tmp / "control.sock", commands)
+    server.start()
+    try:
+        client = _connect(server.socket_path)
+        try:
+            client.sendall(encode_command(Command.SET_INPUT_DEVICE, "AirPods Pro"))
+            deadline = time.monotonic() + 1.0
+            drained: list[tuple[Command, object]] = []
+            while time.monotonic() < deadline and not drained:
+                drained = commands.drain()
+                if not drained:
+                    time.sleep(0.02)
+            assert drained == [(Command.SET_INPUT_DEVICE, "AirPods Pro")]
+        finally:
+            client.close()
+    finally:
+        server.stop()
+
+
+def test_server_broadcasts_devices(short_tmp: Path) -> None:
+    server = ControlServer(short_tmp / "control.sock", CommandChannel())
+    server.start()
+    try:
+        client = _connect(server.socket_path)
+        try:
+            # Unlike snapshots, device lists are not replayed on accept, so
+            # wait for the accept loop to register the client first.
+            deadline = time.monotonic() + 1.0
+            while server.connected_clients == 0 and time.monotonic() < deadline:
+                time.sleep(0.02)
+            devices = DeviceList(
+                devices=(
+                    InputDeviceEntry(index=0, name="Mic", channels=1, sample_rate=48000.0),
+                ),
+                current_index=0,
+            )
+            server.broadcast_devices(devices)
+            line = _read_line(client)
+            assert decode_message(line) == devices
         finally:
             client.close()
     finally:

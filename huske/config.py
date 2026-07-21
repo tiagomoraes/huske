@@ -159,6 +159,12 @@ class RuntimeConfig(BaseModel):
     no_ui: bool = False
     menu_bar_enabled: bool = True
     menu_bar_label_style: Literal["text", "icon"] = "text"
+    # Explicit control-socket path for an external UI (the native macOS app in
+    # ``macos/``). When set, `huske run` serves its JSON-line control protocol
+    # at this exact path and does NOT spawn the bundled Python menu bar helper
+    # — the external UI owns all presentation. Normally passed as
+    # ``--control-socket`` by the app rather than written to the config file.
+    control_socket: Path | None = None
 
     # Backend used to capture system audio on macOS.
     #   auto: Core Audio tap on macOS 14.4+ (resilient to screen-share
@@ -273,6 +279,13 @@ class RuntimeConfig(BaseModel):
     )
     @classmethod
     def _expand(cls, v: Any) -> Path:
+        return Path(str(v)).expanduser()
+
+    @field_validator("control_socket", mode="before")
+    @classmethod
+    def _expand_optional(cls, v: Any) -> Path | None:
+        if v is None:
+            return None
         return Path(str(v)).expanduser()
 
     @model_validator(mode="after")

@@ -16,6 +16,7 @@ from huske import __version__, logging_setup, paths
 from huske.capture.coordinator import CaptureCoordinator
 from huske.capture.devices import (
     list_input_devices,
+    match_input_device,
     resolve_input_device_with_fallback,
     validate_device,
 )
@@ -23,7 +24,7 @@ from huske.chunker.rotator import ChunkRotator
 from huske.config import RuntimeConfig, load_config, update_user_config
 from huske.control import Command, CommandChannel
 from huske.ipc import ControlServer
-from huske.ipc.protocol import ControlSnapshot
+from huske.ipc.protocol import ControlSnapshot, DeviceList, InputDeviceEntry
 from huske.models import AudioChunk, AudioSource, RenderState, SessionState
 from huske.output_readme import ensure_output_readme
 from huske.recovery.scanner import (
@@ -115,6 +116,10 @@ def run_session(
         recording=False,
         screenshots_enabled=False,
     )
+
+    # The active microphone, mirrored for control-plane snapshots. A plain
+    # mutable holder because closures below rebind it on live device swaps.
+    active_mic = {"name": report.device.name}
 
     # Optional: background embedding worker for local semantic search. Started
     # non-blocking — capture never waits on the embedding model to load, and an
@@ -526,6 +531,63 @@ def run_session(
     def _stop() -> None:
         stop_flag.set()
 
+    def _apply_mic_device(new_idx: int, new_name: str) -> bool:
+        """Swap the live mic and persist the preference. Shared by the TUI
+        picker and the IPC ``set_input_device`` command."""
+        if not capture.swap_mic_device(new_idx):
+            return False
+        active_mic["name"] = new_name
+        on_event("info", f"microphone → {new_name}")
+        try:
+            update_user_config({"input_device": new_name})
+        except Exception as exc:
+            on_event("warn", f"could not save mic preference: {exc}")
+        return True
+
+    def _set_input_device(arg: str | int | None) -> None:
+        if arg is None:
+            on_event("warn", "set_input_device requires a device name or index")
+            return
+        try:
+            devices = list_input_devices()
+        except Exception as exc:
+            on_event("error", f"could not list input devices: {exc}")
+            return
+        if isinstance(arg, int):
+            target = next((d for d in devices if d.index == arg), None)
+        else:
+            target = match_input_device(devices, arg)
+        if target is None:
+            on_event("warn", f"input device not found: {arg!r}")
+            return
+        if target.index == capture.mic_device_index:
+            return
+        if not _apply_mic_device(target.index, target.name):
+            on_event("warn", f"could not switch microphone to {target.name}")
+
+    def _broadcast_devices() -> None:
+        if server is None:
+            return
+        try:
+            devices = list_input_devices()
+        except Exception as exc:
+            on_event("error", f"could not list input devices: {exc}")
+            return
+        server.broadcast_devices(
+            DeviceList(
+                devices=tuple(
+                    InputDeviceEntry(
+                        index=d.index,
+                        name=d.name,
+                        channels=d.max_input_channels,
+                        sample_rate=d.default_samplerate,
+                    )
+                    for d in devices
+                ),
+                current_index=capture.mic_device_index,
+            )
+        )
+
     commands = CommandChannel()
     dispatch: dict[Command, Callable[[], None]] = {
         Command.PAUSE_RESUME: _toggle_pause,
@@ -537,20 +599,34 @@ def run_session(
     }
 
     def _pump_commands() -> None:
-        for cmd in commands.drain():
-            handler = dispatch.get(cmd)
-            if handler is not None:
-                handler()
+        for cmd, arg in commands.drain():
+            if cmd is Command.SET_INPUT_DEVICE:
+                _set_input_device(arg)
+            elif cmd is Command.REQUEST_DEVICES:
+                _broadcast_devices()
+            else:
+                handler = dispatch.get(cmd)
+                if handler is not None:
+                    handler()
 
     server: ControlServer | None = None
     helper_proc: subprocess.Popen[bytes] | None = None
-    # The control socket exists solely to drive the menu bar helper, so it is
-    # only started when the menu bar is enabled. With `--no-menu-bar` we skip
-    # the whole IPC server — no helper process (~50-80 MB), no accept thread,
-    # and no socket file — leaving the lightest possible recording footprint.
-    if sys.platform == "darwin" and cfg.menu_bar_enabled:
-        socket_dir = Path.home() / "Library" / "Application Support" / "huske"
-        socket_path = socket_dir / f"control-{paths.session_id_short(session.session_id)}.sock"
+    # Two ways to get a control socket:
+    # - An external UI (the native macOS app) passes ``--control-socket PATH``:
+    #   serve the protocol there and spawn no helper — the app owns presentation.
+    # - Otherwise the socket exists solely to drive the menu bar helper, so it
+    #   is only started when the menu bar is enabled. With `--no-menu-bar` we
+    #   skip the whole IPC server — no helper process (~50-80 MB), no accept
+    #   thread, and no socket file — the lightest possible recording footprint.
+    external_socket = cfg.control_socket is not None
+    if external_socket or (sys.platform == "darwin" and cfg.menu_bar_enabled):
+        if cfg.control_socket is not None:
+            socket_path = cfg.control_socket
+        else:
+            socket_dir = Path.home() / "Library" / "Application Support" / "huske"
+            socket_path = (
+                socket_dir / f"control-{paths.session_id_short(session.session_id)}.sock"
+            )
         server = ControlServer(socket_path, commands, log)
         try:
             server.start()
@@ -559,7 +635,7 @@ def run_session(
             log.warning("ipc_server_failed", error=str(exc))
             server = None
 
-        if server is not None:
+        if server is not None and not external_socket:
             from huske.agent import resolve_huske_binary
 
             argv = [
@@ -590,6 +666,7 @@ def run_session(
         nonlocal last_snap
         if server is None:
             return
+        peaks = state.peak_levels
         snap = ControlSnapshot(
             session_id=session.session_id,
             recording=state.recording,
@@ -600,6 +677,26 @@ def run_session(
             screenshots_enabled=state.screenshots_enabled,
             distill_enabled=state.distill_enabled,
             last_saved_name=state.last_saved.name if state.last_saved else None,
+            peak_mic_db=round(float(peaks[0]), 1) if len(peaks) >= 1 else -120.0,
+            peak_system_db=round(float(peaks[1]), 1) if len(peaks) >= 2 else -120.0,
+            chunk_started_at=(
+                state.chunk_started_at.isoformat() if state.chunk_started_at else None
+            ),
+            session_started_at=session.started_at.isoformat(),
+            huske_version=__version__,
+            output_root=str(cfg.output_root),
+            last_saved_path=str(state.last_saved) if state.last_saved else None,
+            screenshots_count=state.screenshots_count,
+            input_device_name=active_mic["name"],
+            warnings=dict(state.warnings),
+            events=[
+                {
+                    "ts": ev.timestamp.isoformat(),
+                    "severity": ev.severity,
+                    "message": ev.message,
+                }
+                for ev in list(state.events)
+            ],
         )
         if snap == last_snap:
             return
@@ -635,14 +732,9 @@ def run_session(
         if new_idx == state.picker_current_index:
             state.update(picker_visible=False)
             return
-        if not capture.swap_mic_device(new_idx):
+        if not _apply_mic_device(new_idx, new_name):
             state.update(picker_visible=False)
             return
-        on_event("info", f"microphone → {new_name}")
-        try:
-            update_user_config({"input_device": new_name})
-        except Exception as exc:
-            on_event("warn", f"could not save mic preference: {exc}")
         state.update(picker_visible=False, picker_current_index=new_idx)
 
     def _handle_picker_key(key: str) -> None:
