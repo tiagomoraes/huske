@@ -296,31 +296,37 @@ extension View {
 
     /// Pointing-hand cursor over clickable custom controls.
     func pointingCursor() -> some View {
-        modifier(PointingCursorModifier())
+        overlay(CursorRectView(cursor: .pointingHand).allowsHitTesting(false))
     }
 }
 
-/// Push/pop the pointing hand with the hover state; pop on disappear so a
-/// vanishing control can't leave the cursor stuck.
-struct PointingCursorModifier: ViewModifier {
-    @State private var hovering = false
+/// AppKit cursor rects instead of NSCursor.push()/pop(): SwiftUI re-renders
+/// reset the cursor and unbalance the push stack (flaky hover); a cursor rect
+/// is stateless — AppKit swaps the cursor on enter/exit, including during
+/// scrolling and view updates.
+private struct CursorRectView: NSViewRepresentable {
+    let cursor: NSCursor
 
-    func body(content: Content) -> some View {
-        content
-            .onHover { inside in
-                if inside, !hovering {
-                    NSCursor.pointingHand.push()
-                } else if !inside, hovering {
-                    NSCursor.pop()
-                }
-                hovering = inside
-            }
-            .onDisappear {
-                if hovering {
-                    NSCursor.pop()
-                    hovering = false
-                }
-            }
+    func makeNSView(context: Context) -> NSView {
+        CursorView(cursor: cursor)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    final class CursorView: NSView {
+        let cursor: NSCursor
+
+        init(cursor: NSCursor) {
+            self.cursor = cursor
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("unused") }
+
+        override func resetCursorRects() {
+            addCursorRect(bounds, cursor: cursor)
+        }
     }
 }
 
