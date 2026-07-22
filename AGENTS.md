@@ -6,7 +6,8 @@ add local workflow notes, but this file is the shared baseline.
 
 ## Project Map
 
-- `huske/`: Python CLI/TUI package — the engine.
+- `huske/`: Python CLI package — the headless engine (no terminal UI; the
+  macOS app is the face, ADR 0007).
 - `macos/`: native macOS app (SwiftPM; SwiftUI shell over the engine's
   control socket — see `docs/adr/0006-native-macos-app.md`). Check with
   `cd macos && swift build && swift test`.

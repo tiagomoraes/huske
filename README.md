@@ -53,14 +53,16 @@ it about your day.
   the mic and system are captured on independent clocks — see the PR notes.)
 - **Resilient** — graceful stop finalizes the partial chunk; SIGKILL + restart
   auto-recovers orphaned audio.
-- **Pretty terminal UI** — Rich Live panel with countdown, mic + system level
-  meters, queue depth, last-saved transcript, rolling event log, and runtime
-  controls for pause/resume and screenshots.
-- **Native macOS app** — the same engine in a real window: live level meters,
-  start/stop/pause, mid-session toggles, a transcript browser with search, a
-  Doctor pane, and an engine-validated settings editor, plus a menu bar extra.
-  It also attaches to sessions started from the terminal or at login. Built
-  from source in `macos/`; see [docs/macos-app.md](docs/macos-app.md).
+- **Native macOS app** — huske's face: live level meters, start/stop/pause,
+  a ⌘K command palette, mid-session toggles, a transcript browser with search,
+  a Doctor pane, an engine-validated settings editor, and open-at-login +
+  record-on-open switches, plus a menu bar extra. It also attaches to sessions
+  started from the terminal or at login. Built from source in `macos/`; see
+  [docs/macos-app.md](docs/macos-app.md).
+- **Headless engine** — `huske run` records with no UI chrome: plain progress
+  lines on stdout and a macOS menu bar item for pause/screenshots/stop. Ideal
+  under a LaunchAgent or over SSH. (The old Rich terminal panel was retired
+  in favor of the app — see `docs/adr/0007-app-first-retire-the-tui.md`.)
 - **LLM-ready output** — every transcript is a single Markdown file with full
   YAML frontmatter; the directory layout is documented in
   `~/huske/transcripts/README.md` (auto-generated).
@@ -121,21 +123,15 @@ requires **Screen Recording** permission and can be interrupted by another app's
 screen share. Run `huske doctor --system-audio-backend tap` if the system level
 meter goes silent during screen sharing.
 
-Runtime controls in the live UI:
+Runtime controls live in the app and the menu bar:
 
-```text
-?       open or close the controls overlay
-
-Inside controls:
-p       pause or resume audio recording
-s       enable or disable periodic screenshots
-d       toggle LLM distillation (statements)
-i       choose microphone input device
-q       graceful stop
-Esc     close controls
-
-Ctrl+C  graceful stop from anywhere
-```
+- **Huske.app** — pause/resume, screenshots, distillation, and microphone
+  switching from the Record pane — or from anywhere via the ⌘K command
+  palette.
+- **Menu bar** — terminal and LaunchAgent sessions get a huske menu bar item
+  with pause/resume, screenshots, distillation, and stop.
+- **Ctrl+C** — graceful stop for terminal sessions (finalizes the current
+  chunk and drains pending transcriptions).
 
 Pausing finalizes the current partial chunk and stops writing audio until you
 resume. Toggling screenshots takes effect immediately, using the configured
@@ -155,9 +151,14 @@ See [quickstart.md](specs/001-huske-recorder/quickstart.md) for the full setup.
 
 ### Run on login (macOS)
 
-`huske autostart install` registers a per-user
+The easiest way is in **Huske.app → Configuration → This app**: switch on
+*Open Huske at login* and *Start recording when Huske opens* — your Mac
+records from the moment you sign in, with the app as the UI.
+
+Prefer no app at all? `huske autostart install` registers a per-user
 [LaunchAgent](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html)
-that runs `huske run --no-ui` automatically every time you log in.
+that runs a headless `huske run` automatically every time you log in (the
+menu bar item is then the only UI).
 
 ```bash
 # Install — writes ~/Library/LaunchAgents/me.huske.plist and loads it now.
@@ -189,7 +190,7 @@ Settings → Privacy & Security. If the prompts don't appear after login, run
 `huske autostart start` once from the terminal so they fire while you're
 present.
 
-**Logs.** The agent has no TUI; stdout and stderr are appended to:
+**Logs.** The agent is headless; stdout and stderr are appended to:
 
 ```text
 ~/Library/Logs/huske/agent.out.log

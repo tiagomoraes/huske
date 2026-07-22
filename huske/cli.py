@@ -167,7 +167,14 @@ def run(
     ),
     config_path: Path | None = typer.Option(None, "--config"),
     log_level: str = typer.Option("INFO", "--log-level"),
-    no_ui: bool = typer.Option(False, "--no-ui"),
+    no_ui: bool = typer.Option(
+        False,
+        "--no-ui",
+        hidden=True,
+        help="Deprecated no-op: huske run is always headless now (the Rich "
+        "terminal panel was removed in favor of the macOS app). Kept so "
+        "older launchers that pass it keep working.",
+    ),
     menu_bar: bool | None = typer.Option(
         None,
         "--menu-bar/--no-menu-bar",
@@ -187,7 +194,7 @@ def run(
         "bundled menu bar helper.",
     ),
 ) -> None:
-    """Start a recording session with live keyboard controls."""
+    """Start a headless recording session (drive it from Huske.app or the menu bar)."""
     from huske.run_loop import run_session
 
     cli_overrides = _collect_overrides(

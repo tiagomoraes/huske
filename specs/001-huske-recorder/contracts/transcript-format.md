@@ -145,7 +145,7 @@ Huske writes (and refreshes if missing) a `<output_root>/README.md` that documen
 ```markdown
 # Huske transcripts
 
-This directory is managed by the `huske` terminal app. Each subdirectory is a
+This directory is managed by `huske`. Each subdirectory is a
 local calendar date in `YYYY-MM-DD` form, holding all transcripts whose chunk
 start time falls on that date. Each `.md` file is a single transcribed audio
 chunk; filenames sort chronologically (`HHMMSS_<sessionid8>_<seq>.md`). The

@@ -9,7 +9,7 @@ from pathlib import Path
 
 _README_TEMPLATE = """# Huske transcripts
 
-This directory is managed by the `huske` terminal app. It is a day-organized,
+This directory is managed by `huske`. It is a day-organized,
 LLM-readable log of what was said on this machine. Point an agent here and ask
 about a day, a time range, or a topic — no bespoke tooling is required.
 

@@ -36,8 +36,6 @@ from huske.recovery.scanner import (
 from huske.screenshots import ScreenshotCapturer
 from huske.session import RecordingSession
 from huske.transcribe.worker import TranscriptionWorker, chunk_to_job
-from huske.ui.input import TerminalKeyReader
-from huske.ui.live import LiveUI
 
 _HEARTBEAT_TIMEOUT_SECONDS = 5.0
 
@@ -120,7 +118,9 @@ def run_session(
     # Session.
     session = RecordingSession(config=cfg)
     log_path = paths.logs_path(cfg, session.session_id)
-    logging_setup.configure(log_path, level=cfg.log_level, console=cfg.no_ui)
+    # Headless engine: structured console logs always on (the app or the
+    # menu bar helper is the UI; the terminal shows plain progress lines).
+    logging_setup.configure(log_path, level=cfg.log_level, console=True)
     log = logging_setup.get_logger("huske.run")
     log.info("starting", session_id=session.session_id, version_hint=__version__)
 
@@ -729,96 +729,11 @@ def run_session(
         last_snap = snap
         server.broadcast_state(snap)
 
-    def _open_input_picker() -> None:
-        try:
-            devices = list_input_devices()
-        except Exception as exc:
-            on_event("error", f"could not list input devices: {exc}")
-            return
-        current_idx = capture.mic_device_index
-        cursor = 0
-        for i, d in enumerate(devices):
-            if d.index == current_idx:
-                cursor = i
-                break
-        state.update(
-            picker_visible=True,
-            picker_devices=[(d.index, d.name) for d in devices],
-            picker_cursor=cursor,
-            picker_current_index=current_idx,
-            help_visible=False,
-        )
-
-    def _commit_input_picker() -> None:
-        if not state.picker_devices:
-            state.update(picker_visible=False)
-            return
-        idx = max(0, min(state.picker_cursor, len(state.picker_devices) - 1))
-        new_idx, new_name = state.picker_devices[idx]
-        if new_idx == state.picker_current_index:
-            state.update(picker_visible=False)
-            return
-        if not _apply_mic_device(new_idx, new_name):
-            state.update(picker_visible=False)
-            return
-        state.update(picker_visible=False, picker_current_index=new_idx)
-
-    def _handle_picker_key(key: str) -> None:
-        if key == "\x1b":  # Esc
-            state.update(picker_visible=False)
-            return
-        if key in ("\r", "\n"):  # Enter
-            _commit_input_picker()
-            return
-        n = len(state.picker_devices)
-        if n == 0:
-            return
-        if key in ("j", "J", "\x1b[B"):  # j or Down
-            state.update(picker_cursor=min(state.picker_cursor + 1, n - 1))
-        elif key in ("k", "K", "\x1b[A"):  # k or Up
-            state.update(picker_cursor=max(state.picker_cursor - 1, 0))
-
-    def _handle_key(key: str) -> None:
-        if stop_flag.is_set():
-            return
-        if state.picker_visible:
-            _handle_picker_key(key)
-            return
-        normalized = key.lower()
-        if normalized == "\x03":
-            on_event("info", "stop requested — finalizing current chunk…")
-            commands.send(Command.STOP)
-            return
-        if normalized == "?":
-            state.update(help_visible=not state.help_visible)
-            return
-        if not state.help_visible:
-            return
-        if normalized == "\x1b":
-            state.update(help_visible=False)
-        elif normalized == "q":
-            on_event("info", "stop requested — finalizing current chunk…")
-            commands.send(Command.STOP)
-        elif normalized == "p":
-            commands.send(Command.PAUSE_RESUME)
-            state.update(help_visible=False)
-        elif normalized == "s":
-            commands.send(Command.TOGGLE_SCREENSHOTS)
-            state.update(help_visible=False)
-        elif normalized == "d":
-            commands.send(Command.TOGGLE_DISTILL)
-            state.update(help_visible=False)
-        elif normalized == "i":
-            _open_input_picker()
-
-    def _session_loop(
-        ui: LiveUI | None,
-        read_key: Callable[[], str | None] | None = None,
-    ) -> None:
+    def _session_loop() -> None:
         # Phase 1: normal recording — runs until Ctrl+C / SIGTERM sets stop_flag.
         _main_loop(
             cfg, state, rotator, capture, worker, stop_flag, log,
-            on_result, ui=ui, read_key=read_key, on_key=_handle_key,
+            on_result,
             screenshot_status=_screenshot_status,
             pump_commands=_pump_commands,
             publish_state=_publish_state,
@@ -827,11 +742,10 @@ def run_session(
             pending_count=_pending_count,
         )
 
-        # Phase 2: stopping. Keep the UI alive while we drain.
-        state.update(recording=False, paused=False, stopping=True, help_visible=False)
+        # Phase 2: stopping. Keep publishing state while we drain so the app
+        # and menu bar helper show the countdown.
+        state.update(recording=False, paused=False, stopping=True)
         _publish_state()
-        if ui is not None:
-            ui.update()
 
         on_event("info", "stopping capture…")
         capture.stop()
@@ -840,17 +754,13 @@ def run_session(
             _sync_screenshot_state()
             on_event("info", f"screenshots saved: {screenshotter.captures}")
         rotator.finalize_current()
-        if ui is not None:
-            ui.update()
 
         pending_count = _pending_count()
         on_event("info", f"draining {pending_count} transcription(s)…")
         state.update(queue_depth=pending_count)
-        if ui is not None:
-            ui.update()
 
         deadline = time.monotonic() + 600.0  # 10 min hard cap
-        last_ui_update = 0.0
+        last_publish = 0.0
         while True:
             with pending_lock:
                 if not pending_chunks:
@@ -877,27 +787,19 @@ def run_session(
                 break
 
             now = time.monotonic()
-            if now - last_ui_update >= 0.25:
+            if now - last_publish >= 0.25:
                 _on_tick()
                 state.update(queue_depth=_pending_count())
                 _publish_state()
-                if ui is not None:
-                    ui.update()
-                last_ui_update = now
+                last_publish = now
 
-        # Final UI update so the user sees "0 pending" before we tear down.
+        # Final publish so subscribers see "0 pending" before we tear down.
         state.update(queue_depth=0)
         _publish_state()
-        if ui is not None:
-            ui.update()
 
     try:
-        if cfg.no_ui:
-            _print(f"[huske] recording — Ctrl+C to stop. transcripts → {cfg.output_root}")
-            _session_loop(ui=None)
-        else:
-            with LiveUI(state) as live, TerminalKeyReader() as keys:
-                _session_loop(ui=live, read_key=keys.read_key)
+        _print(f"[huske] recording — Ctrl+C to stop. transcripts → {cfg.output_root}")
+        _session_loop()
     except Exception as exc:
         log.error("run_failed", error=str(exc))
         exit_code = 1
@@ -944,9 +846,6 @@ def _main_loop(
     stop_flag: threading.Event,
     log: Any,
     on_result: Callable[[int], None],
-    ui: LiveUI | None,
-    read_key: Callable[[], str | None] | None = None,
-    on_key: Callable[[str], None] | None = None,
     screenshot_status: Callable[[], tuple[bool, int, datetime | None]] | None = None,
     pump_commands: Callable[[], None] | None = None,
     publish_state: Callable[[], None] | None = None,
@@ -954,23 +853,13 @@ def _main_loop(
     on_tick: Callable[[], None] | None = None,
     pending_count: Callable[[], int] | None = None,
 ) -> None:
-    """Run the asyncio-free main loop. Updates UI, polls worker results, watches heartbeat."""
+    """Run the asyncio-free main loop: poll worker results, refresh state,
+    publish control-plane snapshots, watch the capture heartbeat."""
 
     def _depth() -> int:
         return pending_count() if pending_count is not None else worker.queue_depth
 
     while not stop_flag.is_set():
-        if read_key is not None and on_key is not None:
-            while True:
-                key = read_key()
-                if key is None:
-                    break
-                on_key(key)
-                if stop_flag.is_set():
-                    break
-            if stop_flag.is_set():
-                break
-
         if pump_commands is not None:
             pump_commands()
             if stop_flag.is_set():
@@ -1008,7 +897,7 @@ def _main_loop(
         if on_tick is not None:
             on_tick()
 
-        # UI render-state refresh.
+        # Render-state refresh (feeds the control-plane snapshot).
         peaks = capture.peak_levels_db()
         screenshot_fields: dict[str, object] = {}
         if screenshot_status is not None:
@@ -1029,9 +918,6 @@ def _main_loop(
 
         if publish_state is not None:
             publish_state()
-
-        if ui is not None:
-            ui.update()
 
         time.sleep(0.125)  # 8 Hz
 

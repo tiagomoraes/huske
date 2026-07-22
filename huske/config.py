@@ -159,6 +159,9 @@ class RuntimeConfig(BaseModel):
     screenshots_jpeg_quality: int = Field(default=60, ge=1, le=100)
 
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    # Deprecated no-op: `huske run` is always headless since the Rich terminal
+    # panel was retired in favor of the macOS app. Accepted so existing config
+    # files and launchers (`--no-ui`) keep working.
     no_ui: bool = False
     menu_bar_enabled: bool = True
     menu_bar_label_style: Literal["text", "icon"] = "text"

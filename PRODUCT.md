@@ -2,9 +2,10 @@
 
 ## Register
 
-**Product.** App UI (native macOS app in `macos/`, terminal TUI) — design serves
-the task. The marketing site in `website/` is the brand register and already
-carries the visual identity; the app inherits it, it does not reinvent it.
+**Product.** App UI (native macOS app in `macos/`; the engine itself is
+headless) — design serves the task. The marketing site in `website/` is the
+brand register and already carries the visual identity; the app inherits it,
+it does not reinvent it.
 
 ## What it is
 

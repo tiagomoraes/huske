@@ -8,6 +8,20 @@ This project uses semantic versioning after the first public release.
 
 ### Added
 
+- **⌘K command palette in Huske.app.** Every session and navigation action —
+  start/stop/pause, screenshots, distillation, panes, doctor, recovery,
+  folders, settings — behind one fuzzy-searchable, keyboard-first palette.
+- **Record from the moment you log in.** Huske.app gained *Open Huske at
+  login* (an SMAppService login item) and *Start recording when Huske opens*
+  — in Configuration → "This app" and in Settings (⌘,). Together they replace
+  the LaunchAgent as the everyday autostart (the `huske autostart` LaunchAgent
+  remains for app-less, menu-bar-only setups).
+- **One-click engine install and upgrade.** Onboarding detects uv or Homebrew
+  and installs the engine with a single button, streaming the package
+  manager's output into the window; it also notices a terminal-side install
+  by itself. The outdated-engine screen upgrades the same way, using
+  whichever manager owns the current binary.
+
 - **Built-in distillation — no more Ollama requirement.** `distill_backend`
   now defaults to `"mlx"`: huske runs the distillation LLM itself via
   `mlx-lm` in an isolated subprocess, downloading the default model
@@ -26,16 +40,16 @@ This project uses semantic versioning after the first public release.
   pickers in Configuration, pointer cursors, arrow-key transcript
   navigation, and a Dock badge while recording.
 
-- **Native macOS app.** A SwiftUI app (`macos/`, built with
-  `macos/scripts/build-app.sh` → `Huske.app`) that drives the same engine as
-  the terminal UI: start/stop/pause with live mic + system level meters,
-  chunk/queue state and a live activity feed, mid-session screenshot and
-  distillation toggles, live microphone switching, a day-grouped transcript
-  browser with per-run rendering and full-text search, a Doctor pane, an
-  engine-validated Configuration editor, a menu bar extra, and crash
-  recovery. It attaches to sessions started by the TUI or the login
-  LaunchAgent, and quitting while recording drains gracefully like Ctrl+C.
-  See `docs/macos-app.md` and `docs/adr/0006-native-macos-app.md`.
+- **Native macOS app — now huske's UI.** A SwiftUI app (`macos/`, built with
+  `macos/scripts/build-app.sh` → `Huske.app`) over the headless engine:
+  start/stop/pause with live mic + system level meters, chunk/queue state and
+  a live activity feed, mid-session screenshot and distillation toggles, live
+  microphone switching, a day-grouped transcript browser with per-run
+  rendering and full-text search, a Doctor pane, an engine-validated
+  Configuration editor, a menu bar extra, and crash recovery. It attaches to
+  sessions started from a terminal or the login LaunchAgent, and quitting
+  while recording drains gracefully like Ctrl+C. See `docs/macos-app.md` and
+  `docs/adr/0006-native-macos-app.md`.
 - **Richer control protocol (v2) for external UIs.** `huske run` gained
   `--control-socket PATH` to serve its JSON-line control protocol at an
   explicit socket for an external UI (no bundled menu bar helper). Snapshots
@@ -48,6 +62,28 @@ This project uses semantic versioning after the first public release.
   validation as `huske run` (`--json` output for tooling), and
   **`huske devices [--json]`** — list microphone inputs and how the
   configured one resolves.
+
+### Removed
+
+- **The Rich terminal live panel.** `huske run` is now a headless engine:
+  plain progress lines on stdout, with Huske.app and the menu bar item as the
+  interactive UIs. The `?`/`p`/`s`/`d`/`i`/`q` keyboard controls went with
+  it; `--no-ui` (and the `no_ui` config key) remain as accepted no-ops so
+  existing launchers keep working. See
+  `docs/adr/0007-app-first-retire-the-tui.md`.
+
+### Fixed
+
+- **Clicking the Dock icon reopens the window.** After closing the last
+  window (the menu bar extra keeps huske alive), a Dock click now brings the
+  main window back instead of doing nothing.
+- **Hover works again everywhere in the app.** The stateless pointer-cursor
+  overlay introduced after the redesign swallowed AppKit mouse tracking, so
+  transcript rows, sidebar items, and icon buttons stopped highlighting.
+  Hover is now tracked by AppKit itself (cursor rect + tracking area on one
+  event-transparent view) and every control got the design-spec hover,
+  pressed, and disabled states — including the previously feedback-less
+  primary and secondary buttons.
 
 ## 0.10.0 - 2026-06-29
 

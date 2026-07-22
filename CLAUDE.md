@@ -7,10 +7,11 @@ contribution rules live in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Project Shape
 
-- Python CLI/TUI package in `huske/` (entry point: `huske.cli:app`, exposed as
-  the `huske` console script — subcommands: `run`, `recover`, `doctor`,
-  `devices`, `config`, and the opt-in `index` / `mcp` for local semantic
-  search).
+- Python CLI package in `huske/` (entry point: `huske.cli:app`, exposed as
+  the `huske` console script — subcommands: `run` (headless engine), `recover`,
+  `doctor`, `devices`, `config`, and the opt-in `index` / `mcp` for local
+  semantic search). There is no terminal UI anymore — the macOS app is the
+  face; `--no-ui` survives as a hidden no-op (ADR 0007).
 - Native macOS app in `macos/` (SwiftPM: `HuskeKit` library + `Huske` SwiftUI
   executable + XCTests). It is a shell over the engine's control socket and
   CLI — never re-implement pipeline logic there (ADR 0006). Build/test with
@@ -60,10 +61,11 @@ modules that pass audio through a single pipeline:
 to the worker, and moves invalid ones to `incomplete/`. `session.py` holds
 a per-session lockfile that recovery uses to detect orphans.
 
-`ui/live.py` is a Rich Live panel driven by `RenderState` (in `models.py`),
-which the orchestrator updates at ~8 Hz. `--no-ui` swaps the live panel for
-plain stdout. UI state is read-only from the UI's perspective — only the
-orchestrator mutates it.
+`RenderState` (in `models.py`) is the live session state the orchestrator
+updates at ~8 Hz; `build_control_snapshot()` serializes it onto the control
+socket for the macOS app and the menu bar helper. Only the orchestrator
+mutates it. (The Rich terminal panel that used to render it was removed —
+ADR 0007; `huske run` prints plain progress lines instead.)
 
 `config.py` merges YAML config + CLI overrides into a single immutable
 `RuntimeConfig` (Pydantic). `paths.py` derives every filesystem path from

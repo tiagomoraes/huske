@@ -1,9 +1,10 @@
 # Huske.app — the native macOS app
 
-Huske ships a native SwiftUI app alongside the terminal UI. Same engine,
-two heads: the app supervises the `huske` command-line engine and renders its
-control plane in a real window — it never re-implements recording or
-transcription logic (see `docs/adr/0006-native-macos-app.md`).
+Huske.app is huske's UI. The engine itself is headless: the app supervises the
+`huske` command-line engine and renders its control plane in a real window —
+it never re-implements recording or transcription logic (see
+`docs/adr/0006-native-macos-app.md` and
+`docs/adr/0007-app-first-retire-the-tui.md`).
 
 ## What it does
 
@@ -76,6 +77,7 @@ grants.
 
 ```
 Huske.app ──spawns──▶ huske run --no-ui --control-socket ~/…/huske/app-xxxx.sock
+                      (--no-ui is a compat no-op on current engines — ADR 0007)
      ▲                        │
      └── JSON lines ◀─────────┘   state snapshots at ~8 Hz, commands upstream
 ```
