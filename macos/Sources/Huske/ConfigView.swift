@@ -23,6 +23,8 @@ struct ConfigView: View {
                 }
                 .padding(.top, 30)
 
+                appCard
+
                 if model.capabilities != nil, model.capabilities?.configCLI != true, !model.isDemo {
                     outdatedNotice
                 } else {
@@ -133,6 +135,48 @@ struct ConfigView: View {
     }
 
     // MARK: cards
+
+    /// App-level behavior (not engine config): login item + autostart. Also
+    /// mirrored in Settings (⌘,); this is where people go looking for it.
+    private var appCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 13) {
+                SectionLabel("This app")
+                Toggle(
+                    isOn: Binding(
+                        get: { model.openAtLogin },
+                        set: { model.setOpenAtLogin($0) }
+                    )
+                ) {
+                    settingLabel(
+                        "Open Huske at login",
+                        model.canManageLoginItem
+                            ? "Launches this app when you log in to your Mac."
+                            : "Available when running the packaged Huske.app.")
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .disabled(!model.canManageLoginItem)
+                if let error = model.loginItemError {
+                    Text(error)
+                        .font(.brandSans(11))
+                        .foregroundStyle(Theme.err)
+                }
+                Toggle(
+                    isOn: Binding(
+                        get: { model.autoStartRecording },
+                        set: { model.autoStartRecording = $0 }
+                    )
+                ) {
+                    settingLabel(
+                        "Start recording when Huske opens",
+                        "Together with login, your Mac records from the moment you sign in.")
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+            }
+        }
+    }
 
     private var transcriptionCard: some View {
         let config = model.config
@@ -547,9 +591,25 @@ struct CommittingTextField: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        TextField("", text: $draft, prompt: Text(prompt).font(.brandMono(11.5)))
-            .textFieldStyle(.roundedBorder)
+        TextField(
+            "", text: $draft,
+            prompt: Text(prompt).font(.brandMono(11.5)).foregroundStyle(Theme.fgFaint)
+        )
+            .textFieldStyle(.plain)
             .font(.brandMono(11.5))
+            .foregroundStyle(Theme.fg)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.radiusSM, style: .continuous)
+                    .fill(Theme.bgSunken.opacity(0.5))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.radiusSM, style: .continuous)
+                    .strokeBorder(
+                        focused ? Theme.amber.opacity(0.55) : Theme.divider, lineWidth: 1)
+            )
+            .animation(Theme.easeFast, value: focused)
             .focused($focused)
             .onAppear { draft = value }
             .onChange(of: value) { _, newValue in

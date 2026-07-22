@@ -200,63 +200,165 @@ extension PaneHeader where Trailing == EmptyView {
 // MARK: - buttons (one vocabulary, used everywhere)
 
 /// Primary action: amber fill, ink text. `huske`'s single accent.
+/// Hover is amber-700 (DESIGN.md); pressed darkens a step further.
 struct PrimaryButtonStyle: ButtonStyle {
     var size: ControlSizeVariant = .regular
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.brandSans(size.fontSize, .semibold))
-            .foregroundStyle(Theme.fgOnAmber)
-            .padding(.horizontal, size.hPad)
-            .padding(.vertical, size.vPad)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
-                    .fill(configuration.isPressed ? Theme.amberPressed : Theme.amber)
-            )
-            .pointingCursor()
-            .animation(Theme.easeFast, value: configuration.isPressed)
+        StyledBody(configuration: configuration, size: size)
+    }
+
+    private struct StyledBody: View {
+        let configuration: Configuration
+        let size: ControlSizeVariant
+        @Environment(\.isEnabled) private var isEnabled
+        @State private var hovering = false
+
+        var body: some View {
+            configuration.label
+                .font(.brandSans(size.fontSize, .semibold))
+                .foregroundStyle(Theme.fgOnAmber)
+                .padding(.horizontal, size.hPad)
+                .padding(.vertical, size.vPad)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
+                        .fill(hovering || configuration.isPressed ? Theme.amberPressed : Theme.amber)
+                        .brightness(configuration.isPressed ? -0.05 : 0)
+                )
+                .overlay(
+                    // Ink hairline: keeps the fill crisp against paper/cards.
+                    RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
+                        .strokeBorder(Theme.fgOnAmber.opacity(0.16), lineWidth: 1)
+                )
+                .opacity(isEnabled ? 1 : 0.45)
+                .pointingCursor(hovering: $hovering)
+                .animation(Theme.easeFast, value: hovering)
+                .animation(Theme.easeFast, value: configuration.isPressed)
+        }
     }
 }
 
-/// Secondary action: hairline border, quiet.
+/// Secondary action: hairline border on an elevated fill; border-soft wash
+/// on hover (DESIGN.md), stronger when pressed.
 struct SecondaryButtonStyle: ButtonStyle {
     var size: ControlSizeVariant = .regular
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.brandSans(size.fontSize, .medium))
-            .foregroundStyle(Theme.fg)
-            .padding(.horizontal, size.hPad)
-            .padding(.vertical, size.vPad)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
-                    .fill(configuration.isPressed ? Theme.divider : Color.clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
-                    .strokeBorder(Theme.cardBorder, lineWidth: 1)
-            )
-            .pointingCursor()
-            .animation(Theme.easeFast, value: configuration.isPressed)
+        StyledBody(configuration: configuration, size: size)
+    }
+
+    private struct StyledBody: View {
+        let configuration: Configuration
+        let size: ControlSizeVariant
+        @Environment(\.isEnabled) private var isEnabled
+        @State private var hovering = false
+
+        var body: some View {
+            configuration.label
+                .font(.brandSans(size.fontSize, .medium))
+                .foregroundStyle(Theme.fg)
+                .padding(.horizontal, size.hPad)
+                .padding(.vertical, size.vPad)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
+                        .fill(Theme.bgElevated)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
+                                .fill(Theme.divider.opacity(washOpacity))
+                        )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
+                        .strokeBorder(Theme.cardBorder, lineWidth: 1)
+                )
+                .opacity(isEnabled ? 1 : 0.45)
+                .pointingCursor(hovering: $hovering)
+                .animation(Theme.easeFast, value: hovering)
+                .animation(Theme.easeFast, value: configuration.isPressed)
+        }
+
+        private var washOpacity: Double {
+            if configuration.isPressed { return 1.0 }
+            if hovering { return 0.55 }
+            return 0
+        }
     }
 }
 
-/// Destructive fill — reserved for Stop.
+/// Destructive fill — reserved for Stop (and the red Start Recording).
 struct StopButtonStyle: ButtonStyle {
     var size: ControlSizeVariant = .regular
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.brandSans(size.fontSize, .semibold))
-            .foregroundStyle(Theme.fgOnRed)
-            .padding(.horizontal, size.hPad)
-            .padding(.vertical, size.vPad)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
-                    .fill(Theme.recordRed.opacity(configuration.isPressed ? 0.8 : 1.0))
-            )
-            .pointingCursor()
-            .animation(Theme.easeFast, value: configuration.isPressed)
+        StyledBody(configuration: configuration, size: size)
+    }
+
+    private struct StyledBody: View {
+        let configuration: Configuration
+        let size: ControlSizeVariant
+        @Environment(\.isEnabled) private var isEnabled
+        @State private var hovering = false
+
+        var body: some View {
+            configuration.label
+                .font(.brandSans(size.fontSize, .semibold))
+                .foregroundStyle(Theme.fgOnRed)
+                .padding(.horizontal, size.hPad)
+                .padding(.vertical, size.vPad)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
+                        .fill(Theme.recordRed)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
+                                .fill(Color.black.opacity(
+                                    configuration.isPressed ? 0.18 : (hovering ? 0.10 : 0)))
+                        )
+                )
+                .opacity(isEnabled ? 1 : 0.45)
+                .pointingCursor(hovering: $hovering)
+                .animation(Theme.easeFast, value: hovering)
+                .animation(Theme.easeFast, value: configuration.isPressed)
+        }
+    }
+}
+
+/// Ghost link: amber text that deepens and underlines on hover (the website's
+/// link treatment). For inline actions like "Open transcripts folder".
+struct LinkButtonStyle: ButtonStyle {
+    var fontSize: CGFloat = 12
+    var tint: Color = Theme.amber
+    /// Hover color; nil means the amber link default (amber-700).
+    var hoverTint: Color?
+
+    func makeBody(configuration: Configuration) -> some View {
+        StyledBody(
+            configuration: configuration, fontSize: fontSize, tint: tint, hoverTint: hoverTint)
+    }
+
+    private struct StyledBody: View {
+        let configuration: Configuration
+        let fontSize: CGFloat
+        let tint: Color
+        let hoverTint: Color?
+        @Environment(\.isEnabled) private var isEnabled
+        @State private var hovering = false
+
+        var body: some View {
+            let color = hovering || configuration.isPressed ? (hoverTint ?? Theme.amberPressed) : tint
+            configuration.label
+                .font(.brandSans(fontSize, .medium))
+                .foregroundStyle(color)
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(color.opacity(0.55))
+                        .frame(height: 1)
+                        .opacity(hovering ? 1 : 0)
+                        .offset(y: 1.5)
+                }
+                .opacity(isEnabled ? 1 : 0.45)
+                .pointingCursor(hovering: $hovering)
+                .animation(Theme.easeFast, value: hovering)
+        }
     }
 }
 
@@ -294,38 +396,103 @@ extension View {
         font(.brandMono(size, weight))
     }
 
-    /// Pointing-hand cursor over clickable custom controls.
-    func pointingCursor() -> some View {
-        overlay(CursorRectView(cursor: .pointingHand).allowsHitTesting(false))
+    /// Pointing-hand cursor over clickable custom controls. Pass a binding to
+    /// also receive hover — tracked by AppKit, so it stays correct while
+    /// scrolling and is never blocked by overlays (unlike `.onHover`).
+    func pointingCursor(hovering: Binding<Bool>? = nil) -> some View {
+        modifier(PointerHoverModifier(hovering: hovering))
+    }
+}
+
+private struct PointerHoverModifier: ViewModifier {
+    @Environment(\.isEnabled) private var isEnabled
+    /// ImageRenderer draws AppKit-backed views as placeholders, so the
+    /// offscreen screen renderer must not mount the tracking overlay.
+    @Environment(\.screenRendering) private var screenRendering
+    let hovering: Binding<Bool>?
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            if !screenRendering {
+                PointerHoverView(
+                    enabled: isEnabled,
+                    onHover: hovering.map { binding in
+                        { binding.wrappedValue = $0 }
+                    }
+                )
+                .allowsHitTesting(false)
+            }
+        }
     }
 }
 
 /// AppKit cursor rects instead of NSCursor.push()/pop(): SwiftUI re-renders
 /// reset the cursor and unbalance the push stack (flaky hover); a cursor rect
 /// is stateless — AppKit swaps the cursor on enter/exit, including during
-/// scrolling and view updates.
-private struct CursorRectView: NSViewRepresentable {
-    let cursor: NSCursor
+/// scrolling and view updates. Hover uses an NSTrackingArea on the same view
+/// for the same reason.
+private struct PointerHoverView: NSViewRepresentable {
+    let enabled: Bool
+    let onHover: ((Bool) -> Void)?
 
-    func makeNSView(context: Context) -> NSView {
-        CursorView(cursor: cursor)
+    func makeNSView(context: Context) -> TrackingView {
+        let view = TrackingView()
+        view.apply(enabled: enabled, onHover: onHover)
+        return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    func updateNSView(_ view: TrackingView, context: Context) {
+        view.apply(enabled: enabled, onHover: onHover)
+    }
 
-    final class CursorView: NSView {
-        let cursor: NSCursor
+    final class TrackingView: NSView {
+        private var enabled = true
+        private var onHover: ((Bool) -> Void)?
+        private var inside = false
 
-        init(cursor: NSCursor) {
-            self.cursor = cursor
-            super.init(frame: .zero)
+        /// The overlay is informational only (cursor + hover tracking). It
+        /// must never intercept events, or clicks and SwiftUI's own hover
+        /// tracking on the control underneath break.
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        func apply(enabled: Bool, onHover: ((Bool) -> Void)?) {
+            self.onHover = onHover
+            guard enabled != self.enabled else { return }
+            self.enabled = enabled
+            window?.invalidateCursorRects(for: self)
+            if !enabled, inside {
+                inside = false
+                onHover?(false)
+            }
         }
 
-        @available(*, unavailable)
-        required init?(coder: NSCoder) { fatalError("unused") }
-
         override func resetCursorRects() {
-            addCursorRect(bounds, cursor: cursor)
+            if enabled {
+                addCursorRect(bounds, cursor: .pointingHand)
+            }
+        }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            trackingAreas.forEach(removeTrackingArea)
+            addTrackingArea(
+                NSTrackingArea(
+                    rect: .zero,
+                    options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+                    owner: self,
+                    userInfo: nil))
+        }
+
+        override func mouseEntered(with event: NSEvent) {
+            guard enabled, !inside else { return }
+            inside = true
+            onHover?(true)
+        }
+
+        override func mouseExited(with event: NSEvent) {
+            guard inside else { return }
+            inside = false
+            onHover?(false)
         }
     }
 }

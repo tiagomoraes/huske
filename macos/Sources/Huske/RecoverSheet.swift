@@ -29,6 +29,11 @@ struct RecoverSheet: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 2) {
+                        if model.recoverLog.isEmpty {
+                            Text(model.recoverRunning ? "waiting for engine output…" : "no output")
+                                .font(.brandMono(11))
+                                .foregroundStyle(Theme.fgFaint)
+                        }
                         ForEach(Array(model.recoverLog.enumerated()), id: \.offset) { index, line in
                             Text(line)
                                 .font(.brandMono(11))

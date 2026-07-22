@@ -54,20 +54,8 @@ struct EngineOutdatedView: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 460)
             }
-            VStack(alignment: .leading, spacing: 8) {
-                InstallCommandRow(label: "uv", command: "uv tool upgrade huske")
-                InstallCommandRow(label: "brew", command: "brew upgrade huske")
-            }
-            .frame(maxWidth: 440)
-            HStack(spacing: 10) {
-                Button {
-                    model.refreshBinary()
-                    Task { await model.bootstrap() }
-                } label: {
-                    Label("Check Again", systemImage: "arrow.clockwise")
-                }
-                .buttonStyle(PrimaryButtonStyle())
-            }
+            EngineSetupActions(kind: .upgrade)
+                .frame(maxWidth: 460)
             Text("Building from source? Point the app at your dev binary in Settings (⌘,) — e.g. <repo>/.venv/bin/huske.")
                 .font(.brandSans(11.5))
                 .foregroundStyle(Theme.fgFaint)
@@ -124,10 +112,7 @@ struct IdleView: View {
             Button("Recover orphaned audio from a previous crash…") {
                 model.runRecover()
             }
-            .buttonStyle(.plain)
-            .pointingCursor()
-            .font(.brandSans(12))
-            .foregroundStyle(Theme.amber)
+            .buttonStyle(LinkButtonStyle())
 
             Spacer()
             Text("The first chunk takes ~30 s while the speech model warms up.")
@@ -435,6 +420,7 @@ struct MicrophoneMenu: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
+        .pointingCursor()
         .onAppear { model.session.refreshDevices() }
         .help("Switch the microphone input (takes effect immediately)")
     }
@@ -568,10 +554,8 @@ struct LastSavedLink: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-            .foregroundStyle(Theme.ok)
         }
-        .buttonStyle(.plain)
-        .pointingCursor()
+        .buttonStyle(LinkButtonStyle(fontSize: 11, tint: Theme.ok, hoverTint: Theme.ok))
         .disabled(path == nil)
         .help(path.map { "Open \($0)" } ?? "")
     }
@@ -630,11 +614,8 @@ struct ExtrasCard: View {
                     model.session.send(.openTranscripts)
                 } label: {
                     Label("Open transcripts folder", systemImage: "folder")
-                        .font(.brandSans(12, .medium))
                 }
-                .buttonStyle(.plain)
-                .pointingCursor()
-                .foregroundStyle(Theme.amber)
+                .buttonStyle(LinkButtonStyle())
             }
         }
         .frame(width: 252)

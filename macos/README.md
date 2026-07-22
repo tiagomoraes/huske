@@ -1,9 +1,10 @@
 # Huske.app
 
-Native macOS app for [huske](../README.md) — a SwiftUI shell over the same
-Python engine the terminal UI drives. No pipeline logic lives here; the app
+Native macOS app for [huske](../README.md) — the product's UI, a SwiftUI
+shell over the headless Python engine. No pipeline logic lives here; the app
 supervises `huske run` over its control socket and shells out to the CLI for
-everything else. Architecture: [ADR 0006](../docs/adr/0006-native-macos-app.md).
+everything else. Architecture: [ADR 0006](../docs/adr/0006-native-macos-app.md)
+and [ADR 0007](../docs/adr/0007-app-first-retire-the-tui.md).
 User/contributor docs: [docs/macos-app.md](../docs/macos-app.md).
 
 ```bash

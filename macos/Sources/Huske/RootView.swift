@@ -57,6 +57,7 @@ struct RootView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(Theme.bg)
                 }
+                .overlay { CommandPaletteOverlay() }
             }
         }
         .ignoresSafeArea()
@@ -137,36 +138,7 @@ struct SidebarView: View {
     private var sessionBadge: some View {
         let session = model.session
         if session.isBusy, let snap = session.snapshot {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(snap.stopping || snap.paused ? Theme.warn : Theme.recordRed)
-                        .frame(width: 6, height: 6)
-                    Text(
-                        snap.stopping
-                            ? "FINISHING" : (snap.paused ? "PAUSED" : "RECORDING")
-                    )
-                    .font(.brandMono(10, .semibold))
-                    .kerning(1.0)
-                    .foregroundStyle(Theme.fg)
-                }
-                Text("chunk \(String(format: "%03d", snap.currentChunkSeq)) · queue \(snap.queueDepth)")
-                    .font(.brandMono(10))
-                    .foregroundStyle(Theme.fgMuted)
-            }
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
-                    .fill(Theme.bgSunken.opacity(0.6))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
-                    .strokeBorder(Theme.divider, lineWidth: 1)
-            )
-            .contentShape(Rectangle())
-            .pointingCursor()
-            .onTapGesture { model.pane = .record }
+            SessionBadgeView(snapshot: snap) { model.pane = .record }
         }
     }
 
@@ -209,12 +181,57 @@ struct SidebarItemView: View {
             .contentShape(RoundedRectangle(cornerRadius: Theme.radiusMD))
         }
         .buttonStyle(.plain)
-        .pointingCursor()
+        .pointingCursor(hovering: $hovering)
         .keyboardShortcut(pane.shortcut, modifiers: [.command])
-        .onHover { hovering = $0 }
         .animation(Theme.easeFast, value: hovering)
         .accessibilityLabel(pane.title)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
+}
+
+/// The sidebar's live-session card: a glanceable status that jumps to Record.
+struct SessionBadgeView: View {
+    let snapshot: ControlSnapshot
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(snapshot.stopping || snapshot.paused ? Theme.warn : Theme.recordRed)
+                        .frame(width: 6, height: 6)
+                    Text(
+                        snapshot.stopping
+                            ? "FINISHING" : (snapshot.paused ? "PAUSED" : "RECORDING")
+                    )
+                    .font(.brandMono(10, .semibold))
+                    .kerning(1.0)
+                    .foregroundStyle(Theme.fg)
+                }
+                Text("chunk \(String(format: "%03d", snapshot.currentChunkSeq)) · queue \(snapshot.queueDepth)")
+                    .font(.brandMono(10))
+                    .foregroundStyle(Theme.fgMuted)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
+                    .fill(hovering ? Theme.bgSunken.opacity(0.95) : Theme.bgSunken.opacity(0.6))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
+                    .strokeBorder(hovering ? Theme.cardBorder : Theme.divider, lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: Theme.radiusMD))
+        }
+        .buttonStyle(.plain)
+        .pointingCursor(hovering: $hovering)
+        .animation(Theme.easeFast, value: hovering)
+        .help("Go to the Record pane")
+        .accessibilityLabel("Live session — go to Record")
     }
 }
 
@@ -222,7 +239,6 @@ struct SidebarItemView: View {
 
 struct OnboardingView: View {
     @Environment(AppModel.self) private var model
-    @State private var pickingBinary = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -234,8 +250,8 @@ struct OnboardingView: View {
                         + Text("huske").font(.brandSerifItalic(26)))
                         .foregroundStyle(Theme.fg)
                     Text(
-                        "This app drives the huske command-line engine, and it "
-                            + "doesn't seem to be installed yet. Install it, then come back."
+                        "Huske needs its recording engine — a one-time, local "
+                            + "install. Everything runs on this Mac."
                     )
                     .font(.brandSans(13))
                     .multilineTextAlignment(.center)
@@ -244,33 +260,8 @@ struct OnboardingView: View {
                     .frame(maxWidth: 420)
                 }
 
-                VStack(alignment: .leading, spacing: 8) {
-                    InstallCommandRow(label: "uv", command: "uv tool install \"huske[mcp]\"")
-                    InstallCommandRow(label: "brew", command: "brew install tiagomoraes/huske/huske")
-                }
-                .frame(maxWidth: 440)
-
-                HStack(spacing: 10) {
-                    Button {
-                        model.refreshBinary()
-                        Task { await model.bootstrap() }
-                    } label: {
-                        Label("Check Again", systemImage: "arrow.clockwise")
-                    }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .keyboardShortcut(.defaultAction)
-
-                    Button("Locate huske…") { pickingBinary = true }
-                        .buttonStyle(SecondaryButtonStyle())
-                        .fileImporter(
-                            isPresented: $pickingBinary,
-                            allowedContentTypes: [.unixExecutable, .executable, .item]
-                        ) { result in
-                            if case .success(let url) = result {
-                                model.setBinaryOverride(url.path)
-                            }
-                        }
-                }
+                EngineSetupActions(kind: .install)
+                    .frame(maxWidth: 460)
             }
             Spacer()
             Text("huske records and transcribes entirely on this Mac — nothing leaves your machine.")
@@ -280,6 +271,161 @@ struct OnboardingView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.bg)
+        // If the user installs from a terminal instead, notice and move on.
+        .task { await model.pollForBinary() }
+    }
+}
+
+/// Install/upgrade actions shared by onboarding and the outdated-engine
+/// screen: one click when a package manager is already on the Mac, copyable
+/// commands otherwise, with the manager's output streamed live.
+struct EngineSetupActions: View {
+    let kind: EngineInstaller.Kind
+    @Environment(AppModel.self) private var model
+    @State private var installer = EngineInstaller()
+    @State private var pickingBinary = false
+
+    private var manager: EngineInstaller.Manager? {
+        if kind == .upgrade, let binary = model.binaryURL,
+            let owner = EngineInstaller.owner(of: binary)
+        {
+            return owner
+        }
+        return EngineInstaller.available().first
+    }
+
+    var body: some View {
+        VStack(spacing: 14) {
+            if !installer.log.isEmpty {
+                InstallConsole(lines: installer.log)
+            }
+            if installer.running {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(kind == .install
+                        ? "Installing the huske engine…"
+                        : "Upgrading the huske engine…")
+                        .font(.brandSans(12))
+                        .foregroundStyle(Theme.fgMuted)
+                }
+            } else {
+                actions
+            }
+        }
+        .fileImporter(
+            isPresented: $pickingBinary,
+            allowedContentTypes: [.unixExecutable, .executable, .item]
+        ) { result in
+            if case .success(let url) = result {
+                model.setBinaryOverride(url.path)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var actions: some View {
+        if installer.failed {
+            Text("That didn't finish cleanly — the log above has the details. You can retry, or install from a terminal.")
+                .font(.brandSans(12))
+                .foregroundStyle(Theme.err)
+                .multilineTextAlignment(.center)
+        }
+        if let manager {
+            VStack(spacing: 8) {
+                HStack(spacing: 10) {
+                    Button {
+                        Task {
+                            if await installer.run(kind, using: manager) {
+                                model.refreshBinary()
+                                await model.bootstrap()
+                            }
+                        }
+                    } label: {
+                        Label(
+                            kind == .install
+                                ? "Install with \(manager.displayName)"
+                                : "Upgrade with \(manager.displayName)",
+                            systemImage: "arrow.down.circle")
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .keyboardShortcut(.defaultAction)
+
+                    checkAgainButton
+                    locateButton
+                }
+                Text("runs `\(manager.commandLine(for: kind))`")
+                    .font(.brandMono(10.5))
+                    .foregroundStyle(Theme.fgFaint)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                InstallCommandRow(
+                    label: "uv",
+                    command: EngineInstaller.Manager.uv.commandLine(for: kind))
+                InstallCommandRow(
+                    label: "brew",
+                    command: EngineInstaller.Manager.brew.commandLine(for: kind))
+            }
+            HStack(spacing: 10) {
+                checkAgainButton
+                locateButton
+            }
+            Text("No uv or Homebrew found for a one-click install — run either command in a terminal; huske appears here by itself.")
+                .font(.brandSans(11.5))
+                .foregroundStyle(Theme.fgFaint)
+                .multilineTextAlignment(.center)
+        }
+    }
+
+    private var checkAgainButton: some View {
+        Button {
+            model.refreshBinary()
+            Task { await model.bootstrap() }
+        } label: {
+            Label("Check Again", systemImage: "arrow.clockwise")
+        }
+        .buttonStyle(SecondaryButtonStyle())
+    }
+
+    private var locateButton: some View {
+        Button("Locate huske…") { pickingBinary = true }
+            .buttonStyle(SecondaryButtonStyle())
+    }
+}
+
+/// Streamed package-manager output, auto-scrolled, in the recover-sheet's
+/// sunken console voice.
+struct InstallConsole: View {
+    let lines: [String]
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                        Text(line)
+                            .font(.brandMono(10.5))
+                            .foregroundStyle(Theme.fg)
+                            .textSelection(.enabled)
+                            .id(index)
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: 150)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
+                    .fill(Theme.bgSunken.opacity(0.6))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
+                    .strokeBorder(Theme.divider, lineWidth: 1)
+            )
+            .onChange(of: lines.count) {
+                proxy.scrollTo(lines.count - 1, anchor: .bottom)
+            }
+        }
     }
 }
 

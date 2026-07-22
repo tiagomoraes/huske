@@ -42,6 +42,9 @@ enum ScreenRenderer {
         let configModel = makeConfigModel()
         configModel.pane = .configuration
         screens.append(("root-config", AnyView(RootView().environment(configModel))))
+        let paletteModel = makeActiveModel()
+        paletteModel.paletteVisible = true
+        screens.append(("root-palette", AnyView(RootView().environment(paletteModel))))
 
         for (name, view) in screens {
             for dark in [false, true] {

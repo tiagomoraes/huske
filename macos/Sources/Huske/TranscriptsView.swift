@@ -7,6 +7,8 @@ struct TranscriptsView: View {
     @State private var query = ""
     @State private var searchHits: [TranscriptEntry]?
     @State private var searchTask: Task<Void, Never>?
+    @FocusState private var searchFocused: Bool
+    @Environment(\.screenRendering) private var screenRendering
 
     var body: some View {
         HStack(spacing: 0) {
@@ -19,51 +21,72 @@ struct TranscriptsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Theme.bg)
-        .onAppear { model.transcripts.refresh() }
+        .onAppear {
+            model.transcripts.refresh()
+            autoSelectIfNeeded()
+        }
+        .onChange(of: model.transcripts.days) {
+            autoSelectIfNeeded()
+        }
+        .onChange(of: model.transcriptSearchFocusRequest) {
+            searchFocused = true
+        }
+        // ⌘F focuses search while this pane is visible.
+        .background(
+            Button("") { searchFocused = true }
+                .keyboardShortcut("f", modifiers: [.command])
+                .opacity(0)
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+        )
+    }
+
+    /// Keep something selected: newest chunk on first open, and a valid
+    /// neighbor when the selected file disappears from a rescan.
+    private func autoSelectIfNeeded() {
+        let days = model.transcripts.days
+        let stillExists = selection.map { sel in
+            days.contains { $0.entries.contains(sel) }
+        } ?? false
+        guard !stillExists else { return }
+        selection = days.first?.entries.last // newest day, newest chunk
     }
 
     // MARK: list
 
     private var listPane: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
+            HStack(spacing: 2) {
                 Text("Transcripts")
                     .font(.brandSans(17, .semibold))
                     .foregroundStyle(Theme.fg)
                 Spacer()
-                Button {
+                IconAction(symbol: "arrow.clockwise", help: "Rescan the transcripts folder") {
                     model.transcripts.refresh()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Theme.fgMuted)
                 }
-                .buttonStyle(.plain)
-                .pointingCursor()
-                .help("Rescan the transcripts folder")
-                Button {
+                IconAction(symbol: "folder", help: "Open the transcripts folder in Finder") {
                     if let root = model.transcripts.root {
                         NSWorkspace.shared.open(root)
                     }
-                } label: {
-                    Image(systemName: "folder")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Theme.fgMuted)
                 }
-                .buttonStyle(.plain)
-                .pointingCursor()
-                .help("Open the transcripts folder in Finder")
             }
-            .padding(.top, 34)
-            .padding(.horizontal, 16)
-            .padding(.bottom, 12)
+            .padding(.top, 30)
+            .padding(.leading, 16)
+            .padding(.trailing, 10)
+            .padding(.bottom, 10)
 
             searchField
                 .padding(.horizontal, 12)
                 .padding(.bottom, 10)
 
             if let hits = searchHits {
-                resultsList(sections: [("\(hits.count) match\(hits.count == 1 ? "" : "es")", hits)], showDay: true)
+                if hits.isEmpty {
+                    noMatchesState
+                } else {
+                    resultsList(
+                        sections: [("\(hits.count) match\(hits.count == 1 ? "" : "es")", hits)],
+                        showDay: true)
+                }
             } else if model.transcripts.days.isEmpty {
                 emptyState
             } else {
@@ -79,14 +102,29 @@ struct TranscriptsView: View {
         HStack(spacing: 7) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11))
-                .foregroundStyle(Theme.fgMuted)
-            TextField("", text: $query, prompt: Text("Search transcripts").font(.brandSans(12)).foregroundStyle(Theme.fgMuted))
+                .foregroundStyle(searchFocused ? Theme.amber : Theme.fgMuted)
+            if screenRendering {
+                // ImageRenderer draws AppKit text fields as placeholders;
+                // stand in with the prompt for offscreen renders.
+                Text("Search transcripts  ⌘F")
+                    .font(.brandSans(12))
+                    .foregroundStyle(Theme.fgFaint)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+            TextField("", text: $query, prompt: Text("Search transcripts  ⌘F").font(.brandSans(12)).foregroundStyle(Theme.fgFaint))
                 .textFieldStyle(.plain)
                 .font(.brandSans(12.5))
                 .foregroundStyle(Theme.fg)
+                .focused($searchFocused)
                 .onChange(of: query) { _, newValue in
                     scheduleSearch(newValue)
                 }
+                .onExitCommand {
+                    query = ""
+                    searchHits = nil
+                    searchFocused = false
+                }
+            }
             if !query.isEmpty {
                 Button {
                     query = ""
@@ -97,6 +135,8 @@ struct TranscriptsView: View {
                         .foregroundStyle(Theme.fgFaint)
                 }
                 .buttonStyle(.plain)
+                .pointingCursor()
+                .help("Clear the search (Esc)")
             }
         }
         .padding(.horizontal, 10)
@@ -107,8 +147,10 @@ struct TranscriptsView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
-                .strokeBorder(Theme.divider, lineWidth: 1)
+                .strokeBorder(
+                    searchFocused ? Theme.amber.opacity(0.55) : Theme.divider, lineWidth: 1)
         )
+        .animation(Theme.easeFast, value: searchFocused)
     }
 
     private func scheduleSearch(_ text: String) {
@@ -193,6 +235,26 @@ struct TranscriptsView: View {
         .frame(maxWidth: .infinity)
     }
 
+    private var noMatchesState: some View {
+        VStack(spacing: 8) {
+            Spacer()
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 20))
+                .foregroundStyle(Theme.fgFaint)
+            Text("No matches for “\(query.trimmingCharacters(in: .whitespaces))”")
+                .font(.brandSans(12.5, .semibold))
+                .foregroundStyle(Theme.fg)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 16)
+            Text("Search is plain text across every transcript.")
+                .font(.brandSans(11.5))
+                .foregroundStyle(Theme.fgMuted)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
     // MARK: detail
 
     @ViewBuilder
@@ -267,8 +329,21 @@ struct TranscriptRowView: View {
             .contentShape(RoundedRectangle(cornerRadius: Theme.radiusMD))
         }
         .buttonStyle(.plain)
-        .pointingCursor()
-        .onHover { hovering = $0 }
+        .pointingCursor(hovering: $hovering)
+        .animation(Theme.easeFast, value: hovering)
+        .contextMenu {
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([entry.url])
+            }
+            Button("Open in Default Editor") {
+                NSWorkspace.shared.open(entry.url)
+            }
+            Divider()
+            Button("Copy Path") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(entry.url.path, forType: .string)
+            }
+        }
     }
 }
 
@@ -281,6 +356,8 @@ struct TranscriptDetailView: View {
     @State private var document: TranscriptDocument?
     @State private var loadFailed = false
     @State private var showRaw = false
+    @State private var copied = false
+    @State private var copyResetTask: Task<Void, Never>?
 
     var body: some View {
         Group {
@@ -357,6 +434,11 @@ struct TranscriptDetailView: View {
                 Spacer()
                 HStack(spacing: 2) {
                     IconAction(
+                        symbol: copied ? "checkmark" : "doc.on.doc",
+                        help: "Copy the transcript Markdown",
+                        tint: copied ? Theme.ok : nil
+                    ) { copyTranscript(document) }
+                    IconAction(
                         symbol: "chevron.left.forwardslash.chevron.right",
                         help: "Show the raw Markdown",
                         active: showRaw
@@ -393,6 +475,18 @@ struct TranscriptDetailView: View {
         .padding(.bottom, 14)
     }
 
+    private func copyTranscript(_ document: TranscriptDocument) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(document.rawBody, forType: .string)
+        copied = true
+        copyResetTask?.cancel()
+        copyResetTask = Task {
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            guard !Task.isCancelled else { return }
+            copied = false
+        }
+    }
+
     static func durationText(_ seconds: Double) -> String {
         let total = Int(seconds.rounded())
         if total < 60 { return "\(total)s" }
@@ -404,6 +498,7 @@ struct IconAction: View {
     let symbol: String
     let help: String
     var active = false
+    var tint: Color?
     let action: () -> Void
 
     @State private var hovering = false
@@ -412,7 +507,7 @@ struct IconAction: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(active ? Theme.amber : Theme.fgMuted)
+                .foregroundStyle(tint ?? (active ? Theme.amber : Theme.fgMuted))
                 .frame(width: 27, height: 24)
                 .background(
                     RoundedRectangle(cornerRadius: Theme.radiusSM, style: .continuous)
@@ -421,10 +516,11 @@ struct IconAction: View {
                                 ? Theme.amber.opacity(0.13)
                                 : (hovering ? Theme.divider.opacity(0.7) : Color.clear))
                 )
+                .contentShape(RoundedRectangle(cornerRadius: Theme.radiusSM))
         }
         .buttonStyle(.plain)
-        .pointingCursor()
-        .onHover { hovering = $0 }
+        .pointingCursor(hovering: $hovering)
+        .animation(Theme.easeFast, value: hovering)
         .help(help)
     }
 }
@@ -458,7 +554,7 @@ struct RunRow: View {
             VStack(alignment: .trailing, spacing: 3) {
                 Text(run.time)
                     .font(.brandMono(11))
-                    .foregroundStyle(Theme.fgFaint)
+                    .foregroundStyle(Theme.fgMuted)
                 sourceBadge
             }
             .frame(width: 74, alignment: .trailing)

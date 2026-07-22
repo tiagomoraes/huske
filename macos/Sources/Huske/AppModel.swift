@@ -5,15 +5,61 @@
 import Foundation
 import HuskeKit
 import Observation
+import ServiceManagement
 import SwiftUI
 
 @MainActor
 @Observable
 final class AppModel {
     static let binaryOverrideKey = "huskeBinaryPath"
+    static let autoStartRecordingKey = "huskeAutoStartRecording"
 
     /// Current sidebar pane.
     var pane: Pane = .record
+
+    /// Command palette (⌘K) visibility.
+    var paletteVisible = false
+
+    /// Bumped whenever some UI (palette, shortcuts) wants the transcripts
+    /// search field focused; TranscriptsView observes it.
+    private(set) var transcriptSearchFocusRequest = 0
+
+    func focusTranscriptSearch() {
+        pane = .transcripts
+        transcriptSearchFocusRequest += 1
+    }
+
+    // MARK: login + autostart
+
+    /// Start recording as soon as the app opens. Paired with "Open at login",
+    /// the Mac records from the moment the user logs in.
+    var autoStartRecording = UserDefaults.standard.bool(forKey: AppModel.autoStartRecordingKey) {
+        didSet {
+            UserDefaults.standard.set(autoStartRecording, forKey: Self.autoStartRecordingKey)
+        }
+    }
+
+    private(set) var openAtLogin = SMAppService.mainApp.status == .enabled
+    private(set) var loginItemError: String?
+
+    /// Login items need a real .app bundle; `swift run` dev binaries can't register.
+    var canManageLoginItem: Bool {
+        Bundle.main.bundleURL.pathExtension == "app"
+    }
+
+    func setOpenAtLogin(_ enabled: Bool) {
+        loginItemError = nil
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+        } catch {
+            loginItemError = error.localizedDescription
+        }
+        openAtLogin = SMAppService.mainApp.status == .enabled
+    }
 
     // MARK: engine binary
 
@@ -76,8 +122,12 @@ final class AppModel {
             }
         }
         syncTranscriptRoot()
-        // If a TUI/LaunchAgent session is already recording, surface it.
+        // If an engine session is already recording (relaunch, login item
+        // race, headless `huske run`), surface it instead of starting anew.
         session.attachIfEngineRunning()
+        if autoStartRecording, !session.isBusy, capabilities?.controlSocket == true {
+            startRecording()
+        }
     }
 
     // MARK: binary management
@@ -97,6 +147,20 @@ final class AppModel {
         }
         refreshBinary()
         Task { await bootstrap() }
+    }
+
+    /// Onboarding watcher: notices the engine appearing (e.g. installed from
+    /// a terminal while the welcome screen is up) and moves on by itself.
+    func pollForBinary() async {
+        while !Task.isCancelled, binaryMissing {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled, binaryMissing else { return }
+            let override = UserDefaults.standard.string(forKey: Self.binaryOverrideKey)
+            if BinaryLocator.locate(override: override) != nil {
+                refreshBinary()
+                await bootstrap()
+            }
+        }
     }
 
     // MARK: session

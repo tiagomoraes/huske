@@ -8,7 +8,32 @@ struct AppSettingsView: View {
     @State private var pickingBinary = false
 
     var body: some View {
+        @Bindable var model = model
         Form {
+            Section("Behavior") {
+                Toggle(
+                    "Open Huske at login",
+                    isOn: Binding(
+                        get: { model.openAtLogin },
+                        set: { model.setOpenAtLogin($0) }
+                    )
+                )
+                .disabled(!model.canManageLoginItem)
+                if !model.canManageLoginItem {
+                    Text("Available when running the packaged Huske.app.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.fgMuted)
+                }
+                if let error = model.loginItemError {
+                    Text(error)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.err)
+                }
+                Toggle("Start recording when Huske opens", isOn: $model.autoStartRecording)
+                Text("Enable both and your Mac records from the moment you log in.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.fgMuted)
+            }
             Section("huske engine") {
                 LabeledContent("Binary") {
                     VStack(alignment: .trailing, spacing: 4) {
