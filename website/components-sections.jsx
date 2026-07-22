@@ -231,7 +231,7 @@ const DAYS = [
 // Mirrors the README that huske writes to <output_root>/README.md
 // (transcript-format.md, "Auto-generated README" section).
 const LEDGER_README = [
-  "This directory is managed by the huske terminal app. Each subdirectory is a local calendar date in YYYY-MM-DD form, holding all transcripts whose chunk start time falls on that date.",
+  "This directory is managed by huske. Each subdirectory is a local calendar date in YYYY-MM-DD form, holding all transcripts whose chunk start time falls on that date.",
   "Each .md file is a single transcribed audio chunk; filenames sort chronologically (HHMMSS_<sessionid8>_<seq>.md). The YAML frontmatter at the top of each file is the authoritative metadata.",
   "To query: an LLM agent can be pointed at this directory and asked to read files by date/time. No bespoke tooling is required.",
 ];
@@ -956,7 +956,7 @@ const FAQ = () => (
         <details>
           <summary>What permissions does it need on macOS? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>Microphone permission for your terminal, plus Audio Capture for the Core Audio tap on macOS 14.4+ or Screen Recording for the ScreenCaptureKit fallback. Screenshots also use Screen Recording. Run <code>huske doctor</code> first — it checks the effective backend and explains what's missing.</p>
+            <p>Microphone permission for Huske.app (or your terminal, when running the engine directly), plus Audio Capture for the Core Audio tap on macOS 14.4+ or Screen Recording for the ScreenCaptureKit fallback. Screenshots also use Screen Recording. The app's Doctor pane — or <code>huske doctor</code> — checks the effective backend and explains what's missing.</p>
           </div>
         </details>
         <details>
@@ -982,8 +982,8 @@ const FAQ = () => (
         <details>
           <summary>What is transcript distillation? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>An opt-in second stage for search. Set <code>distill_enabled = true</code> and a <strong>local</strong> LLM condenses each transcript into compact, self-contained <em>statements</em> — the decisions, facts, and commitments, minus the filler. huske embeds those into a separate index and your agent searches them first, then <code>fetch</code> grounds every hit back in the verbatim transcript. Denser recall for "what did we decide about X," with the source always one hop away.</p>
-            <p>It runs through a local daemon (Ollama), adds no Python dependency, and is off by default. The model is just a config string — the default <code>qwen3.5:0.8b</code> is the lightest tier and runs across the Apple-Silicon range; swap to <code>qwen3.5:0.8b-mlx</code> for the explicit MLX fast path, or any local tag. Fully on-device, and it degrades gracefully: if the daemon is down, recording and ordinary search carry on. Run <code>huske distill</code> to backfill your history. See the <a href="docs/#search">docs</a>.</p>
+            <p>An opt-in second stage for search. Flip it on in the app (Configuration → Distillation, or mid-session from the Record pane / ⌘K palette) and a <strong>local</strong> LLM condenses each transcript into compact, self-contained <em>statements</em> — the decisions, facts, and commitments, minus the filler. huske embeds those into a separate index and your agent searches them first, then <code>fetch</code> grounds every hit back in the verbatim transcript. Denser recall for "what did we decide about X," with the source always one hop away.</p>
+            <p>By default huske runs the model itself (built-in MLX backend — nothing to install; the default <code>Qwen3.5 0.8B</code> downloads on first use like the Parakeet weights), or point <code>distill_backend = "ollama"</code> at your own daemon. Fully on-device, off by default, and it degrades gracefully: if the model isn't ready, recording and ordinary search carry on. Run <code>huske distill</code> to backfill your history. See the <a href="docs/#search">docs</a>.</p>
           </div>
         </details>
         <details>
@@ -995,7 +995,13 @@ const FAQ = () => (
         <details>
           <summary>How do I configure chunk length, model, output path? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>Flags: <code>--chunk-minutes</code> (0.1–60), <code>--model</code> (default <code>base</code>; choices <code>tiny</code>, <code>base</code>, <code>small</code>, <code>medium</code>, <code>large-v3</code>), <code>--output-root</code>, <code>--audio-root</code>, and <code>--system-audio-backend</code> (<code>auto</code>, <code>tap</code>, <code>sck</code>, <code>off</code>). Or set them in <code>~/.config/huske/config.toml</code>.</p>
+            <p>The app's <strong>Configuration</strong> pane edits everything with the engine's own validation — transcription model, chunking, audio backends, storage paths, distillation. The same settings live in <code>~/.config/huske/config.toml</code> and as flags (<code>--chunk-minutes</code>, <code>--output-root</code>, <code>--audio-root</code>, <code>--system-audio-backend</code> …) for scripted runs.</p>
+          </div>
+        </details>
+        <details>
+          <summary>Where did the terminal UI go? <span className="chev">→</span></summary>
+          <div className="answer">
+            <p>Retired in favor of the app — one UI, maintained properly. <code>huske run</code> still exists and records exactly the same; it's just headless now: plain progress lines, <kbd>Ctrl+C</kbd> to stop, a menu bar item for pause/screenshots/stop, and the same Markdown ledger. Terminal, SSH, and LaunchAgent workflows all keep working — you only lose the in-terminal dashboard, which now lives in Huske.app.</p>
           </div>
         </details>
         <details>
@@ -1016,12 +1022,12 @@ const FAQ = () => (
 const SETUP_CARDS = [
   {
     id: "autostart",
-    ph: "run on login",
+    ph: "record from login",
     cmd: "huske autostart install",
-    desc: "Registers a launchd agent that records from every login and restarts itself on crash.",
+    desc: "In the app it's two switches — Open at login + Start recording when Huske opens. This command is the app-less launchd alternative.",
     cta: "Autostart guide",
     href: "docs/#autostart",
-    aria: "Run on login — read the autostart guide",
+    aria: "Record from login — read the autostart guide",
   },
   {
     id: "mcp",
@@ -1038,7 +1044,7 @@ const SetupStrip = () => (
   <section className="setup-strip" aria-label="Set up huske">
     <div className="page">
       <div className="strip-head"><span className="num">→</span><span>go further</span></div>
-      <p className="strip-sub">Two opt-in commands take huske further: record from every login, and search your transcripts straight from your agent.</p>
+      <p className="strip-sub">Two opt-in set-ups take huske further: record from every login, and search your transcripts straight from your agent.</p>
       <div className="strip-grid">
         {SETUP_CARDS.map((c) => (
           <div className="strip-card" key={c.id}>
