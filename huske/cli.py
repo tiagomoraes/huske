@@ -155,13 +155,15 @@ def run(
     distill: bool | None = typer.Option(
         None,
         "--distill/--no-distill",
-        help="Distill each finished transcript into searchable statements with a "
-        "local LLM (Ollama). Off by default; needs the daemon + model running.",
+        help="Distill each finished transcript into searchable statements with "
+        "huske's built-in local LLM (downloads on first use). Off by default.",
     ),
     distill_model: str | None = typer.Option(
         None,
         "--distill-model",
-        help="LLM tag used for distillation (e.g. qwen3.5:0.8b, qwen3.5:0.8b-mlx, qwen3.5:4b).",
+        help="Distillation model: a Hugging Face repo for the built-in MLX "
+        "backend (default mlx-community/Qwen3.5-0.8B-4bit) or an Ollama tag "
+        "when distill_backend = 'ollama'.",
     ),
     config_path: Path | None = typer.Option(None, "--config"),
     log_level: str = typer.Option("INFO", "--log-level"),
@@ -417,8 +419,9 @@ def distill(
     """Distill transcripts into searchable statement sidecars with a local LLM.
 
     Writes a ``<name>.statements.json`` next to each transcript. Run ``huske
-    index`` afterwards to embed the statements for two-stage search. Needs a
-    local LLM daemon (Ollama) with the model pulled (e.g. ``ollama pull qwen3.5:0.8b``).
+    index`` afterwards to embed the statements for two-stage search. Uses the
+    built-in MLX model by default (downloads on first use); set
+    ``distill_backend = "ollama"`` to delegate to an Ollama daemon instead.
     """
     from huske.distill.runner import run_distill
 

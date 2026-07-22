@@ -8,6 +8,24 @@ This project uses semantic versioning after the first public release.
 
 ### Added
 
+- **Built-in distillation — no more Ollama requirement.** `distill_backend`
+  now defaults to `"mlx"`: huske runs the distillation LLM itself via
+  `mlx-lm` in an isolated subprocess, downloading the default model
+  (`mlx-community/Qwen3.5-0.8B-4bit`, ~0.6 GB) from Hugging Face on first
+  use — exactly like the Parakeet weights. Nothing to install or keep
+  running; the model idle-unloads after ~2 min like the transcribe worker.
+  `distill_backend = "ollama"` still delegates to a local daemon, and the
+  known Qwen tags (`qwen3.5:0.8b` …) auto-map to their MLX builds so
+  existing configs keep working. See the amendment in
+  `docs/adr/0005-llm-distillation.md`.
+
+### Changed
+
+- The macOS app is fully brand-styled (IBM Plex, hidden title bar, custom
+  sidebar) with engine-capability detection for older CLIs, curated model
+  pickers in Configuration, pointer cursors, arrow-key transcript
+  navigation, and a Dock badge while recording.
+
 - **Native macOS app.** A SwiftUI app (`macos/`, built with
   `macos/scripts/build-app.sh` → `Huske.app`) that drives the same engine as
   the terminal UI: start/stop/pause with live mic + system level meters,

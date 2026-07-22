@@ -125,6 +125,7 @@ struct IdleView: View {
                 model.runRecover()
             }
             .buttonStyle(.plain)
+            .pointingCursor()
             .font(.brandSans(12))
             .foregroundStyle(Theme.amber)
 
@@ -570,6 +571,7 @@ struct LastSavedLink: View {
             .foregroundStyle(Theme.ok)
         }
         .buttonStyle(.plain)
+        .pointingCursor()
         .disabled(path == nil)
         .help(path.map { "Open \($0)" } ?? "")
     }
@@ -609,13 +611,18 @@ struct ExtrasCard: View {
                         Text("LLM distillation")
                             .font(.brandSans(12))
                             .foregroundStyle(Theme.fg)
-                        Text("statements for semantic search")
+                        Text(distillSubtitle)
                             .font(.brandSans(10.5))
-                            .foregroundStyle(Theme.fgMuted)
+                            .foregroundStyle(
+                                snapshot.warnings["distill"] != nil ? Theme.warn : Theme.fgMuted)
+                            .lineLimit(3)
                     }
                 }
                 .toggleStyle(.switch)
                 .controlSize(.small)
+                .help(
+                    "Distill finished transcripts into searchable statements with "
+                        + "huske's built-in local model (downloads on first use).")
 
                 Rectangle().fill(Theme.divider).frame(height: 1)
 
@@ -626,10 +633,21 @@ struct ExtrasCard: View {
                         .font(.brandSans(12, .medium))
                 }
                 .buttonStyle(.plain)
+                .pointingCursor()
                 .foregroundStyle(Theme.amber)
             }
         }
         .frame(width: 252)
+    }
+
+    private var distillSubtitle: String {
+        if let warning = snapshot.warnings["distill"] {
+            return warning
+        }
+        if snapshot.distillEnabled {
+            return "extracting statements for semantic search"
+        }
+        return "statements for semantic search — built-in model"
     }
 }
 

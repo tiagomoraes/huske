@@ -31,10 +31,13 @@ SystemAudioBackend = Literal["auto", "tap", "sck", "off"]
 # smaller, speech-optimized) or `flac` (lossless, ~2x), or `wav` to keep the
 # uncompressed original. Encoded via libsndfile (soundfile) — no extra dependency.
 AudioKeepFormat = Literal["opus", "flac", "wav"]
-# Backend that turns a finalized transcript into searchable Statements. Only a
-# local Ollama daemon for now; kept a Literal so adding an `mlx`/`openai` backend
-# is a one-line change that the config layer already validates.
-DistillBackend = Literal["ollama"]
+# Backend that turns a finalized transcript into searchable Statements.
+#   mlx    : built-in (default) — huske runs the LLM itself via mlx-lm in an
+#            isolated subprocess; the model downloads from Hugging Face on
+#            first use, exactly like the Parakeet weights. Nothing to install.
+#   ollama : delegate to a local Ollama daemon (for users who already run one
+#            or want a model MLX doesn't serve).
+DistillBackend = Literal["mlx", "ollama"]
 
 
 _MLX_WHISPER_REPO_BY_SIZE: dict[str, str] = {
@@ -240,16 +243,15 @@ class RuntimeConfig(BaseModel):
     # gracefully: if the daemon/model is unavailable, recording + passage search
     # continue untouched.
     distill_enabled: bool = False
-    # Backend daemon. Only "ollama" today (see DistillBackend).
-    distill_backend: DistillBackend = "ollama"
-    # Any model the backend can serve. Default is Qwen3.5 0.8B (~1 GB resident,
-    # multilingual, 256K context) — the lightest tier, and portable: it runs on
-    # the Metal/llama.cpp path across the whole Apple-Silicon range, and Ollama
-    # auto-accelerates it on its MLX engine where supported. Pull it with
-    # `ollama pull qwen3.5:0.8b`. For the explicit MLX-weights fast path on
-    # capable (32GB+) Macs, pull the `qwen3.5:0.8b-mlx` build and set it here;
-    # swap up to `qwen3.5:2b` / `qwen3.5:4b` for more quality, or any local tag.
-    distill_model: str = "qwen3.5:0.8b"
+    # Where the LLM runs (see DistillBackend). "mlx" is self-contained.
+    distill_backend: DistillBackend = "mlx"
+    # The model. For the built-in mlx backend this is a Hugging Face repo
+    # (default: Qwen3.5 0.8B 4-bit, ~0.6 GB download, multilingual — the
+    # lightest tier; swap to .../Qwen3.5-2B-4bit for more quality). The known
+    # Ollama tags (`qwen3.5:0.8b`, `:2b`, `:4b`) are auto-mapped to their MLX
+    # builds so pre-0.11 configs keep working. For the ollama backend this is
+    # the daemon's tag (e.g. `qwen3.5:0.8b`, pulled with `ollama pull`).
+    distill_model: str = "mlx-community/Qwen3.5-0.8B-4bit"
     # Loopback endpoint of the local LLM daemon (Ollama's default).
     distill_endpoint: str = "http://127.0.0.1:11434"
     # Per-call ceiling. A local model is slow; this bounds one passage's distill.

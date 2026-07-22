@@ -343,7 +343,8 @@ def _distill_checks(cfg: RuntimeConfig) -> list[Check]:
             Check(
                 "distill",
                 True,
-                "off (opt-in: set distill_enabled; needs a local LLM daemon like Ollama)",
+                "off (opt-in: set distill_enabled; the built-in MLX model "
+                "downloads on first use)",
             )
         ]
 

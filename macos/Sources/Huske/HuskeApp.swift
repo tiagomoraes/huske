@@ -14,7 +14,7 @@ struct HuskeApp: App {
     }
 
     var body: some Scene {
-        WindowGroup(id: "main") {
+        WindowGroup("Huske", id: "main") {
             RootView()
                 .environment(model)
                 .tint(Theme.amber)

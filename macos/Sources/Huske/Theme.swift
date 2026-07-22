@@ -213,6 +213,7 @@ struct PrimaryButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
                     .fill(configuration.isPressed ? Theme.amberPressed : Theme.amber)
             )
+            .pointingCursor()
             .animation(Theme.easeFast, value: configuration.isPressed)
     }
 }
@@ -235,6 +236,7 @@ struct SecondaryButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
                     .strokeBorder(Theme.cardBorder, lineWidth: 1)
             )
+            .pointingCursor()
             .animation(Theme.easeFast, value: configuration.isPressed)
     }
 }
@@ -253,6 +255,7 @@ struct StopButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
                     .fill(Theme.recordRed.opacity(configuration.isPressed ? 0.8 : 1.0))
             )
+            .pointingCursor()
             .animation(Theme.easeFast, value: configuration.isPressed)
     }
 }
@@ -289,6 +292,35 @@ extension View {
     /// Monospaced figures for timers and dB readouts.
     func meterFigure(size: CGFloat = 12, weight: Font.Weight = .medium) -> some View {
         font(.brandMono(size, weight))
+    }
+
+    /// Pointing-hand cursor over clickable custom controls.
+    func pointingCursor() -> some View {
+        modifier(PointingCursorModifier())
+    }
+}
+
+/// Push/pop the pointing hand with the hover state; pop on disappear so a
+/// vanishing control can't leave the cursor stuck.
+struct PointingCursorModifier: ViewModifier {
+    @State private var hovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { inside in
+                if inside, !hovering {
+                    NSCursor.pointingHand.push()
+                } else if !inside, hovering {
+                    NSCursor.pop()
+                }
+                hovering = inside
+            }
+            .onDisappear {
+                if hovering {
+                    NSCursor.pop()
+                    hovering = false
+                }
+            }
     }
 }
 

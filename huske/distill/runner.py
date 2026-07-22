@@ -45,13 +45,24 @@ def _lower_process_priority(nice_increment: int = _GENTLE_NICE) -> None:
 
 
 def _preflight(cfg: Any) -> str | None:
-    """For the Ollama backend, confirm the daemon is up and the model is pulled.
+    """Confirm the backend can serve ``distill_model`` before a long backfill.
 
     Returns an error message (caller should abort) or ``None`` when good. The
-    heuristic/fake distiller needs no daemon, so it always passes.
+    heuristic/fake distiller needs nothing; the built-in mlx backend goes
+    through the shared readiness probe (runtime importable — the model itself
+    downloads on first use); the ollama backend checks daemon + pulled model.
     """
     if cfg.distill_model in ("heuristic", "fake"):
         return None
+    if cfg.distill_backend != "ollama":
+        from huske.distill.health import probe_distill
+
+        r = probe_distill(
+            cfg.distill_model, backend=cfg.distill_backend, endpoint=cfg.distill_endpoint
+        )
+        if r.ok:
+            return None
+        return f"{r.detail}\n  hint: {r.hint or ''}".rstrip()
     client = OllamaClient(cfg.distill_endpoint, timeout=cfg.distill_timeout_seconds)
     try:
         models = client.list_models()
@@ -94,6 +105,7 @@ def run_distill(
 
     distiller = build_distiller(
         cfg.distill_model,
+        backend=cfg.distill_backend,
         endpoint=cfg.distill_endpoint,
         timeout=cfg.distill_timeout_seconds,
         max_statements=cfg.distill_max_statements_per_passage,

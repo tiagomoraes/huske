@@ -248,6 +248,7 @@ def run_session(
 
         distiller = build_distiller(
             cfg.distill_model,
+            backend=cfg.distill_backend,
             endpoint=cfg.distill_endpoint,
             timeout=cfg.distill_timeout_seconds,
             max_statements=cfg.distill_max_statements_per_passage,

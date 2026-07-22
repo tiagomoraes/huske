@@ -27,7 +27,9 @@ def test_model_present_is_ok(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         client_mod.OllamaClient, "list_models", lambda self: ["qwen3.5:0.8b", "llama3.2:3b"]
     )
-    cfg = RuntimeConfig(distill_enabled=True, distill_model="qwen3.5:0.8b")
+    cfg = RuntimeConfig(
+        distill_enabled=True, distill_backend="ollama", distill_model="qwen3.5:0.8b"
+    )
     checks = _distill_checks(cfg)
     assert checks[0].ok is True
     assert "ready" in checks[0].detail
@@ -35,7 +37,9 @@ def test_model_present_is_ok(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_model_missing_fails_with_pull_hint(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(client_mod.OllamaClient, "list_models", lambda self: ["other:1b"])
-    cfg = RuntimeConfig(distill_enabled=True, distill_model="qwen3.5:0.8b")
+    cfg = RuntimeConfig(
+        distill_enabled=True, distill_backend="ollama", distill_model="qwen3.5:0.8b"
+    )
     checks = _distill_checks(cfg)
     assert checks[0].ok is False
     assert "ollama pull qwen3.5:0.8b" in (checks[0].hint or "")
@@ -46,7 +50,9 @@ def test_daemon_unreachable_fails(monkeypatch: pytest.MonkeyPatch) -> None:
         raise client_mod.DistillError("connection refused")
 
     monkeypatch.setattr(client_mod.OllamaClient, "list_models", boom)
-    cfg = RuntimeConfig(distill_enabled=True, distill_model="qwen3.5:0.8b")
+    cfg = RuntimeConfig(
+        distill_enabled=True, distill_backend="ollama", distill_model="qwen3.5:0.8b"
+    )
     checks = _distill_checks(cfg)
     assert checks[0].ok is False
     assert "unreachable" in checks[0].detail

@@ -39,6 +39,7 @@ struct TranscriptsView: View {
                         .foregroundStyle(Theme.fgMuted)
                 }
                 .buttonStyle(.plain)
+                .pointingCursor()
                 .help("Rescan the transcripts folder")
                 Button {
                     if let root = model.transcripts.root {
@@ -50,6 +51,7 @@ struct TranscriptsView: View {
                         .foregroundStyle(Theme.fgMuted)
                 }
                 .buttonStyle(.plain)
+                .pointingCursor()
                 .help("Open the transcripts folder in Finder")
             }
             .padding(.top, 34)
@@ -126,29 +128,49 @@ struct TranscriptsView: View {
     }
 
     private func resultsList(sections: [(String, [TranscriptEntry])], showDay: Bool) -> some View {
-        PaneScroll {
-            LazyVStack(alignment: .leading, spacing: 1, pinnedViews: []) {
-                ForEach(sections, id: \.0) { title, entries in
-                    Text(title)
-                        .font(.brandMono(10.5, .medium))
-                        .kerning(0.6)
-                        .foregroundStyle(Theme.fgMuted)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 14)
-                        .padding(.bottom, 5)
-                    ForEach(entries) { entry in
-                        TranscriptRowView(
-                            entry: entry,
-                            showDay: showDay,
-                            selected: selection == entry
-                        ) {
-                            selection = entry
+        ScrollViewReader { proxy in
+            PaneScroll {
+                LazyVStack(alignment: .leading, spacing: 1, pinnedViews: []) {
+                    ForEach(sections, id: \.0) { title, entries in
+                        Text(title)
+                            .font(.brandMono(10.5, .medium))
+                            .kerning(0.6)
+                            .foregroundStyle(Theme.fgMuted)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 14)
+                            .padding(.bottom, 5)
+                        ForEach(entries) { entry in
+                            TranscriptRowView(
+                                entry: entry,
+                                showDay: showDay,
+                                selected: selection == entry
+                            ) {
+                                selection = entry
+                            }
+                            .padding(.horizontal, 8)
+                            .id(entry.id)
                         }
-                        .padding(.horizontal, 8)
                     }
                 }
+                .padding(.bottom, 14)
             }
-            .padding(.bottom, 14)
+            .focusable()
+            .focusEffectDisabled()
+            .onMoveCommand { direction in
+                let flat = sections.flatMap(\.1)
+                guard !flat.isEmpty else { return }
+                let currentIndex = selection.flatMap { flat.firstIndex(of: $0) }
+                let next: Int
+                switch direction {
+                case .down: next = currentIndex.map { min($0 + 1, flat.count - 1) } ?? 0
+                case .up: next = currentIndex.map { max($0 - 1, 0) } ?? 0
+                default: return
+                }
+                selection = flat[next]
+                withAnimation(Theme.easeFast) {
+                    proxy.scrollTo(flat[next].id, anchor: .center)
+                }
+            }
         }
     }
 
@@ -245,6 +267,7 @@ struct TranscriptRowView: View {
             .contentShape(RoundedRectangle(cornerRadius: Theme.radiusMD))
         }
         .buttonStyle(.plain)
+        .pointingCursor()
         .onHover { hovering = $0 }
     }
 }
@@ -400,6 +423,7 @@ struct IconAction: View {
                 )
         }
         .buttonStyle(.plain)
+        .pointingCursor()
         .onHover { hovering = $0 }
         .help(help)
     }

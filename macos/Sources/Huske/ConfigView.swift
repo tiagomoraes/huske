@@ -40,6 +40,7 @@ struct ConfigView: View {
                         chunkingCard
                         audioCard
                         storageCard
+                        distillationCard
                         extrasCard
                     } else if config.loading {
                         ProgressView()
@@ -149,34 +150,52 @@ struct ConfigView: View {
                 if config.string("asr_engine", default: "parakeet") == "whisper" {
                     LabeledRow("Whisper model", explicit: config.isExplicit("model")) {
                         Picker("", selection: config.stringBinding("model", default: "base")) {
-                            ForEach(["tiny", "base", "small", "medium", "large-v3"], id: \.self) {
-                                Text($0).tag($0)
-                            }
+                            Text("tiny — fastest").tag("tiny")
+                            Text("base — default").tag("base")
+                            Text("small").tag("small")
+                            Text("medium").tag("medium")
+                            Text("large-v3 — best, heaviest").tag("large-v3")
                         }
                         .labelsHidden()
-                        .frame(maxWidth: 200)
+                        .frame(maxWidth: 240)
                     }
                 } else {
-                    LabeledRow("Parakeet model", explicit: config.isExplicit("parakeet_model")) {
-                        CommittingTextField(
-                            value: config.string(
-                                "parakeet_model", default: "mlx-community/parakeet-tdt-0.6b-v3"),
-                            prompt: "HF repo or local dir"
-                        ) { config.set("parakeet_model", to: .string($0)) }
-                    }
+                    CuratedPicker(
+                        label: "Parakeet model",
+                        explicit: config.isExplicit("parakeet_model"),
+                        options: [
+                            ("mlx-community/parakeet-tdt-0.6b-v3",
+                             "Parakeet TDT 0.6B v3 — multilingual (default)"),
+                            ("mlx-community/parakeet-tdt-0.6b-v2",
+                             "Parakeet TDT 0.6B v2 — English only"),
+                        ],
+                        value: config.string(
+                            "parakeet_model", default: "mlx-community/parakeet-tdt-0.6b-v3"),
+                        customPrompt: "Hugging Face repo or local path"
+                    ) { config.set("parakeet_model", to: .string($0)) }
                 }
-                LabeledRow("Language", explicit: config.isExplicit("language")) {
-                    CommittingTextField(
-                        value: config.string("language"),
-                        prompt: "auto-detect"
-                    ) { newValue in
-                        if newValue.isEmpty {
-                            config.unset("language")
-                        } else {
-                            config.set("language", to: .string(newValue))
-                        }
+                CuratedPicker(
+                    label: "Language",
+                    explicit: config.isExplicit("language"),
+                    options: [
+                        ("", "Auto-detect (recommended)"),
+                        ("en", "English"),
+                        ("pt", "Português"),
+                        ("es", "Español"),
+                        ("de", "Deutsch"),
+                        ("fr", "Français"),
+                        ("it", "Italiano"),
+                        ("ja", "日本語"),
+                        ("zh", "中文"),
+                    ],
+                    value: config.string("language"),
+                    customPrompt: "ISO 639-1 code, e.g. nl"
+                ) { newValue in
+                    if newValue.isEmpty {
+                        config.unset("language")
+                    } else {
+                        config.set("language", to: .string(newValue))
                     }
-                    .frame(maxWidth: 140)
                 }
                 Toggle(isOn: config.boolBinding("whisper_idle_unload", default: true)) {
                     settingLabel(
@@ -314,6 +333,71 @@ struct ConfigView: View {
         }
     }
 
+    private var distillationCard: some View {
+        let config = model.config
+        let backend = config.string("distill_backend", default: "mlx")
+        return Card {
+            VStack(alignment: .leading, spacing: 13) {
+                SectionLabel("Distillation")
+                Toggle(isOn: config.boolBinding("distill_enabled")) {
+                    settingLabel(
+                        "Distill transcripts into searchable statements",
+                        "A small local LLM extracts atomic claims for two-stage semantic search.")
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                LabeledRow("Runs on", explicit: config.isExplicit("distill_backend")) {
+                    Picker("", selection: config.stringBinding("distill_backend", default: "mlx")) {
+                        Text("Built-in — huske runs the model itself (recommended)").tag("mlx")
+                        Text("Ollama daemon — bring your own").tag("ollama")
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 400)
+                }
+                if backend == "ollama" {
+                    CuratedPicker(
+                        label: "Model",
+                        explicit: config.isExplicit("distill_model"),
+                        options: [
+                            ("qwen3.5:0.8b", "Qwen3.5 0.8B — lightest"),
+                            ("qwen3.5:2b", "Qwen3.5 2B — better quality"),
+                            ("qwen3.5:4b", "Qwen3.5 4B — best quality"),
+                        ],
+                        value: config.string("distill_model"),
+                        customPrompt: "any pulled ollama tag"
+                    ) { config.set("distill_model", to: .string($0)) }
+                    LabeledRow("Endpoint", explicit: config.isExplicit("distill_endpoint")) {
+                        CommittingTextField(
+                            value: config.string(
+                                "distill_endpoint", default: "http://127.0.0.1:11434"),
+                            prompt: "http://127.0.0.1:11434"
+                        ) { config.set("distill_endpoint", to: .string($0)) }
+                        .frame(maxWidth: 260)
+                    }
+                } else {
+                    CuratedPicker(
+                        label: "Model",
+                        explicit: config.isExplicit("distill_model"),
+                        options: [
+                            ("mlx-community/Qwen3.5-0.8B-4bit",
+                             "Qwen3.5 0.8B — lightest (default)"),
+                            ("mlx-community/Qwen3.5-2B-4bit",
+                             "Qwen3.5 2B — better quality"),
+                            ("mlx-community/Qwen3.5-4B-4bit",
+                             "Qwen3.5 4B — best quality"),
+                        ],
+                        value: config.string(
+                            "distill_model", default: "mlx-community/Qwen3.5-0.8B-4bit"),
+                        customPrompt: "Hugging Face repo"
+                    ) { config.set("distill_model", to: .string($0)) }
+                    Text("Downloads automatically on first use and runs entirely on this Mac — nothing to install.")
+                        .font(.brandSans(11))
+                        .foregroundStyle(Theme.fgFaint)
+                }
+            }
+        }
+    }
+
     private var extrasCard: some View {
         let config = model.config
         return Card {
@@ -341,22 +425,6 @@ struct ConfigView: View {
                 }
                 .toggleStyle(.switch)
                 .controlSize(.small)
-                Toggle(isOn: config.boolBinding("distill_enabled")) {
-                    settingLabel(
-                        "LLM distillation",
-                        "Distill transcripts into searchable statements with a local LLM (Ollama).")
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                if config.bool("distill_enabled") {
-                    LabeledRow("Distill model", explicit: config.isExplicit("distill_model")) {
-                        CommittingTextField(
-                            value: config.string("distill_model", default: "qwen3.5:0.8b"),
-                            prompt: "ollama tag"
-                        ) { config.set("distill_model", to: .string($0)) }
-                        .frame(maxWidth: 220)
-                    }
-                }
                 Toggle(isOn: config.boolBinding("menu_bar_enabled", default: true)) {
                     settingLabel(
                         "Menu bar icon for terminal sessions",
@@ -381,6 +449,61 @@ struct ConfigView: View {
 }
 
 // MARK: - form building blocks
+
+/// A picker over curated, human-titled values with a "Custom…" escape hatch
+/// that reveals a free-text field — no more guessing model ids into a blank
+/// string field.
+struct CuratedPicker: View {
+    let label: String
+    let explicit: Bool
+    let options: [(String, String)] // (value, title)
+    let value: String
+    var customPrompt: String = ""
+    let onChange: (String) -> Void
+
+    @State private var customMode = false
+
+    private static let customTag = "__custom__"
+
+    private var isKnown: Bool { options.contains { $0.0 == value } }
+    private var showCustomField: Bool { customMode || !isKnown }
+
+    var body: some View {
+        LabeledRow(label, explicit: explicit) {
+            VStack(alignment: .leading, spacing: 6) {
+                Picker(
+                    "",
+                    selection: Binding(
+                        get: { showCustomField ? Self.customTag : value },
+                        set: { selected in
+                            if selected == Self.customTag {
+                                customMode = true
+                            } else {
+                                customMode = false
+                                onChange(selected)
+                            }
+                        }
+                    )
+                ) {
+                    ForEach(options, id: \.0) { option in
+                        Text(option.1).tag(option.0)
+                    }
+                    Divider()
+                    Text("Custom…").tag(Self.customTag)
+                }
+                .labelsHidden()
+                .frame(maxWidth: 400)
+                if showCustomField {
+                    CommittingTextField(value: isKnown ? "" : value, prompt: customPrompt) {
+                        customMode = false
+                        onChange($0)
+                    }
+                    .frame(maxWidth: 400)
+                }
+            }
+        }
+    }
+}
 
 struct LabeledRow<Content: View>: View {
     let label: String

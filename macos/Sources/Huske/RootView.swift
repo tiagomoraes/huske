@@ -64,6 +64,15 @@ struct RootView: View {
         .sheet(isPresented: $model.recoverSheetVisible) {
             RecoverSheet()
         }
+        .onChange(of: model.session.snapshot?.recording) { _, recording in
+            // Recording state at a glance from the Dock, matching the menu bar.
+            NSApp.dockTile.badgeLabel = recording == true ? "REC" : nil
+        }
+        .onChange(of: model.session.isBusy) { _, busy in
+            if !busy {
+                NSApp.dockTile.badgeLabel = nil
+            }
+        }
     }
 
     @ViewBuilder
@@ -156,6 +165,7 @@ struct SidebarView: View {
                     .strokeBorder(Theme.divider, lineWidth: 1)
             )
             .contentShape(Rectangle())
+            .pointingCursor()
             .onTapGesture { model.pane = .record }
         }
     }
@@ -199,6 +209,7 @@ struct SidebarItemView: View {
             .contentShape(RoundedRectangle(cornerRadius: Theme.radiusMD))
         }
         .buttonStyle(.plain)
+        .pointingCursor()
         .keyboardShortcut(pane.shortcut, modifiers: [.command])
         .onHover { hovering = $0 }
         .animation(Theme.easeFast, value: hovering)
@@ -302,6 +313,7 @@ struct InstallCommandRow: View {
                     .foregroundStyle(copied ? Theme.ok : Theme.fgMuted)
             }
             .buttonStyle(.plain)
+            .pointingCursor()
             .help("Copy")
         }
         .padding(.horizontal, 12)
