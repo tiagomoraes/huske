@@ -19,17 +19,8 @@ const InstallTabs = ({ withApp = true }) => {
     clearTimeout(window.__huskeCopyT);
     window.__huskeCopyT = setTimeout(() => setCopied(false), 1400);
   };
-  return (
+  const engineCard = (
     <div className="install">
-      {withApp && (
-        <>
-          <a className="app-cta" href={APP_DOWNLOAD_URL}>
-            <span className="app-cta-main"><DownloadGlyph/> Download Huske.app</span>
-            <span className="app-cta-note">installs the engine for you on first run</span>
-          </a>
-          <div className="install-or"><span className="line"/><span className="or">or the engine alone — for agents &amp; SSH</span><span className="line"/></div>
-        </>
-      )}
       <div className="tabs" role="tablist">
         {INSTALL_TABS.map(t => (
           <button
@@ -52,22 +43,37 @@ const InstallTabs = ({ withApp = true }) => {
         </button>
       </div>
       <div className="foot">
-        <strong>requires</strong> macOS 14+ (app) · 13+ (engine)
+        <strong>requires</strong> macOS 13+
         <span className="sep">·</span>
-        <span>python {HUSKE_PYTHONS.join(" / ")}</span>
+        <span>python {HUSKE_PYTHONS[0]}–{HUSKE_PYTHONS[HUSKE_PYTHONS.length - 1]}</span>
         <span className="sep">·</span>
         <span>{tab.note}</span>
       </div>
-      {withApp && (
-        <div className="foot gatekeeper">
-          unsigned build — first launch is right-click → Open
-        </div>
-      )}
+    </div>
+  );
+  if (!withApp) return engineCard;
+  return (
+    <div className="install-stack">
+      <a className="app-cta" href={APP_DOWNLOAD_URL}>
+        <DownloadGlyph/>
+        <span className="app-cta-label">Download Huske.app</span>
+        <span className="app-cta-ver">v{HUSKE_VERSION}</span>
+      </a>
+      <p className="app-fineprint">
+        macOS 14+ · apple silicon · installs the engine on first run · unsigned
+        — approve the first open in <strong>Privacy &amp; Security</strong>
+      </p>
+      <div className="install-or" aria-hidden="true">
+        <span className="line"/>
+        <span className="or">or the engine alone · agents &amp; ssh</span>
+        <span className="line"/>
+      </div>
+      {engineCard}
     </div>
   );
 };
 
-const DownloadGlyph = ({ size = 13 }) => (
+const DownloadGlyph = ({ size = 14 }) => (
   <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M8 2.5v7.5M4.8 7.2 8 10.4l3.2-3.2M2.8 13.2h10.4"/>
   </svg>
@@ -241,41 +247,4 @@ const Hero = () => (
   </section>
 );
 
-const InstallSection = () => (
-  <section id="install" className="install-section">
-    <div className="page">
-      <div className="section-head">
-        <div className="label">
-          <span className="num" style={{ color: "var(--brand-amber)" }}>00</span>
-          <span>install</span>
-        </div>
-        <div>
-          <h2 className="lead">Download the app. <span style={{ color: "var(--brand-amber)" }}>It installs the engine.</span></h2>
-          <p className="sub">Huske.app is the UI; the huske engine is a single Python tool it installs for you on first run (or install it yourself — it's the same one agents script against). App on macOS 14+, engine on 13+, Apple Silicon, Python {HUSKE_PYTHONS[0]}–{HUSKE_PYTHONS[HUSKE_PYTHONS.length - 1]}.</p>
-        </div>
-      </div>
-      <div className="install-block"><InstallTabs/></div>
-      <div className="install-aux">
-        <div>
-          <div className="aux-eyebrow">next steps</div>
-          <ol className="aux-list">
-            <li><span className="step">01</span><span>open <code>Huske.app</code><br/><span className="muted">one click installs the engine · Doctor validates mic + capture permissions</span></span></li>
-            <li><span className="step">02</span><span>hit <strong>Start Recording</strong> (⌘R)<br/><span className="muted">or flip on “open at login” + “start recording when Huske opens”</span></span></li>
-            <li><span className="step">03</span><span>point your agent at <code>~/huske/transcripts/</code><br/><span className="muted">ask it about your day</span></span></li>
-          </ol>
-        </div>
-        <div>
-          <div className="aux-eyebrow">upgrading</div>
-          <p className="aux-p">huske checks pypi once a day on startup and prints the right command for your install method. Disable with <code>HUSKE_NO_UPDATE_CHECK=1</code>.</p>
-          <div className="aux-codes">
-            <div><span className="aux-prompt">$</span> uv tool upgrade huske</div>
-            <div><span className="aux-prompt">$</span> pipx upgrade huske</div>
-            <div><span className="aux-prompt">$</span> brew upgrade huske</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-);
-
-Object.assign(window, { Hero, InstallSection, InstallTabs, LiveDemo, Meter, useNow });
+Object.assign(window, { Hero, InstallTabs, LiveDemo, Meter, useNow });

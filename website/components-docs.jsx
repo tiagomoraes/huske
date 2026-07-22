@@ -133,17 +133,24 @@ const DocsHero = () => (
 const InstallDoc = () => (
   <DocsSection id="install" num="01" title="Install">
     <p className="docs-lead">
-      huske is a single Python tool for macOS on Apple Silicon. Pick a package
-      manager — <code>uv</code> is recommended for its speed and isolated install.
+      The fastest path is <strong>Huske.app</strong>: download, open, and one
+      click installs the engine. The engine is also a single Python tool you
+      can install directly — for agents, SSH sessions, and headless Macs.
     </p>
     <ul className="docs-facts">
-      <li><span className="k">os</span><span className="v">macOS 13+ (14.4+ recommended — the Core Audio tap survives screen sharing)</span></li>
+      <li><span className="k">os</span><span className="v">app macOS 14+ · engine macOS 13+ (14.4+ recommended — the Core Audio tap survives screen sharing)</span></li>
       <li><span className="k">python</span><span className="v">{HUSKE_PYTHONS.slice(0, -1).join(", ")}, or {HUSKE_PYTHONS[HUSKE_PYTHONS.length - 1]}</span></li>
       <li><span className="k">disk</span><span className="v">~3 GB for the default <code>base</code> model (downloaded on first run)</span></li>
       <li><span className="k">audio</span><span className="v">no BlackHole, Aggregate Device, or Audio MIDI Setup — Apple's built-in capture is used</span></li>
     </ul>
 
     <InstallTabs />
+    <p className="docs-aside">
+      The app build is ad-hoc signed, not notarized: macOS blocks the very
+      first open. Approve it under <strong>System Settings → Privacy &amp;
+      Security → "Open Anyway"</strong> (one time), or build it yourself from
+      source with <code>macos/scripts/build-app.sh</code>.
+    </p>
 
     <h3>Optional extras</h3>
     <p>The base install records and transcribes. Two opt-in extras add separate, lazily-loaded subsystems:</p>
