@@ -6,6 +6,8 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.11.0 - 2026-07-27
+
 ### Added
 
 - **Transcripts that stay in the language you speak.** Parakeet has no
