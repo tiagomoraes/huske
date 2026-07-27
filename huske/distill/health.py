@@ -19,11 +19,22 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Readiness:
-    """Whether distillation can run, with a human-readable detail + fix-it hint."""
+    """Whether distillation can run, with a human-readable detail + fix-it hint.
+
+    ``reason`` is a stable machine code for branching (e.g. auto-management):
+    ``"ready"``, ``"no_daemon"`` (heuristic backend), ``"no_runtime"`` (the
+    built-in mlx backend's runtime is missing), ``"unreachable"`` (daemon down),
+    or ``"model_missing"`` (daemon up, model not pulled).
+
+    Only ``"unreachable"`` and ``"model_missing"`` are actionable by
+    auto-management, and only on the Ollama backend — see
+    ``huske.distill.ollama_manage.ensure_ready``.
+    """
 
     ok: bool
     detail: str
     hint: str | None = None
+    reason: str = ""
 
 
 def probe_distill(
@@ -42,7 +53,7 @@ def probe_distill(
     "not ready" with a hint.
     """
     if model in ("heuristic", "fake"):
-        return Readiness(True, f"backend '{model}' (no daemon needed)")
+        return Readiness(True, f"backend '{model}' (no daemon needed)", reason="no_daemon")
 
     if backend == "mlx":
         from huske.distill.mlx_backend import (
@@ -57,12 +68,17 @@ def probe_distill(
                 "built-in LLM runtime (mlx-lm) is not installed",
                 "Reinstall/upgrade huske — mlx-lm ships with the base install "
                 "on Apple Silicon (pip install -U huske).",
+                # Its own code: auto-management only ever drives Ollama, and a
+                # missing mlx-lm is a broken install, not a daemon to start.
+                reason="no_runtime",
             )
         repo = resolve_mlx_model(model)
         if model_is_cached(repo):
-            return Readiness(True, f"built-in model '{repo}' cached and ready")
+            return Readiness(True, f"built-in model '{repo}' cached and ready", reason="ready")
         return Readiness(
-            True, f"built-in model '{repo}' ready (downloads on first use, ~0.6 GB)"
+            True,
+            f"built-in model '{repo}' ready (downloads on first use, ~0.6 GB)",
+            reason="ready",
         )
 
     from huske.distill.client import DistillError, OllamaClient
@@ -81,6 +97,7 @@ def probe_distill(
             False,
             detail,
             "Start it (e.g. `ollama serve` or open the Ollama app) or fix distill_endpoint.",
+            reason="unreachable",
         )
 
     present = (
@@ -89,9 +106,12 @@ def probe_distill(
         or any(m.split(":", 1)[0] == model.split(":", 1)[0] and model in m for m in models)
     )
     if present:
-        return Readiness(True, f"{backend}: model '{model}' ready ({len(models)} pulled)")
+        return Readiness(
+            True, f"{backend}: model '{model}' ready ({len(models)} pulled)", reason="ready"
+        )
     return Readiness(
         False,
         f"model '{model}' not pulled (have: {', '.join(models) or 'none'})",
         f"Run `ollama pull {model}`.",
+        reason="model_missing",
     )

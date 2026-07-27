@@ -166,6 +166,12 @@ def run(
         "backend (default mlx-community/Qwen3.5-0.8B-4bit) or an Ollama tag "
         "when distill_backend = 'ollama'.",
     ),
+    distill_auto_manage: bool | None = typer.Option(
+        None,
+        "--distill-auto-manage/--no-distill-auto-manage",
+        help="When distillation turns on, let huske start the local Ollama daemon "
+        "and pull the model if missing (never installs Ollama itself). On by default.",
+    ),
     config_path: Path | None = typer.Option(None, "--config"),
     log_level: str = typer.Option("INFO", "--log-level"),
     no_ui: bool = typer.Option(
@@ -218,6 +224,7 @@ def run(
         whisper_idle_unload=idle_unload,
         distill_enabled=distill,
         distill_model=distill_model,
+        distill_auto_manage=distill_auto_manage,
         screenshots_enabled=screenshots,
         screenshots_interval_seconds=screenshot_interval,
         screenshots_max_dimension=screenshot_max_dimension,

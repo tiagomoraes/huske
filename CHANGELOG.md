@@ -6,6 +6,19 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+### Added
+
+- **huske auto-manages the local Ollama daemon for distillation.** Only relevant
+  on `distill_backend = "ollama"` — the default `mlx` backend downloads its own
+  model. When distillation turns on, at launch or via the app / menu-bar toggle,
+  huske now starts `ollama serve` if the `ollama` CLI is installed but idle, and
+  pulls the configured model if it's missing (streaming progress to the events
+  log), instead of only warning that the daemon is unreachable. It only ever
+  runs the local `ollama` CLI — it never installs Ollama — and still degrades to
+  the same actionable hint when it can't help. Opt out with
+  `distill_auto_manage = false` or `--no-distill-auto-manage`. The model it
+  starts and pulls is the existing, editable `distill_model`.
+
 ## 0.11.1 - 2026-07-27
 
 ### Fixed

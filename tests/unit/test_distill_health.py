@@ -50,3 +50,49 @@ def test_daemon_unreachable_is_not_ready(monkeypatch: pytest.MonkeyPatch) -> Non
     assert r.ok is False
     assert "unreachable" in r.detail
     assert "ollama serve" in (r.hint or "")
+
+
+def test_reason_codes_drive_auto_management(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only the Ollama codes are actionable, so they are what auto-manage branches on.
+
+    `backend="ollama"` is explicit: the default flipped to `mlx` in 0.11.0, and
+    without it these assertions would silently probe the built-in backend and
+    never reach the monkeypatched daemon at all.
+    """
+    assert probe_distill("heuristic").reason == "no_daemon"
+
+    monkeypatch.setattr(client_mod.OllamaClient, "list_models", lambda self: ["qwen3.5:0.8b"])
+    assert probe_distill("qwen3.5:0.8b", backend="ollama").reason == "ready"
+
+    monkeypatch.setattr(client_mod.OllamaClient, "list_models", lambda self: ["other:1b"])
+    assert probe_distill("qwen3.5:0.8b", backend="ollama").reason == "model_missing"
+
+    def boom(self: object) -> list[str]:
+        raise client_mod.DistillError("connection refused")
+
+    monkeypatch.setattr(client_mod.OllamaClient, "list_models", boom)
+    assert probe_distill("qwen3.5:0.8b", backend="ollama").reason == "unreachable"
+
+
+def test_mlx_backend_reason_codes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The built-in backend reports its own codes, never a daemon one.
+
+    A missing mlx-lm is a broken install; auto-management must not mistake it
+    for a daemon it can start.
+    """
+    import huske.distill.mlx_backend as mlx_mod
+
+    monkeypatch.setattr(mlx_mod, "mlx_runtime_available", lambda: False)
+    missing = probe_distill("qwen3.5:0.8b", backend="mlx")
+    assert missing.ok is False
+    assert missing.reason == "no_runtime"
+
+    monkeypatch.setattr(mlx_mod, "mlx_runtime_available", lambda: True)
+    monkeypatch.setattr(mlx_mod, "model_is_cached", lambda repo: True)
+    assert probe_distill("qwen3.5:0.8b", backend="mlx").reason == "ready"
+
+    # Not cached is still ready — the model downloads on first use.
+    monkeypatch.setattr(mlx_mod, "model_is_cached", lambda repo: False)
+    uncached = probe_distill("qwen3.5:0.8b", backend="mlx")
+    assert uncached.ok is True
+    assert uncached.reason == "ready"

@@ -76,6 +76,13 @@ ollama pull qwen3.5:0.8b
 > `huske doctor` (with `distill_enabled` set) checks the daemon is up and the
 > model is pulled, and prints the exact `ollama pull …` to run if not.
 
+> **You usually don't have to do the two steps above by hand.** When distillation
+> turns on (at launch or via the live toggle) huske, by default, starts
+> `ollama serve` if the CLI is installed but idle and `ollama pull`s the
+> configured model if it's missing — so installing Ollama is typically enough. It
+> never installs Ollama itself, and falls back to the same fix-it hint if it
+> can't. Opt out with `distill_auto_manage = false` (or `--no-distill-auto-manage`).
+
 ### 2. Distil your history
 
 ```bash
@@ -118,11 +125,20 @@ explicitly.
 
 You can also flip distillation on or off **without restarting** a session: use
 the toggle in Huske.app's Record pane (or its ⌘K palette), or pick **Toggle
-distillation** from the macOS menu-bar dropdown. Turning it on first checks
-that the daemon and model
-are ready (the same probe as `huske doctor`) and warns with a fix-it hint if they
-are not. This runtime toggle is session-only; set `distill_enabled = true` above
-to make distillation the default for every run.
+distillation** from the macOS menu-bar dropdown. Turning it on first checks that
+the model is ready (the same probe as `huske doctor`).
+
+On the default `mlx` backend there is nothing to check — huske downloads the
+model on first use. On `distill_backend = "ollama"`, huske makes the daemon
+ready for you: it starts the daemon if the `ollama` CLI is installed but idle,
+and pulls the configured model if it's missing (progress shown in the events
+log), falling back to a fix-it hint only when it can't — for instance when
+Ollama isn't installed at all, which huske will never do for you. Set
+`distill_auto_manage = false` to keep the old behaviour of reporting the
+problem instead of fixing it.
+
+This runtime toggle is session-only; set `distill_enabled = true` above to make
+distillation the default for every run.
 
 ## Configuration
 
@@ -135,6 +151,7 @@ All keys live in `~/.config/huske/config.toml` (CLI flags on `huske run` /
 | `distill_backend` | `"ollama"` | LLM daemon backend (only Ollama today). |
 | `distill_model` | `"qwen3.5:0.8b"` | Model tag to distil with. Any local tag (e.g. `qwen3.5:0.8b-mlx`). |
 | `distill_endpoint` | `"http://127.0.0.1:11434"` | Loopback URL of the daemon. |
+| `distill_auto_manage` | `true` | When distillation turns on, start the daemon and pull the model if needed (never installs Ollama). `--no-distill-auto-manage` to opt out. |
 | `distill_timeout_seconds` | `120.0` | Per-passage LLM call ceiling. |
 | `distill_max_statements_per_passage` | `8` | Caps statements per Passage. |
 | `distill_low_impact` | `true` | Throttle the `huske distill` backfill (`--fast` to disable). |
