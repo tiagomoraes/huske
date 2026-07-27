@@ -68,6 +68,29 @@ jobs:
         run: swift test
         working-directory: macos
 
+      # The app is a client of the Python engine, so the two can drift apart
+      # silently: a field added to huske/ipc/protocol.py and not mirrored in
+      # ControlProtocol.swift only surfaces at runtime, on a user's machine.
+      # PythonInteropTests drives the real ControlServer with the Swift client
+      # and is skipped unless HUSKE_INTEROP_PYTHON is set — which nothing set,
+      # so the one test that catches drift never ran. The control plane is
+      # stdlib-only (socket/threading/json/dataclasses), so this needs a Python
+      # and PYTHONPATH, not an install: no MLX, no dependency resolution.
+      - name: Set up Python for the interop contract
+        id: interop-python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      # The test spawns this via Foundation's Process, which does not search
+      # PATH — it must be an absolute interpreter path.
+      - name: Cross-language contract (Swift client ↔ Python ControlServer)
+        run: swift test --filter PythonInterop
+        working-directory: macos
+        env:
+          HUSKE_INTEROP_PYTHON: ${{ steps.interop-python.outputs.python-path }}
+          PYTHONPATH: ${{ github.workspace }}
+
       - name: Package Huske.app
         run: ./scripts/build-app.sh
         working-directory: macos

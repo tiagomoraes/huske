@@ -19,7 +19,17 @@ contribution rules live in [CONTRIBUTING.md](CONTRIBUTING.md).
   `macos/scripts/build-app.sh`. When you add snapshot fields or commands to
   `huske/ipc/protocol.py`, mirror them in
   `macos/Sources/HuskeKit/ControlProtocol.swift` (add-only, defaulted) and
-  update both test suites.
+  update both test suites. CI enforces this: the `swift` job runs
+  `PythonInteropTests`, which drives the real `ControlServer` with the Swift
+  client, so an unmirrored rename fails the build. Run it locally with
+  `HUSKE_INTEROP_PYTHON=$(command -v python3) PYTHONPATH=$PWD swift test
+  --filter PythonInterop` from `macos/` (it needs an *absolute* interpreter
+  path — `Foundation.Process` does not search `PATH`).
+- Which engine the app drives is decided by version, not install location:
+  `BinaryLocator` probes every candidate and picks the newest, since a Mac
+  often has several engines that upgrade at different times. Never compare
+  version strings lexically (`0.9.0` > `0.11.0`); use `EngineVersion`. See the
+  0.11.1 amendment in `docs/adr/0006-native-macos-app.md`.
 - Unit and integration tests in `tests/`.
 - Product specs and contracts in `specs/001-huske-recorder/`.
 - Public contributor documentation in `README.md`, `CONTRIBUTING.md`, and
