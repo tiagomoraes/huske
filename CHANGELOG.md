@@ -6,6 +6,32 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+### Changed
+
+- **Ruff and mypy are CI gates now**, not conventions. Both were already clean;
+  they were just never enforced, so "clean" depended on whoever remembered to
+  run them. The new `Lint & types` job runs `ruff check .` and `mypy huske`.
+  The two `@mcp.tool()` ignores gained `unused-ignore` because CI installs only
+  `.[dev]` — without the `mcp` extra the decorator reads as untyped and the
+  ignore is required, while a machine with the extra sees it as redundant.
+- `scripts/update-homebrew-tap.py` retries the pip resolve before giving up.
+  It runs minutes after the release publishes, and PyPI's JSON API, simple
+  index and file CDN go live at different times — v0.11.1 failed once and
+  succeeded a minute later, unchanged. Four attempts, 20 s apart, then a
+  message that names propagation as the likely cause.
+- `actions/upload-artifact` in CI matches the release workflow (v7); it had
+  been left on v4.
+
+### Fixed
+
+- **A latent unpack bug in the built-in distillation backend.** `mlx_lm.load()`
+  is typed as returning either `(model, tokenizer)` or
+  `(model, tokenizer, config)` and is not overloaded, so the two-value unpack
+  could not be narrowed. Runtime was fine — we never pass `return_config` — but
+  the code was one keyword argument away from breaking, and no local run caught
+  it because an interpreter without `mlx-lm` sees the whole module as `Any`.
+  The new mypy gate found it on its first CI run.
+
 ### Added
 
 - **huske auto-manages the local Ollama daemon for distillation.** Only relevant

@@ -50,6 +50,41 @@ jobs:
       - name: Fast integration tests
         run: pytest tests/integration/test_pipeline_no_whisper.py tests/integration/test_smoke.py
 
+  # Ruff and mypy were configured but only ever run by hand, which meant "clean"
+  # depended on whoever remembered. Both are clean as of 0.11.1, so they gate now.
+  #
+  # Note mypy sees a *different* codebase than a dev with the optional extras
+  # installed: `dev` does not include `mcp`, so `import mcp` resolves to Any here
+  # and `@mcp.tool()` reads as an untyped decorator. That is why those ignores
+  # carry `unused-ignore` as well — the ignore is needed here and redundant on a
+  # machine with `.[mcp]`, and the pair is stable in both.
+  quality:
+    name: Lint & types
+    runs-on: macos-14
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install system audio libraries
+        run: brew install portaudio libsndfile
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Ruff
+        run: ruff check .
+
+      - name: Mypy
+        run: mypy huske
+
   swift:
     name: macOS app (Swift)
     runs-on: macos-15
@@ -96,7 +131,7 @@ jobs:
         working-directory: macos
 
       - name: Upload app artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Huske.app
           path: macos/dist/Huske.app
