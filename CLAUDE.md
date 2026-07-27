@@ -147,9 +147,21 @@ uv pip install -e ".[dev,mcp]"
 # CI baseline — what PRs must pass
 pytest tests/unit
 pytest tests/integration/test_pipeline_no_whisper.py tests/integration/test_smoke.py
+ruff check .
+mypy huske
 
 # Run a single test
 pytest tests/unit/test_chunker.py::test_rotation_at_boundary_produces_finalized_chunk -xvs
+```
+
+When touching `macos/` (or `huske/ipc/` — the app consumes its wire format), CI
+also runs `swift build`, `swift test`, and the cross-language contract. Locally,
+from `macos/`:
+
+```bash
+swift build && swift test
+HUSKE_INTEROP_PYTHON=$(command -v python3) PYTHONPATH=$PWD/.. \
+  swift test --filter PythonInterop
 ```
 
 Additional local quality checks:
@@ -159,9 +171,16 @@ ruff check .
 mypy huske
 ```
 
-Ruff and Mypy are configured but not CI gates yet; report existing baseline
-failures instead of broad cleanup unless the task is specifically about lint or
-typing.
+Ruff and Mypy are **CI gates** (the `Lint & types` job) as of 0.11.2 — both were
+clean, so keep them that way rather than accumulating a new baseline.
+
+One asymmetry to know about: CI installs only `.[dev]`, which excludes `mcp`, so
+`import mcp` resolves to `Any` there and `@mcp.tool()` reads as an untyped
+decorator. With `.[mcp]` installed locally it is typed and the ignore becomes
+redundant. Those two lines therefore carry
+`# type: ignore[untyped-decorator, unused-ignore]`, which is correct in both.
+If you hit a mypy result that only reproduces on one machine, check your extras
+before "fixing" the code.
 
 Optional integration checks:
 

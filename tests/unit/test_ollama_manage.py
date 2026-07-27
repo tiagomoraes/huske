@@ -97,18 +97,27 @@ def test_ensure_ready_skips_management_when_disabled(monkeypatch: pytest.MonkeyP
     assert started == []
 
 
-@pytest.mark.parametrize(("backend", "reason"), [("mlx", "no_runtime"), ("heuristic", "no_daemon")])
+@pytest.mark.parametrize("backend", ["mlx", "heuristic"])
+@pytest.mark.parametrize("reason", ["unreachable", "model_missing"])
 def test_ensure_ready_is_inert_on_other_backends(
     monkeypatch: pytest.MonkeyPatch, backend: str, reason: str
 ) -> None:
     """The default backend is `mlx`, so most users must never touch this path.
 
-    Auto-management manages *Ollama*. On any other backend a failing probe is
-    someone else's problem — starting a daemon nobody asked for, for a model
-    the backend doesn't even use, would be worse than the failure it reports.
+    Auto-management manages *Ollama*. On any other backend, starting a daemon
+    nobody asked for — to serve a model that backend does not use — would be
+    worse than the failure it reports.
+
+    The reasons here are deliberately the two *actionable* ones. Parametrizing
+    over `no_runtime`/`no_daemon` instead passes whether or not the backend gate
+    exists, because those match neither management branch: the test would be
+    propped up by a second, unrelated condition and would not notice the gate
+    being deleted. Confirmed by deleting it — the first draft of this test
+    stayed green.
     """
     down = Readiness(False, "not ready", "hint", reason=reason)
     monkeypatch.setattr(ollama_manage, "probe_distill", _seq(down))
+    monkeypatch.setattr(ollama_manage, "ollama_cli", lambda: "/usr/local/bin/ollama")
     touched: list[str] = []
     monkeypatch.setattr(
         ollama_manage, "start_daemon", lambda *_a, **_k: touched.append("start") or True

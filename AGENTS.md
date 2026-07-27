@@ -82,6 +82,8 @@ Current CI baseline:
 ```bash
 pytest tests/unit
 pytest tests/integration/test_pipeline_no_whisper.py tests/integration/test_smoke.py
+ruff check .
+mypy huske
 ```
 
 When touching `macos/` (or `huske/ipc/` — the app consumes its wire format),
@@ -91,6 +93,15 @@ also run the Swift side:
 cd macos && swift build && swift test
 ```
 
+CI additionally runs the cross-language contract test, which drives the real
+Python `ControlServer` with the Swift client — it is skipped by a plain
+`swift test`. Run it before changing either side of the wire format:
+
+```bash
+cd macos && HUSKE_INTEROP_PYTHON=$(command -v python3) PYTHONPATH=$PWD/.. \
+  swift test --filter PythonInterop
+```
+
 Additional local quality checks:
 
 ```bash
@@ -98,9 +109,15 @@ ruff check .
 mypy huske
 ```
 
-Ruff and Mypy are configured but are not CI gates yet. Report existing baseline
-failures instead of broad cleanup unless the task is specifically about lint or
-typing.
+Ruff and Mypy are **CI gates** (the `Lint & types` job) as of 0.11.2. Both were
+clean when they were turned on; keep them clean rather than growing a new
+baseline.
+
+CI installs only `.[dev]`, which excludes `mcp`, so `import mcp` is `Any` there
+and `@mcp.tool()` reads as untyped — while a machine with `.[mcp]` sees it typed.
+Those lines carry `# type: ignore[untyped-decorator, unused-ignore]` so both
+agree. A mypy result that only reproduces in one place is usually an extras
+difference, not a code bug.
 
 Optional integration checks:
 

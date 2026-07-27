@@ -34,6 +34,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -98,22 +99,50 @@ def fetch_pypi_sdist(name: str, version: str) -> tuple[str, str]:
     return "", ""  # unreachable, satisfies mypy
 
 
+#: This script runs minutes after `release-finalize.py` publishes, and PyPI's
+#: layers do not go live together — the JSON API, the PEP 691 simple index and
+#: the file CDN each catch up on their own schedule. A resolve that fails here
+#: is usually "not visible yet", not "broken", so retry before giving up. Seen
+#: for real on v0.11.1: the run failed once and succeeded a minute later,
+#: unchanged.
+_PIP_REPORT_ATTEMPTS = 4
+_PIP_REPORT_BACKOFF_SECONDS = 20.0
+
+
 def generate_pip_report(version: str) -> dict[str, tuple[str, str]]:
     """Return ``{normalized_name: (url, sha256)}`` from a pip dry-run report."""
     with tempfile.TemporaryDirectory() as tmp:
         report_path = Path(tmp) / "report.json"
-        run(
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "--no-cache-dir",
-            "--dry-run",
-            "--ignore-installed",
-            "--report",
-            str(report_path),
-            f"huske=={version}",
-        )
+        for attempt in range(1, _PIP_REPORT_ATTEMPTS + 1):
+            try:
+                run(
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    "--no-cache-dir",
+                    "--dry-run",
+                    "--ignore-installed",
+                    "--report",
+                    str(report_path),
+                    f"huske=={version}",
+                )
+                break
+            except subprocess.CalledProcessError:
+                if attempt == _PIP_REPORT_ATTEMPTS:
+                    die(
+                        f"pip could not resolve huske=={version} after "
+                        f"{_PIP_REPORT_ATTEMPTS} attempts.\n"
+                        "If the release just published, PyPI may still be "
+                        "propagating — wait a minute and re-run. If it persists, "
+                        "check that the version actually exists on PyPI."
+                    )
+                print(
+                    f"  pip resolve failed (attempt {attempt}/{_PIP_REPORT_ATTEMPTS}) — "
+                    f"PyPI may still be propagating; retrying in "
+                    f"{_PIP_REPORT_BACKOFF_SECONDS:.0f}s"
+                )
+                time.sleep(_PIP_REPORT_BACKOFF_SECONDS)
         report = json.loads(report_path.read_text())
 
     pkgs: dict[str, tuple[str, str]] = {}
