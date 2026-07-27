@@ -68,3 +68,43 @@ Python `ControlServer` from the Swift client.
   single-source-of-truth version rule.
 - Distribution is source-build for now (ad-hoc codesign). Signed/notarized
   distribution is a separate, later decision.
+
+## Amendment (0.11.1) — which engine, and keeping the two in step
+
+Two consequences of "the app is a shell over the CLI" were left implicit and
+each produced a real defect.
+
+**Which engine the app drives.** `BinaryLocator` probed `~/.local/bin`, then
+`/opt/homebrew/bin`, then `/usr/local/bin`, then `PATH`, and took the first hit.
+Position is not a proxy for freshness: a Mac accumulates engines from different
+managers that upgrade at different times, so a `uv tool` install left at 0.10.0
+shadowed a freshly installed 0.11.0 from Homebrew. The app then feature-probed
+the *old* engine and offered to upgrade it while a current one sat one directory
+away.
+
+The locator now enumerates every candidate, asks each for `--version`, and picks
+the highest, breaking ties by discovery order. An explicit override still wins
+outright and is never second-guessed — an explicit-but-broken override resolves
+to nothing rather than silently falling back to an engine the user did not
+choose. Versions are compared as parsed triples, never as strings (`0.9.0` sorts
+above `0.11.0` lexically), and a prerelease sorts below its own release so a
+`.dev` build never displaces a shipped engine on version alone.
+
+Version remains a *tie-breaker between candidates*, not a compatibility check:
+a dev build cannot be told from a release by its version string, so
+`EngineCapabilities` still feature-probes whatever gets picked. Candidates that
+lose are shown in Configuration under "Also installed, not in use", because a
+silent precedence rule is what made the original bug hard to see.
+
+**Keeping the protocol in step.** The rule "mirror `huske/ipc/protocol.py` in
+`ControlProtocol.swift`" was documented but unenforced. `PythonInteropTests`
+drives the real `ControlServer` with the Swift client and is exactly the test
+that catches drift — but it skips unless `HUSKE_INTEROP_PYTHON` is set, and
+nothing set it, so it never ran in CI. Renaming a single wire constant on the
+Swift side passed CI green.
+
+CI now sets it. The control plane imports only stdlib (`socket`, `threading`,
+`json`, `dataclasses`, `enum`, `queue`), so the job needs an interpreter and
+`PYTHONPATH` — no install, no MLX, no dependency resolution — which is why this
+gate is affordable enough to keep. Note `Foundation.Process` does not search
+`PATH`: `HUSKE_INTEROP_PYTHON` must be an absolute interpreter path.

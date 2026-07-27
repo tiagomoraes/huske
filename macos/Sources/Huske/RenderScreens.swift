@@ -243,6 +243,19 @@ enum ScreenRenderer {
         if let snapshot = try? ConfigBridge.parseShowJSON(json) {
             model.config._previewInject(snapshot: snapshot)
         }
+        // Two engines installed — the state that used to be invisible. Renders
+        // the "Also installed, not in use" line so it stays under design review.
+        model._previewInject(
+            binary: URL(fileURLWithPath: "/opt/homebrew/bin/huske"),
+            version: "0.11.0",
+            candidates: [
+                EngineCandidate(
+                    url: URL(fileURLWithPath: "/opt/homebrew/bin/huske"),
+                    version: EngineVersion("0.11.0"), origin: "/opt/homebrew/bin"),
+                EngineCandidate(
+                    url: URL(fileURLWithPath: NSHomeDirectory() + "/.local/bin/huske"),
+                    version: EngineVersion("0.10.0"), origin: "~/.local/bin"),
+            ])
         return model
     }
 }
