@@ -722,7 +722,14 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.11.0", date: "2026-07-27", tag: "latest",
+    ver: "0.11.1", date: "2026-07-27", tag: "latest",
+    items: [
+      { kind: "fixed", text: <><strong>Autostart no longer pins the wrong microphone for the whole session.</strong> Starting at login with Bluetooth earbuds — which pair a few seconds after you sign in — meant huske fell back to the default mic and stayed there, because PortAudio only sees hot-plugged devices after re-initializing. With speech-gated chunking a fallback mic that hears nothing opens no chunk at all, so the session looked stuck on "waiting" while reporting that it was recording. huske now rescans every 30 s while on a fallback mic and switches to the configured device the moment it appears; it also restarts a mic whose stream died after sleep/wake, and keeps the warning visible until the right device is claimed.</> },
+      { kind: "fixed", text: <><strong>Huske.app runs the newest engine it finds, not the first.</strong> The app drives the <code>huske</code> CLI, and a Mac collects copies of it — <code>uv tool</code> in <code>~/.local/bin</code>, Homebrew in <code>/opt/homebrew/bin</code> — that upgrade at different times. It used to take whichever came first by location, so a stale install could shadow a current one and the app would offer to upgrade the old engine while a new one sat beside it. It now picks the highest version installed, and Configuration shows which engine is in use plus any others it found.</> },
+    ],
+  },
+  {
+    ver: "0.11.0", date: "2026-07-27",
     items: [
       { kind: "added", text: <><strong>Huske.app — a native Mac app, now huske's UI.</strong> A SwiftUI app over the headless engine: start/stop/pause with live mic and system meters, chunk and queue state, a live activity feed, mid-session screenshot and distillation toggles, live microphone switching, a day-grouped transcript browser with full-text search, a Doctor pane, an engine-validated Configuration editor, a menu bar extra, and crash recovery. It attaches to a session started from a terminal or at login, and quitting while recording drains gracefully like Ctrl+C. Download <code>Huske.app.zip</code> above, or see <code>docs/macos-app.md</code>.</> },
       { kind: "added", text: <><strong>⌘K command palette.</strong> Every session and navigation action — start/stop/pause, screenshots, distillation, panes, doctor, recovery, folders, settings — behind one fuzzy-searchable, keyboard-first palette.</> },

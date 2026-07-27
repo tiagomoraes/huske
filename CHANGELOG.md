@@ -6,6 +6,51 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.11.1 - 2026-07-27
+
+### Fixed
+
+- **Autostart no longer pins the wrong microphone for the whole session.**
+  When `huske run` starts before the configured microphone has connected —
+  typical for the login LaunchAgent with Bluetooth earbuds, which pair a few
+  seconds after login — huske fell back to the default mic and stayed there
+  forever, because PortAudio only sees hot-plugged devices after a
+  re-initialization. With speech-gated chunking, a fallback mic that hears
+  nothing meant no chunk ever opened and the session looked stuck "waiting"
+  despite reporting recording. A mic doctor in the run loop now rescans the
+  device list every 30 s while on a fallback mic and hot-swaps onto the
+  configured device as soon as it appears; it also restarts a mic whose
+  stream stopped delivering audio (device vanished after sleep/wake). The
+  fallback warning is sticky until the configured device is claimed, so it
+  stays visible in Huske.app and the menu bar rather than scrolling past.
+
+- **Huske.app runs the newest engine installed, not the first one it finds.**
+  A Mac accumulates engines from different managers — `uv tool` in
+  `~/.local/bin`, Homebrew in `/opt/homebrew/bin` — and they upgrade at
+  different times. The app probed those locations in a fixed order and took the
+  first hit, so a `uv tool` install left at 0.10.0 shadowed a freshly installed
+  0.11.0 and the app offered to upgrade the old engine while a current one sat
+  one directory away. It now asks each candidate for its version and picks the
+  highest (ties by discovery order; an explicit override still wins outright).
+  Configuration shows the engine in use and lists any others under "Also
+  installed, not in use", so the choice is visible rather than implied.
+
+### Changed
+
+- **The cross-language protocol contract is enforced in CI.** The app is a
+  client of the Python engine, so a field added to `huske/ipc/protocol.py` and
+  not mirrored in `ControlProtocol.swift` only surfaced at runtime.
+  `PythonInteropTests` — which drives the real `ControlServer` with the Swift
+  client — skipped unless `HUSKE_INTEROP_PYTHON` was set, and nothing set it, so
+  the one test that catches drift never ran. CI now runs it; renaming a single
+  wire constant fails the build. The control plane is stdlib-only, so the gate
+  needs an interpreter and `PYTHONPATH`, not an install.
+- `scripts/update-homebrew-tap.py` exits non-zero when the formula is missing
+  resources for new dependencies. `brew style` and `brew audit` both pass in
+  that state — only `brew install --build-from-source` catches it — so a green
+  exit read as "ready to push" when it was not. v0.11.0 needed six added by
+  hand (the `mlx-lm` stack).
+
 ## 0.11.0 - 2026-07-27
 
 ### Added

@@ -65,6 +65,14 @@ final class AppModel {
 
     private(set) var binaryURL: URL?
     private(set) var binaryVersion: String?
+    /// Every `huske` found on this machine. Usually one; a Mac with both a uv
+    /// tool and a Homebrew install has more, and they drift apart — so the ones
+    /// we did *not* pick are worth showing rather than silently ignoring.
+    private(set) var engineCandidates: [EngineCandidate] = []
+    /// Engines present but not in use, newest first.
+    var shadowedEngines: [EngineCandidate] {
+        BinaryLocator.shadowed(among: engineCandidates, chosen: binaryURL)
+    }
     /// nil while probing; set once the CLI has been feature-detected.
     private(set) var capabilities: EngineCapabilities?
     var binaryMissing: Bool { binaryURL == nil && !isDemo }
@@ -134,7 +142,15 @@ final class AppModel {
 
     func refreshBinary() {
         let override = UserDefaults.standard.string(forKey: Self.binaryOverrideKey)
-        binaryURL = BinaryLocator.locate(override: override)
+        // Enumerate once and derive both the choice and the shadow list — each
+        // candidate costs a `huske --version` subprocess, so don't probe twice.
+        let found = BinaryLocator.candidates()
+        engineCandidates = found
+        if let override, !override.isEmpty {
+            binaryURL = BinaryLocator.locate(override: override)
+        } else {
+            binaryURL = BinaryLocator.best(among: found)?.url
+        }
         binaryVersion = nil
         capabilities = nil
     }
@@ -240,10 +256,16 @@ final class AppModel {
     /// Preview/render seam for the offscreen screen renderer.
     func _previewInject(
         doctor: DoctorReport? = nil,
-        capabilities caps: EngineCapabilities? = nil
+        capabilities caps: EngineCapabilities? = nil,
+        binary: URL? = nil,
+        version: String? = nil,
+        candidates: [EngineCandidate]? = nil
     ) {
         if let doctor { doctorReport = doctor }
         if let caps { capabilities = caps }
+        if let binary { binaryURL = binary }
+        if let version { binaryVersion = version }
+        if let candidates { engineCandidates = candidates }
     }
 
     static func describe(_ error: Error) -> String {

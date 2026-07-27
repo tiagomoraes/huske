@@ -174,6 +174,43 @@ struct ConfigView: View {
                 }
                 .toggleStyle(.switch)
                 .controlSize(.small)
+                engineRow
+            }
+        }
+    }
+
+    /// Which engine this app drives. Worth stating plainly: the app is a shell
+    /// over the CLI, so "which huske" decides what actually records — and a Mac
+    /// with a uv tool *and* a Homebrew install has two that drift apart.
+    @ViewBuilder
+    private var engineRow: some View {
+        if let url = model.binaryURL {
+            Divider().overlay(Theme.cardBorder)
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Text("Engine")
+                        .font(.brandSans(12.5, .semibold))
+                        .foregroundStyle(Theme.fg)
+                    Text("huske \(model.binaryVersion ?? "…")")
+                        .font(.brandMono(11.5))
+                        .foregroundStyle(Theme.fgMuted)
+                }
+                Text(url.path)
+                    .font(.brandMono(11))
+                    .foregroundStyle(Theme.fgMuted)
+                    .textSelection(.enabled)
+                if !model.shadowedEngines.isEmpty {
+                    Text(
+                        "Also installed, not in use: "
+                            + model.shadowedEngines
+                                .map { "\($0.version.map { "huske \($0)" } ?? "unknown") at \($0.origin)" }
+                                .joined(separator: ", ")
+                            + ". Huske runs the newest one it finds."
+                    )
+                    .font(.brandSans(11))
+                    .foregroundStyle(Theme.fgMuted)
+                    .lineSpacing(2)
+                }
             }
         }
     }
