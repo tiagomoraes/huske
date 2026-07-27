@@ -19,19 +19,30 @@ class Command(StrEnum):
     STOP = "stop"
     OPEN_TRANSCRIPTS = "open_transcripts"
     OPEN_LATEST_TRANSCRIPT = "open_latest_transcript"
+    # Carries an argument (device index or name) — see ipc/protocol.py.
+    SET_INPUT_DEVICE = "set_input_device"
+    # Asks the orchestrator to broadcast a DeviceList to control clients.
+    REQUEST_DEVICES = "request_devices"
+
+
+CommandArg = str | int | None
 
 
 class CommandChannel:
-    """Thread-safe FIFO of ``Command`` values."""
+    """Thread-safe FIFO of ``(Command, arg)`` pairs.
+
+    Most commands carry no argument; producers may call ``send(cmd)`` and the
+    arg defaults to ``None``.
+    """
 
     def __init__(self) -> None:
-        self._q: queue.Queue[Command] = queue.Queue()
+        self._q: queue.Queue[tuple[Command, CommandArg]] = queue.Queue()
 
-    def send(self, cmd: Command) -> None:
-        self._q.put(cmd)
+    def send(self, cmd: Command, arg: CommandArg = None) -> None:
+        self._q.put((cmd, arg))
 
-    def drain(self) -> list[Command]:
-        out: list[Command] = []
+    def drain(self) -> list[tuple[Command, CommandArg]]:
+        out: list[tuple[Command, CommandArg]] = []
         while True:
             try:
                 out.append(self._q.get_nowait())

@@ -15,10 +15,13 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from huske.control import Command, CommandChannel
+from huske.control import CommandChannel
 from huske.ipc.protocol import (
+    CommandMessage,
     ControlSnapshot,
+    DeviceList,
     decode_message,
+    encode_devices,
     encode_snapshot,
 )
 
@@ -49,6 +52,11 @@ class ControlServer:
     def socket_path(self) -> Path:
         return self._socket_path
 
+    @property
+    def connected_clients(self) -> int:
+        with self._clients_lock:
+            return len(self._clients)
+
     def start(self) -> None:
         self._socket_path.parent.mkdir(parents=True, exist_ok=True)
         # Stale socket from a prior crash would make bind() fail with EADDRINUSE.
@@ -71,6 +79,9 @@ class ControlServer:
         payload = encode_snapshot(snap)
         self._latest_snapshot = payload
         self._send_to_all(payload)
+
+    def broadcast_devices(self, devices: DeviceList) -> None:
+        self._send_to_all(encode_devices(devices))
 
     def stop(self, timeout: float = 1.0) -> None:
         self._stop.set()
@@ -150,8 +161,8 @@ class ControlServer:
             if self._log is not None:
                 self._log.warning("ipc_decode_failed", error=str(exc), line=line[:80])
             return
-        if isinstance(msg, Command):
-            self._commands.send(msg)
+        if isinstance(msg, CommandMessage):
+            self._commands.send(msg.command, msg.arg)
 
     def _drop_client(self, client: socket.socket) -> None:
         with contextlib.suppress(OSError):

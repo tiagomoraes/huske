@@ -35,10 +35,10 @@ class HashMismatchError(ValueError):
 class ConflictError(ValueError):
     """A transcript already exists at ``rel_path`` with different content.
 
-    Transcripts are immutable once written (one Chunk → one Transcript). A
-    second push with different content is rejected — it either indicates a
-    client bug or a stolen write token attempting to corrupt a known path.
-    The existing file is left untouched.
+    Transcripts are immutable once written. A second push with different
+    content is rejected — it either indicates a client bug or a stolen write
+    token attempting to corrupt a known path. The existing file is left
+    untouched.
     """
 
 

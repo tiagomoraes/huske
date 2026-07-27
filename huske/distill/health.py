@@ -29,18 +29,41 @@ class Readiness:
 def probe_distill(
     model: str,
     *,
-    backend: str = "ollama",
+    backend: str = "mlx",
     endpoint: str = "http://127.0.0.1:11434",
     timeout: float = 5.0,
 ) -> Readiness:
     """Probe whether ``model`` is servable now.
 
-    ``heuristic``/``fake`` need no daemon. Otherwise we enumerate the daemon's
-    pulled models: an unreachable daemon or an un-pulled model is "not ready"
-    with a hint, a matching tag is "ready".
+    ``heuristic``/``fake`` need nothing. The built-in ``mlx`` backend is ready
+    whenever its runtime is importable — the model downloads on first use, so
+    a fresh install must not fail the probe. The ``ollama`` backend enumerates
+    the daemon's pulled models: an unreachable daemon or an un-pulled model is
+    "not ready" with a hint.
     """
     if model in ("heuristic", "fake"):
         return Readiness(True, f"backend '{model}' (no daemon needed)")
+
+    if backend == "mlx":
+        from huske.distill.mlx_backend import (
+            mlx_runtime_available,
+            model_is_cached,
+            resolve_mlx_model,
+        )
+
+        if not mlx_runtime_available():
+            return Readiness(
+                False,
+                "built-in LLM runtime (mlx-lm) is not installed",
+                "Reinstall/upgrade huske — mlx-lm ships with the base install "
+                "on Apple Silicon (pip install -U huske).",
+            )
+        repo = resolve_mlx_model(model)
+        if model_is_cached(repo):
+            return Readiness(True, f"built-in model '{repo}' cached and ready")
+        return Readiness(
+            True, f"built-in model '{repo}' ready (downloads on first use, ~0.6 GB)"
+        )
 
     from huske.distill.client import DistillError, OllamaClient
 
@@ -48,10 +71,16 @@ def probe_distill(
     try:
         models = client.list_models()
     except DistillError as exc:
+        # The client's connection error already names the endpoint ("could
+        # not reach LLM daemon at <base>: …") — don't stack a second copy of
+        # the same phrase in front of it.
+        detail = str(exc)
+        if "LLM daemon" not in detail:
+            detail = f"LLM daemon unreachable at {endpoint}: {detail}"
         return Readiness(
             False,
-            f"LLM daemon unreachable at {endpoint}: {exc}",
-            "Start it (e.g. `ollama serve`) or fix distill_endpoint.",
+            detail,
+            "Start it (e.g. `ollama serve` or open the Ollama app) or fix distill_endpoint.",
         )
 
     present = (

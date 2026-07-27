@@ -1,8 +1,12 @@
 """macOS LaunchAgent management for autostart on login.
 
-Generates a per-user LaunchAgent plist that runs ``huske run --no-ui`` and
+Generates a per-user LaunchAgent plist that runs a headless ``huske run`` and
 manages its lifecycle via ``launchctl``. macOS only — every public function
 raises :class:`UnsupportedPlatformError` on other systems.
+
+Prefer the Huske.app "Open at login" + "Start recording when Huske opens"
+toggles for the everyday autostart; this LaunchAgent remains for setups that
+want the engine with no app at all (the menu bar helper is then the UI).
 
 The plist lives at ``~/Library/LaunchAgents/me.huske.plist`` and stdout/stderr
 are appended to ``~/Library/Logs/huske/agent.{out,err}.log``.
@@ -83,7 +87,7 @@ def build_program_args(
 ) -> list[str]:
     """Compose ``ProgramArguments`` for the plist."""
     base = list(huske_argv) if huske_argv is not None else resolve_huske_binary()
-    args = [*base, "run", "--no-ui", "--log-level", log_level]
+    args = [*base, "run", "--log-level", log_level]
     if config_path is not None:
         args.extend(["--config", str(config_path.expanduser().resolve())])
     return args

@@ -67,7 +67,8 @@ def run(
         None,
         "--asr-engine",
         help="Transcription backend: parakeet (default, silence-robust, "
-        "multilingual) or whisper (legacy mlx-whisper).",
+        "multilingual but infers the language per window and cannot be pinned) "
+        "or whisper (mlx-whisper; the only engine that enforces --language).",
     ),
     parakeet_model: str | None = typer.Option(
         None,
@@ -155,17 +156,26 @@ def run(
     distill: bool | None = typer.Option(
         None,
         "--distill/--no-distill",
-        help="Distill each finished transcript into searchable statements with a "
-        "local LLM (Ollama). Off by default; needs the daemon + model running.",
+        help="Distill each finished transcript into searchable statements with "
+        "huske's built-in local LLM (downloads on first use). Off by default.",
     ),
     distill_model: str | None = typer.Option(
         None,
         "--distill-model",
-        help="LLM tag used for distillation (e.g. qwen3.5:0.8b, qwen3.5:0.8b-mlx, qwen3.5:4b).",
+        help="Distillation model: a Hugging Face repo for the built-in MLX "
+        "backend (default mlx-community/Qwen3.5-0.8B-4bit) or an Ollama tag "
+        "when distill_backend = 'ollama'.",
     ),
     config_path: Path | None = typer.Option(None, "--config"),
     log_level: str = typer.Option("INFO", "--log-level"),
-    no_ui: bool = typer.Option(False, "--no-ui"),
+    no_ui: bool = typer.Option(
+        False,
+        "--no-ui",
+        hidden=True,
+        help="Deprecated no-op: huske run is always headless now (the Rich "
+        "terminal panel was removed in favor of the macOS app). Kept so "
+        "older launchers that pass it keep working.",
+    ),
     menu_bar: bool | None = typer.Option(
         None,
         "--menu-bar/--no-menu-bar",
@@ -177,8 +187,15 @@ def run(
         "--system-audio-backend",
         help="System audio backend: auto (default), tap, sck, off.",
     ),
+    control_socket: Path | None = typer.Option(
+        None,
+        "--control-socket",
+        help="Serve the JSON-line control protocol at this Unix socket path "
+        "for an external UI (used by the native macOS app). Implies no "
+        "bundled menu bar helper.",
+    ),
 ) -> None:
-    """Start a recording session with live keyboard controls."""
+    """Start a headless recording session (drive it from Huske.app or the menu bar)."""
     from huske.run_loop import run_session
 
     cli_overrides = _collect_overrides(
@@ -210,6 +227,7 @@ def run(
         no_ui=no_ui,
         menu_bar_enabled=menu_bar,
         system_audio_backend=system_audio_backend,
+        control_socket=control_socket,
     )
     raise typer.Exit(run_session(config_path=config_path, cli_overrides=cli_overrides))
 
@@ -290,6 +308,66 @@ def doctor(
     )
 
 
+@app.command()
+def devices(
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """List microphone input devices (● marks the one huske will use)."""
+    from huske.config_tool import list_devices
+
+    raise typer.Exit(list_devices(config_path=config_path, json_output=json_output))
+
+
+# ---------------------------------------------------------------------------
+# Config inspection / editing (used by humans and the native macOS app)
+# ---------------------------------------------------------------------------
+
+config_app = typer.Typer(
+    name="config",
+    help="Inspect and edit the huske config file (~/.config/huske/config.toml).",
+    no_args_is_help=True,
+    add_completion=False,
+)
+app.add_typer(config_app)
+
+
+@config_app.command("show")
+def config_show(
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Print the effective configuration (defaults merged with the file)."""
+    from huske.config_tool import show_config
+
+    raise typer.Exit(show_config(config_path=config_path, json_output=json_output))
+
+
+@config_app.command("set")
+def config_set(
+    key: str = typer.Argument(..., help="Config key, e.g. input_device."),
+    value: str = typer.Argument(
+        ..., help="New value. JSON scalars are typed (true, 0.5); anything else is a string."
+    ),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Validate and persist one config key (Pydantic-checked before writing)."""
+    from huske.config_tool import set_config_value
+
+    raise typer.Exit(set_config_value(key, value, config_path=config_path))
+
+
+@config_app.command("unset")
+def config_unset(
+    key: str = typer.Argument(..., help="Config key to remove (reverts to default)."),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Remove one key from the config file, reverting to the built-in default."""
+    from huske.config_tool import unset_config_value
+
+    raise typer.Exit(unset_config_value(key, config_path=config_path))
+
+
 # ---------------------------------------------------------------------------
 # Local semantic search + MCP server (huske[mcp] extra)
 # ---------------------------------------------------------------------------
@@ -349,8 +427,9 @@ def distill(
     """Distill transcripts into searchable statement sidecars with a local LLM.
 
     Writes a ``<name>.statements.json`` next to each transcript. Run ``huske
-    index`` afterwards to embed the statements for two-stage search. Needs a
-    local LLM daemon (Ollama) with the model pulled (e.g. ``ollama pull qwen3.5:0.8b``).
+    index`` afterwards to embed the statements for two-stage search. Uses the
+    built-in MLX model by default (downloads on first use); set
+    ``distill_backend = "ollama"`` to delegate to an Ollama daemon instead.
     """
     from huske.distill.runner import run_distill
 

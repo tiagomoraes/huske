@@ -30,7 +30,7 @@ huske --help                 Print help.
 
 ## `huske run`
 
-**Purpose**: Start an always-on recording session. Blocks the terminal with the live UI until the user issues Ctrl+C or `q`.
+**Purpose**: Start an always-on, headless recording session. Blocks the terminal, printing plain progress lines, until Ctrl+C. Interactive control lives in Huske.app (over `--control-socket`) and the macOS menu bar helper.
 
 **Options**:
 
@@ -53,7 +53,7 @@ huske --help                 Print help.
 | `--screenshots-root` | path | `~/huske/screenshots` | Where screenshots are written. |
 | `--config` | path | `~/.config/huske/config.toml` | Path to TOML config file (silently ignored if absent). |
 | `--log-level` | choice | `INFO` | `DEBUG` \| `INFO` \| `WARNING` \| `ERROR`. |
-| `--no-ui` | bool | `false` | Run without the Rich live UI; emit log lines only. |
+| `--no-ui` | bool | `false` | Deprecated hidden no-op (the Rich live UI was removed — ADR 0007). Accepted so older launchers keep working. |
 | `--menu-bar` / `--no-menu-bar` | bool | config/default true | Show the macOS menu bar helper while recording. |
 | `--system-audio-backend` | choice | `auto` | `auto` \| `tap` \| `sck` \| `off`. `auto` uses Core Audio process tap on macOS 14.4+ and ScreenCaptureKit fallback otherwise. |
 
@@ -63,8 +63,8 @@ huske --help                 Print help.
 2. Run startup recovery (same as `huske recover` but in-process, blocking). Any orphans are queued before the new session starts.
 3. Validate audio devices (same checks as `huske doctor`). If no usable input → exit code 3, actionable message.
 4. Create session id, lock file, audio root directory.
-5. Open audio stream, start chunk timer, render UI.
-6. On Ctrl+C / `q` keypress: enter `stopping` state, finalize current chunk, drain transcription queue, remove lock, exit 0.
+5. Open audio stream, start chunk timer, publish control-plane state (~8 Hz when a socket is up).
+6. On Ctrl+C / SIGTERM / a `stop` control command: enter `stopping` state, finalize current chunk, drain transcription queue, remove lock, exit 0.
 7. On unrecoverable error: write final state to log, attempt to finalize current chunk, exit non-zero.
 
 **Exit codes**:
@@ -79,19 +79,12 @@ huske --help                 Print help.
 | `130` | Interrupted (SIGINT) before initialization completed. |
 
 **stdout/stderr**:
-- With UI (default): UI renders to stdout via Rich. No human-readable lines outside the UI.
-- `--no-ui`: structured one-line-per-event JSON logs to stdout.
-- Errors → stderr in both modes.
+- Plain progress lines plus structured one-line-per-event console logs to stdout.
+- Errors → stderr.
 
-**Keyboard shortcuts** (UI mode only):
-- Ctrl+C → graceful stop.
-- `?` → show or hide the controls overlay.
-- Inside the controls overlay, `q` → graceful stop.
-- Inside the controls overlay, `p` → pause or resume audio recording. Pausing finalizes the current partial
-  chunk and does not write audio while paused.
-- Inside the controls overlay, `s` → enable or disable periodic screenshots without restarting.
-- Inside the controls overlay, `i` → choose the live microphone input device and persist it to the user config.
-- Inside the controls overlay, Esc → close controls.
+**Runtime controls**: Ctrl+C → graceful stop. Pause/resume, screenshots,
+distillation, and device switching are driven over the control socket —
+from Huske.app or the menu bar helper (`huske/ipc/protocol.py`).
 
 ---
 
@@ -162,7 +155,7 @@ If a check fails, the line shows an actionable hint (for example granting Audio 
 
 **Purpose**: Manage a per-user macOS [LaunchAgent](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html)
 (`~/Library/LaunchAgents/me.huske.plist`, label `me.huske`) that runs
-`huske run --no-ui` automatically every time the user logs in. macOS-only;
+a headless `huske run` automatically every time the user logs in. macOS-only;
 exits with code `2` and a friendly error on other platforms.
 
 **Verbs**:
@@ -184,7 +177,7 @@ huske autostart stop                launchctl kill TERM (no-op if already stoppe
 | `--keep-alive` / `--no-keep-alive` | bool | `--keep-alive` | When on, launchd restarts huske only on a non-zero exit (`KeepAlive={SuccessfulExit:false}`). |
 | `--force` | bool | `false` | Overwrite an existing plist. |
 
-**Logs**: the agent has no TUI; stdout/stderr are appended to
+**Logs**: the agent is headless; stdout/stderr are appended to
 `~/Library/Logs/huske/agent.{out,err}.log`.
 
 **Permissions**: the first time the agent records, macOS will prompt for

@@ -66,7 +66,14 @@ def test_preflight_fails_when_daemon_unreachable(
 
     monkeypatch.setattr(client_mod.OllamaClient, "list_models", boom)
     rc = run_distill(
-        cli_overrides={"output_root": tmp_path / "transcripts", "distill_model": "qwen3.5:0.8b"},
+        cli_overrides={
+            "output_root": tmp_path / "transcripts",
+            # Pin the daemon backend: this test is about the *Ollama* preflight
+            # (the default backend is the built-in mlx runtime, which needs no
+            # daemon and would happily proceed).
+            "distill_backend": "ollama",
+            "distill_model": "qwen3.5:0.8b",
+        },
         low_impact=False,
     )
     assert rc == 1  # aborts before touching transcripts
