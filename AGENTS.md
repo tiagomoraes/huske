@@ -113,10 +113,16 @@ Ruff and Mypy are **CI gates** (the `Lint & types` job) as of 0.11.2. Both were
 clean when they were turned on; keep them clean rather than growing a new
 baseline.
 
+Run mypy from an environment that has the dependencies installed. With
+`ignore_missing_imports = true`, an absent package becomes `Any` and every error
+involving it disappears — an interpreter missing `mlx-lm` hid a real
+`Too many values to unpack` that CI caught on this gate's first run. Prefer
+`.venv/bin/mypy huske` over a bare `mypy`.
+
 CI installs only `.[dev]`, which excludes `mcp`, so `import mcp` is `Any` there
 and `@mcp.tool()` reads as untyped — while a machine with `.[mcp]` sees it typed.
 Those lines carry `# type: ignore[untyped-decorator, unused-ignore]` so both
-agree. A mypy result that only reproduces in one place is usually an extras
+agree. A mypy result that only reproduces in one place is usually a dependency
 difference, not a code bug.
 
 Optional integration checks:

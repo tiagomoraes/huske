@@ -174,13 +174,20 @@ mypy huske
 Ruff and Mypy are **CI gates** (the `Lint & types` job) as of 0.11.2 — both were
 clean, so keep them that way rather than accumulating a new baseline.
 
-One asymmetry to know about: CI installs only `.[dev]`, which excludes `mcp`, so
-`import mcp` resolves to `Any` there and `@mcp.tool()` reads as an untyped
-decorator. With `.[mcp]` installed locally it is typed and the ignore becomes
-redundant. Those two lines therefore carry
-`# type: ignore[untyped-decorator, unused-ignore]`, which is correct in both.
-If you hit a mypy result that only reproduces on one machine, check your extras
-before "fixing" the code.
+**Run mypy from an environment that has the dependencies installed** —
+`ignore_missing_imports = true` turns an absent package into `Any`, and every
+error involving it vanishes. An interpreter missing `mlx-lm` hid a real
+`Too many values to unpack` in `distill/mlx_backend.py` that CI caught on the
+first run of this gate. Use the repo venv (`.venv/bin/mypy huske`), not whatever
+`python` happens to resolve to.
+
+The `mcp` extra cuts the other way, and that asymmetry is expected: CI installs
+only `.[dev]`, so `import mcp` is `Any` and `@mcp.tool()` reads as untyped,
+making the ignore *required*; with `.[mcp]` installed it is typed and the same
+ignore is *redundant*. Those two lines carry
+`# type: ignore[untyped-decorator, unused-ignore]`, correct either way. A mypy
+result that only reproduces in one place is usually a dependency difference —
+check that before "fixing" the code.
 
 Optional integration checks:
 

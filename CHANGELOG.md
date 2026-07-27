@@ -22,6 +22,16 @@ This project uses semantic versioning after the first public release.
 - `actions/upload-artifact` in CI matches the release workflow (v7); it had
   been left on v4.
 
+### Fixed
+
+- **A latent unpack bug in the built-in distillation backend.** `mlx_lm.load()`
+  is typed as returning either `(model, tokenizer)` or
+  `(model, tokenizer, config)` and is not overloaded, so the two-value unpack
+  could not be narrowed. Runtime was fine — we never pass `return_config` — but
+  the code was one keyword argument away from breaking, and no local run caught
+  it because an interpreter without `mlx-lm` sees the whole module as `Any`.
+  The new mypy gate found it on its first CI run.
+
 ### Added
 
 - **huske auto-manages the local Ollama daemon for distillation.** Only relevant

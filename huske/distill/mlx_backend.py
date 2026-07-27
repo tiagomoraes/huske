@@ -129,7 +129,14 @@ def _child_main(conn: Connection, model_id: str) -> None:  # pragma: no cover â€
                 from mlx_lm import generate, load
 
                 if model is None:
-                    model, tokenizer = load(model_id)
+                    # `load` is typed as returning (model, tokenizer) *or*
+                    # (model, tokenizer, config) depending on `return_config`,
+                    # and it is not overloaded â€” so a two-value unpack cannot be
+                    # narrowed and mypy rejects it. We never pass
+                    # `return_config`, so the pair is what comes back; index
+                    # instead of unpacking to stay correct for either arity.
+                    loaded = load(model_id)
+                    model, tokenizer = loaded[0], loaded[1]
                 chat = [{"role": "user", "content": prompt}]
                 try:
                     templated = tokenizer.apply_chat_template(
