@@ -1,8 +1,12 @@
 """macOS LaunchAgent management for autostart on login.
 
-Generates a per-user LaunchAgent plist that runs ``huske run --no-ui`` and
+Generates a per-user LaunchAgent plist that runs a headless ``huske run`` and
 manages its lifecycle via ``launchctl``. macOS only — every public function
 raises :class:`UnsupportedPlatformError` on other systems.
+
+Prefer the Huske.app "Open at login" + "Start recording when Huske opens"
+toggles for the everyday autostart; this LaunchAgent remains for setups that
+want the engine with no app at all (the menu bar helper is then the UI).
 
 The plist lives at ``~/Library/LaunchAgents/me.huske.plist`` and stdout/stderr
 are appended to ``~/Library/Logs/huske/agent.{out,err}.log``.
@@ -83,7 +87,7 @@ def build_program_args(
 ) -> list[str]:
     """Compose ``ProgramArguments`` for the plist."""
     base = list(huske_argv) if huske_argv is not None else resolve_huske_binary()
-    args = [*base, "run", "--no-ui", "--log-level", log_level]
+    args = [*base, "run", "--log-level", log_level]
     if config_path is not None:
         args.extend(["--config", str(config_path.expanduser().resolve())])
     return args
@@ -239,14 +243,21 @@ def start_agent() -> None:
         raise _launchctl_failure("kickstart", result)
 
 
-def stop_agent() -> None:
-    """Send ``SIGTERM`` to the running agent.
+def stop_agent() -> bool:
+    """Send ``SIGTERM`` to the running agent; return whether one was sent.
 
     With ``KeepAlive={SuccessfulExit:false}``, a graceful exit (code 0) keeps
     the agent stopped until the next login. If huske exits non-zero, launchd
-    will restart it.
+    will restart it. Asking launchd to stop an already-idle service is a
+    successful no-op.
     """
     _ensure_macos()
     result = _run_launchctl(["kill", "TERM", _service_target()])
-    if result.returncode != 0:
-        raise _launchctl_failure("kill TERM", result)
+    if result.returncode == 0:
+        return True
+
+    detail = result.stderr.strip() or result.stdout.strip()
+    if result.returncode == 3 and "No process to signal" in detail:
+        return False
+
+    raise _launchctl_failure("kill TERM", result)

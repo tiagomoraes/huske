@@ -64,6 +64,42 @@ def test_run_with_menu_bar_overrides_config(
     assert captured["cli_overrides"]["menu_bar_enabled"] is True  # type: ignore[index]
 
 
+def test_run_with_control_socket_passes_path(
+    cli: tuple[CliRunner, dict[str, object]],
+) -> None:
+    runner, captured = cli
+    result = runner.invoke(app, ["run", "--control-socket", "/tmp/hsk/app.sock"])
+    assert result.exit_code == 0, result.output
+    overrides = captured["cli_overrides"]
+    assert str(overrides["control_socket"]) == "/tmp/hsk/app.sock"  # type: ignore[index]
+
+
+def test_run_without_control_socket_does_not_override(
+    cli: tuple[CliRunner, dict[str, object]],
+) -> None:
+    runner, captured = cli
+    result = runner.invoke(app, ["run"])
+    assert result.exit_code == 0, result.output
+    assert "control_socket" not in captured["cli_overrides"]  # type: ignore[operator]
+
+
+def test_config_set_and_show_round_trip(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    import json as _json
+
+    monkeypatch.setattr("huske.update_check.notify_if_outdated", lambda: None)
+    cfg = tmp_path / "config.toml"
+
+    result = CliRunner().invoke(
+        app, ["config", "set", "chunk_minutes", "5.0", "--config", str(cfg)]
+    )
+    assert result.exit_code == 0, result.output
+
+    result = CliRunner().invoke(app, ["config", "show", "--json", "--config", str(cfg)])
+    assert result.exit_code == 0, result.output
+    payload = _json.loads(result.output)
+    assert payload["effective"]["chunk_minutes"] == 5.0
+
+
 def test_doctor_accepts_system_audio_backend_override(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -116,3 +152,16 @@ def test_sync_invokes_runner(monkeypatch: pytest.MonkeyPatch) -> None:
     result = CliRunner().invoke(app, ["sync"])
     assert result.exit_code == 0, result.output
     assert captured["cli_overrides"] == {}
+
+
+def test_autostart_stop_reports_when_already_stopped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("huske.agent._ensure_macos", lambda: None)
+    monkeypatch.setattr("huske.agent.stop_agent", lambda: False)
+    monkeypatch.setattr("huske.update_check.notify_if_outdated", lambda: None)
+
+    result = CliRunner().invoke(app, ["autostart", "stop"])
+
+    assert result.exit_code == 0, result.output
+    assert "already stopped" in result.output

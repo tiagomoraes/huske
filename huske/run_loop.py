@@ -16,6 +16,7 @@ from huske import __version__, logging_setup, paths
 from huske.capture.coordinator import CaptureCoordinator
 from huske.capture.devices import (
     list_input_devices,
+    match_input_device,
     resolve_input_device_with_fallback,
     validate_device,
 )
@@ -23,7 +24,7 @@ from huske.chunker.rotator import ChunkRotator
 from huske.config import RuntimeConfig, load_config, update_user_config
 from huske.control import Command, CommandChannel
 from huske.ipc import ControlServer
-from huske.ipc.protocol import ControlSnapshot
+from huske.ipc.protocol import ControlSnapshot, DeviceList, InputDeviceEntry
 from huske.models import AudioChunk, AudioSource, RenderState, SessionState
 from huske.output_readme import ensure_output_readme
 from huske.recovery.scanner import (
@@ -35,14 +36,69 @@ from huske.recovery.scanner import (
 from huske.screenshots import ScreenshotCapturer
 from huske.session import RecordingSession
 from huske.transcribe.worker import TranscriptionWorker, chunk_to_job
-from huske.ui.input import TerminalKeyReader
-from huske.ui.live import LiveUI
 
 _HEARTBEAT_TIMEOUT_SECONDS = 5.0
+
+# Mic doctor: how long the mic stream may go without delivering audio (in
+# awake/monotonic time, so sleep doesn't count) before we recycle it, and the
+# minimum spacing between rescan/reopen attempts. Reopening tears the stream
+# down for a moment, so both are deliberately coarse.
+_MIC_RESTART_STALE_SECONDS = 30.0
+_MIC_RECLAIM_INTERVAL_SECONDS = 30.0
 
 
 def _print(msg: str) -> None:
     print(msg, flush=True)
+
+
+def build_control_snapshot(
+    state: RenderState,
+    *,
+    session_id: str,
+    session_started_at: datetime,
+    output_root: Path,
+    input_device_name: str | None,
+) -> ControlSnapshot:
+    """Serialize the live render state into a v2 control-plane snapshot.
+
+    Pure so the wire shape the native app depends on stays unit-testable
+    without running a capture session.
+    """
+    peaks = state.peak_levels
+    return ControlSnapshot(
+        session_id=session_id,
+        recording=state.recording,
+        paused=state.paused,
+        stopping=state.stopping,
+        current_chunk_seq=state.current_chunk_seq,
+        queue_depth=state.queue_depth,
+        screenshots_enabled=state.screenshots_enabled,
+        distill_enabled=state.distill_enabled,
+        last_saved_name=state.last_saved.name if state.last_saved else None,
+        peak_mic_db=round(float(peaks[0]), 1) if len(peaks) >= 1 else -120.0,
+        peak_system_db=round(float(peaks[1]), 1) if len(peaks) >= 2 else -120.0,
+        chunk_started_at=(
+            state.chunk_started_at.isoformat() if state.chunk_started_at else None
+        ),
+        next_rotation_at=(
+            state.next_rotation_at.isoformat() if state.next_rotation_at else None
+        ),
+        session_started_at=session_started_at.isoformat(),
+        huske_version=__version__,
+        output_root=str(output_root),
+        last_saved_path=str(state.last_saved) if state.last_saved else None,
+        screenshots_count=state.screenshots_count,
+        input_device_name=input_device_name,
+        warnings=dict(state.warnings),
+        events=[
+            {
+                "ts": ev.timestamp.isoformat(),
+                "severity": ev.severity,
+                "message": ev.message,
+            }
+            for ev in list(state.events)
+        ],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -69,9 +125,22 @@ def run_session(
     # Session.
     session = RecordingSession(config=cfg)
     log_path = paths.logs_path(cfg, session.session_id)
-    logging_setup.configure(log_path, level=cfg.log_level, console=cfg.no_ui)
+    # Headless engine: structured console logs always on (the app or the
+    # menu bar helper is the UI; the terminal shows plain progress lines).
+    logging_setup.configure(log_path, level=cfg.log_level, console=True)
     log = logging_setup.get_logger("huske.run")
     log.info("starting", session_id=session.session_id, version_hint=__version__)
+
+    # A configured `language` is only a promise on whisper, whose decoder takes a
+    # language token. Parakeet infers the language per decode window and can
+    # collapse code-switched speech into English; huske re-decodes windows it
+    # catches, but say once, up front, that the setting is a hint here.
+    if cfg.language and cfg.asr_engine == "parakeet":
+        _print(
+            f"[warn] language={cfg.language!r} cannot be enforced by the parakeet "
+            'engine — set asr_engine = "whisper" to pin it'
+        )
+        log.warning("language_not_enforceable", language=cfg.language, engine=cfg.asr_engine)
 
     # Resolve + validate input device.
     device_resolution = resolve_input_device_with_fallback(cfg.input_device)
@@ -115,6 +184,10 @@ def run_session(
         recording=False,
         screenshots_enabled=False,
     )
+
+    # The active microphone, mirrored for control-plane snapshots. A plain
+    # mutable holder because closures below rebind it on live device swaps.
+    active_mic = {"name": report.device.name}
 
     # Optional: background embedding worker for local semantic search. Started
     # non-blocking — capture never waits on the embedding model to load, and an
@@ -193,6 +266,7 @@ def run_session(
 
         distiller = build_distiller(
             cfg.distill_model,
+            backend=cfg.distill_backend,
             endpoint=cfg.distill_endpoint,
             timeout=cfg.distill_timeout_seconds,
             max_statements=cfg.distill_max_statements_per_passage,
@@ -391,6 +465,11 @@ def run_session(
         actual_sources.append("system")
     rotator.set_default_audio_sources(list(actual_sources))
     state.update(recording=True)
+    if device_resolution.fallback_used and device_resolution.warning:
+        # Sticky until the mic doctor in _main_loop reclaims the configured
+        # device (it is often absent at login — e.g. Bluetooth earbuds that
+        # connect a few seconds after the LaunchAgent starts us).
+        state.set_warning("microphone", device_resolution.warning)
 
     screenshotter: ScreenshotCapturer | None = None
     if cfg.screenshots_enabled:
@@ -549,6 +628,63 @@ def run_session(
     def _stop() -> None:
         stop_flag.set()
 
+    def _apply_mic_device(new_idx: int, new_name: str) -> bool:
+        """Swap the live mic and persist the preference. Shared by the TUI
+        picker and the IPC ``set_input_device`` command."""
+        if not capture.swap_mic_device(new_idx):
+            return False
+        active_mic["name"] = new_name
+        on_event("info", f"microphone → {new_name}")
+        try:
+            update_user_config({"input_device": new_name})
+        except Exception as exc:
+            on_event("warn", f"could not save mic preference: {exc}")
+        return True
+
+    def _set_input_device(arg: str | int | None) -> None:
+        if arg is None:
+            on_event("warn", "set_input_device requires a device name or index")
+            return
+        try:
+            devices = list_input_devices()
+        except Exception as exc:
+            on_event("error", f"could not list input devices: {exc}")
+            return
+        if isinstance(arg, int):
+            target = next((d for d in devices if d.index == arg), None)
+        else:
+            target = match_input_device(devices, arg)
+        if target is None:
+            on_event("warn", f"input device not found: {arg!r}")
+            return
+        if target.index == capture.mic_device_index:
+            return
+        if not _apply_mic_device(target.index, target.name):
+            on_event("warn", f"could not switch microphone to {target.name}")
+
+    def _broadcast_devices() -> None:
+        if server is None:
+            return
+        try:
+            devices = list_input_devices()
+        except Exception as exc:
+            on_event("error", f"could not list input devices: {exc}")
+            return
+        server.broadcast_devices(
+            DeviceList(
+                devices=tuple(
+                    InputDeviceEntry(
+                        index=d.index,
+                        name=d.name,
+                        channels=d.max_input_channels,
+                        sample_rate=d.default_samplerate,
+                    )
+                    for d in devices
+                ),
+                current_index=capture.mic_device_index,
+            )
+        )
+
     commands = CommandChannel()
     dispatch: dict[Command, Callable[[], None]] = {
         Command.PAUSE_RESUME: _toggle_pause,
@@ -560,20 +696,34 @@ def run_session(
     }
 
     def _pump_commands() -> None:
-        for cmd in commands.drain():
-            handler = dispatch.get(cmd)
-            if handler is not None:
-                handler()
+        for cmd, arg in commands.drain():
+            if cmd is Command.SET_INPUT_DEVICE:
+                _set_input_device(arg)
+            elif cmd is Command.REQUEST_DEVICES:
+                _broadcast_devices()
+            else:
+                handler = dispatch.get(cmd)
+                if handler is not None:
+                    handler()
 
     server: ControlServer | None = None
     helper_proc: subprocess.Popen[bytes] | None = None
-    # The control socket exists solely to drive the menu bar helper, so it is
-    # only started when the menu bar is enabled. With `--no-menu-bar` we skip
-    # the whole IPC server — no helper process (~50-80 MB), no accept thread,
-    # and no socket file — leaving the lightest possible recording footprint.
-    if sys.platform == "darwin" and cfg.menu_bar_enabled:
-        socket_dir = Path.home() / "Library" / "Application Support" / "huske"
-        socket_path = socket_dir / f"control-{paths.session_id_short(session.session_id)}.sock"
+    # Two ways to get a control socket:
+    # - An external UI (the native macOS app) passes ``--control-socket PATH``:
+    #   serve the protocol there and spawn no helper — the app owns presentation.
+    # - Otherwise the socket exists solely to drive the menu bar helper, so it
+    #   is only started when the menu bar is enabled. With `--no-menu-bar` we
+    #   skip the whole IPC server — no helper process (~50-80 MB), no accept
+    #   thread, and no socket file — the lightest possible recording footprint.
+    external_socket = cfg.control_socket is not None
+    if external_socket or (sys.platform == "darwin" and cfg.menu_bar_enabled):
+        if cfg.control_socket is not None:
+            socket_path = cfg.control_socket
+        else:
+            socket_dir = Path.home() / "Library" / "Application Support" / "huske"
+            socket_path = (
+                socket_dir / f"control-{paths.session_id_short(session.session_id)}.sock"
+            )
         server = ControlServer(socket_path, commands, log)
         try:
             server.start()
@@ -582,7 +732,7 @@ def run_session(
             log.warning("ipc_server_failed", error=str(exc))
             server = None
 
-        if server is not None:
+        if server is not None and not external_socket:
             from huske.agent import resolve_huske_binary
 
             argv = [
@@ -613,130 +763,36 @@ def run_session(
         nonlocal last_snap
         if server is None:
             return
-        snap = ControlSnapshot(
+        snap = build_control_snapshot(
+            state,
             session_id=session.session_id,
-            recording=state.recording,
-            paused=state.paused,
-            stopping=state.stopping,
-            current_chunk_seq=state.current_chunk_seq,
-            queue_depth=state.queue_depth,
-            screenshots_enabled=state.screenshots_enabled,
-            distill_enabled=state.distill_enabled,
-            last_saved_name=state.last_saved.name if state.last_saved else None,
+            session_started_at=session.started_at,
+            output_root=cfg.output_root,
+            input_device_name=active_mic["name"],
         )
         if snap == last_snap:
             return
         last_snap = snap
         server.broadcast_state(snap)
 
-    def _open_input_picker() -> None:
-        try:
-            devices = list_input_devices()
-        except Exception as exc:
-            on_event("error", f"could not list input devices: {exc}")
-            return
-        current_idx = capture.mic_device_index
-        cursor = 0
-        for i, d in enumerate(devices):
-            if d.index == current_idx:
-                cursor = i
-                break
-        state.update(
-            picker_visible=True,
-            picker_devices=[(d.index, d.name) for d in devices],
-            picker_cursor=cursor,
-            picker_current_index=current_idx,
-            help_visible=False,
-        )
-
-    def _commit_input_picker() -> None:
-        if not state.picker_devices:
-            state.update(picker_visible=False)
-            return
-        idx = max(0, min(state.picker_cursor, len(state.picker_devices) - 1))
-        new_idx, new_name = state.picker_devices[idx]
-        if new_idx == state.picker_current_index:
-            state.update(picker_visible=False)
-            return
-        if not capture.swap_mic_device(new_idx):
-            state.update(picker_visible=False)
-            return
-        on_event("info", f"microphone → {new_name}")
-        try:
-            update_user_config({"input_device": new_name})
-        except Exception as exc:
-            on_event("warn", f"could not save mic preference: {exc}")
-        state.update(picker_visible=False, picker_current_index=new_idx)
-
-    def _handle_picker_key(key: str) -> None:
-        if key == "\x1b":  # Esc
-            state.update(picker_visible=False)
-            return
-        if key in ("\r", "\n"):  # Enter
-            _commit_input_picker()
-            return
-        n = len(state.picker_devices)
-        if n == 0:
-            return
-        if key in ("j", "J", "\x1b[B"):  # j or Down
-            state.update(picker_cursor=min(state.picker_cursor + 1, n - 1))
-        elif key in ("k", "K", "\x1b[A"):  # k or Up
-            state.update(picker_cursor=max(state.picker_cursor - 1, 0))
-
-    def _handle_key(key: str) -> None:
-        if stop_flag.is_set():
-            return
-        if state.picker_visible:
-            _handle_picker_key(key)
-            return
-        normalized = key.lower()
-        if normalized == "\x03":
-            on_event("info", "stop requested — finalizing current chunk…")
-            commands.send(Command.STOP)
-            return
-        if normalized == "?":
-            state.update(help_visible=not state.help_visible)
-            return
-        if not state.help_visible:
-            return
-        if normalized == "\x1b":
-            state.update(help_visible=False)
-        elif normalized == "q":
-            on_event("info", "stop requested — finalizing current chunk…")
-            commands.send(Command.STOP)
-        elif normalized == "p":
-            commands.send(Command.PAUSE_RESUME)
-            state.update(help_visible=False)
-        elif normalized == "s":
-            commands.send(Command.TOGGLE_SCREENSHOTS)
-            state.update(help_visible=False)
-        elif normalized == "d":
-            commands.send(Command.TOGGLE_DISTILL)
-            state.update(help_visible=False)
-        elif normalized == "i":
-            _open_input_picker()
-
-    def _session_loop(
-        ui: LiveUI | None,
-        read_key: Callable[[], str | None] | None = None,
-    ) -> None:
+    def _session_loop() -> None:
         # Phase 1: normal recording — runs until Ctrl+C / SIGTERM sets stop_flag.
         _main_loop(
             cfg, state, rotator, capture, worker, stop_flag, log,
-            on_result, ui=ui, read_key=read_key, on_key=_handle_key,
+            on_result,
             screenshot_status=_screenshot_status,
             pump_commands=_pump_commands,
             publish_state=_publish_state,
             on_written=_on_written,
             on_tick=_on_tick,
             pending_count=_pending_count,
+            mic_fallback=device_resolution.fallback_used,
         )
 
-        # Phase 2: stopping. Keep the UI alive while we drain.
-        state.update(recording=False, paused=False, stopping=True, help_visible=False)
+        # Phase 2: stopping. Keep publishing state while we drain so the app
+        # and menu bar helper show the countdown.
+        state.update(recording=False, paused=False, stopping=True)
         _publish_state()
-        if ui is not None:
-            ui.update()
 
         on_event("info", "stopping capture…")
         capture.stop()
@@ -745,17 +801,13 @@ def run_session(
             _sync_screenshot_state()
             on_event("info", f"screenshots saved: {screenshotter.captures}")
         rotator.finalize_current()
-        if ui is not None:
-            ui.update()
 
         pending_count = _pending_count()
         on_event("info", f"draining {pending_count} transcription(s)…")
         state.update(queue_depth=pending_count)
-        if ui is not None:
-            ui.update()
 
         deadline = time.monotonic() + 600.0  # 10 min hard cap
-        last_ui_update = 0.0
+        last_publish = 0.0
         while True:
             with pending_lock:
                 if not pending_chunks:
@@ -768,10 +820,19 @@ def run_session(
                 seq = result["chunk_seq"]
                 on_result(seq)
                 if result["ok"]:
-                    tp = Path(result["transcript_path"])
-                    state.update(last_saved=tp)
-                    on_event("info", f"chunk {seq:03d} → {tp.name}")
-                    _on_written(tp)
+                    transcript_path = result.get("transcript_path")
+                    if transcript_path is not None:
+                        tp = Path(transcript_path)
+                        state.update(last_saved=tp)
+                        on_event("info", f"chunk {seq:03d} → {tp.name}")
+                        _on_written(tp)
+                    elif result.get("skipped_empty"):
+                        on_event("info", "no speech detected — nothing saved")
+                    else:
+                        on_event(
+                            "error",
+                            f"chunk {seq:03d} produced no transcript path",
+                        )
                 else:
                     on_event(
                         "error",
@@ -782,27 +843,19 @@ def run_session(
                 break
 
             now = time.monotonic()
-            if now - last_ui_update >= 0.25:
+            if now - last_publish >= 0.25:
                 _on_tick()
                 state.update(queue_depth=_pending_count())
                 _publish_state()
-                if ui is not None:
-                    ui.update()
-                last_ui_update = now
+                last_publish = now
 
-        # Final UI update so the user sees "0 pending" before we tear down.
+        # Final publish so subscribers see "0 pending" before we tear down.
         state.update(queue_depth=0)
         _publish_state()
-        if ui is not None:
-            ui.update()
 
     try:
-        if cfg.no_ui:
-            _print(f"[huske] recording — Ctrl+C to stop. transcripts → {cfg.output_root}")
-            _session_loop(ui=None)
-        else:
-            with LiveUI(state) as live, TerminalKeyReader() as keys:
-                _session_loop(ui=live, read_key=keys.read_key)
+        _print(f"[huske] recording — Ctrl+C to stop. transcripts → {cfg.output_root}")
+        _session_loop()
     except Exception as exc:
         log.error("run_failed", error=str(exc))
         exit_code = 1
@@ -849,33 +902,29 @@ def _main_loop(
     stop_flag: threading.Event,
     log: Any,
     on_result: Callable[[int], None],
-    ui: LiveUI | None,
-    read_key: Callable[[], str | None] | None = None,
-    on_key: Callable[[str], None] | None = None,
     screenshot_status: Callable[[], tuple[bool, int, datetime | None]] | None = None,
     pump_commands: Callable[[], None] | None = None,
     publish_state: Callable[[], None] | None = None,
     on_written: Callable[[Path], None] | None = None,
     on_tick: Callable[[], None] | None = None,
     pending_count: Callable[[], int] | None = None,
+    mic_fallback: bool = False,
 ) -> None:
-    """Run the asyncio-free main loop. Updates UI, polls worker results, watches heartbeat."""
+    """Run the asyncio-free main loop: poll worker results, refresh state,
+    publish control-plane snapshots, watch the capture heartbeat."""
 
     def _depth() -> int:
         return pending_count() if pending_count is not None else worker.queue_depth
 
-    while not stop_flag.is_set():
-        if read_key is not None and on_key is not None:
-            while True:
-                key = read_key()
-                if key is None:
-                    break
-                on_key(key)
-                if stop_flag.is_set():
-                    break
-            if stop_flag.is_set():
-                break
+    # Mic-doctor bookkeeping. Staleness is measured in monotonic (awake) time
+    # so waking from sleep gives the stream a grace period to resume on its
+    # own before we recycle it.
+    prev_mic_last = capture.mic_last_callback_at
+    last_mic_progress = time.monotonic()
+    last_mic_reclaim = time.monotonic()
+    mic_ever_active = False
 
+    while not stop_flag.is_set():
         if pump_commands is not None:
             pump_commands()
             if stop_flag.is_set():
@@ -893,17 +942,71 @@ def _main_loop(
             else:
                 state.clear_warning("heartbeat")
 
+        # Mic doctor: while capture runs on a fallback microphone (the
+        # configured one was absent at startup — e.g. Bluetooth earbuds that
+        # connect shortly after login), or a mic that once worked stopped
+        # delivering audio (device vanished after sleep/wake), periodically
+        # refresh the device list and reopen on the best device available.
+        mic_ever_active = mic_ever_active or capture.mic_active
+        mic_last = capture.mic_last_callback_at
+        if mic_last != prev_mic_last:
+            prev_mic_last = mic_last
+            last_mic_progress = time.monotonic()
+        if not state.paused:
+            mic_dead = mic_ever_active and (
+                not capture.mic_active
+                or time.monotonic() - last_mic_progress > _MIC_RESTART_STALE_SECONDS
+            )
+            if (
+                ((mic_fallback and cfg.input_device) or mic_dead)
+                and time.monotonic() - last_mic_reclaim >= _MIC_RECLAIM_INTERVAL_SECONDS
+            ):
+                last_mic_reclaim = time.monotonic()
+                log.debug(
+                    "mic_reclaim_attempt",
+                    requested=cfg.input_device,
+                    mic_fallback=mic_fallback,
+                    mic_dead=mic_dead,
+                )
+                resolution = capture.reclaim_mic(cfg.input_device)
+                if resolution is not None and resolution.device is not None:
+                    if not resolution.fallback_used:
+                        if mic_fallback:
+                            state.push_event(
+                                "info",
+                                f"microphone reclaimed: '{resolution.device.name}'",
+                            )
+                            log.info("mic_reclaimed", device=resolution.device.name)
+                        mic_fallback = False
+                        state.clear_warning("microphone")
+                    else:
+                        # Landed on a fallback device — keep trying to claim
+                        # the configured one on later ticks.
+                        mic_fallback = bool(cfg.input_device)
+                        if resolution.warning:
+                            state.set_warning("microphone", resolution.warning)
+
         # Worker result drain (non-blocking).
         result = worker.poll_result(timeout=0.0)
         if result is not None:
             seq = result["chunk_seq"]
             on_result(seq)
             if result["ok"]:
-                tp = Path(result["transcript_path"])
-                state.update(last_saved=tp, queue_depth=_depth())
-                state.push_event("info", f"chunk {seq:03d} → {tp.name}")
-                if on_written is not None:
-                    on_written(tp)
+                transcript_path = result.get("transcript_path")
+                if transcript_path is not None:
+                    tp = Path(transcript_path)
+                    state.update(last_saved=tp, queue_depth=_depth())
+                    state.push_event("info", f"chunk {seq:03d} → {tp.name}")
+                    if on_written is not None:
+                        on_written(tp)
+                elif result.get("skipped_empty"):
+                    state.update(queue_depth=_depth())
+                    state.push_event("info", "no speech detected — nothing saved")
+                else:
+                    state.push_event(
+                        "error",
+                        f"chunk {seq:03d} produced no transcript path",
+                    )
             else:
                 state.push_event(
                     "error",
@@ -913,7 +1016,7 @@ def _main_loop(
         if on_tick is not None:
             on_tick()
 
-        # UI render-state refresh.
+        # Render-state refresh (feeds the control-plane snapshot).
         peaks = capture.peak_levels_db()
         screenshot_fields: dict[str, object] = {}
         if screenshot_status is not None:
@@ -934,9 +1037,6 @@ def _main_loop(
 
         if publish_state is not None:
             publish_state()
-
-        if ui is not None:
-            ui.update()
 
         time.sleep(0.125)  # 8 Hz
 
@@ -982,7 +1082,21 @@ def run_recover(
                 continue
             seen += 1
             if result["ok"]:
-                _print(f"[ok]   chunk {result['chunk_seq']:03d} → {result['transcript_path']}")
+                if result.get("transcript_path") is not None:
+                    _print(
+                        f"[ok]   chunk {result['chunk_seq']:03d} "
+                        f"→ {result['transcript_path']}"
+                    )
+                elif result.get("skipped_empty"):
+                    _print(
+                        f"[skip] chunk {result['chunk_seq']:03d}: "
+                        "no speech detected"
+                    )
+                else:
+                    _print(
+                        f"[fail] chunk {result['chunk_seq']:03d}: "
+                        "worker produced no transcript path"
+                    )
             else:
                 _print(f"[fail] chunk {result['chunk_seq']:03d}: {result['error'].splitlines()[0]}")
         worker.stop(drain_timeout=5.0)

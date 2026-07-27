@@ -3,8 +3,9 @@
 Design goals:
 
 - Zero added dependencies (stdlib ``urllib`` only).
-- Non-blocking startup: prints from a 24 h disk cache; refreshes in a daemon
-  thread.
+- Non-blocking startup: prints from a 24 h disk cache and refreshes in a
+  background thread. The thread is non-daemon so interpreter shutdown cannot
+  race an in-flight TLS/OpenSSL operation.
 - Tells the user the *exact* upgrade command for their install method
   (``uv tool``, ``pipx``, ``brew``) by inspecting ``sys.executable``.
 - Silent on network failures, non-TTY stderr, editable installs, and when the
@@ -155,7 +156,11 @@ def _cache_is_stale(cached: dict[str, Any] | None) -> bool:
 
 
 def _spawn_refresh() -> None:
-    threading.Thread(target=_refresh, name="huske-update-check", daemon=True).start()
+    # A daemon thread may still be inside OpenSSL when a short CLI command
+    # exits. OpenSSL's process cleanup would then race the live refresh thread,
+    # which can segfault the interpreter. A non-daemon thread keeps startup
+    # asynchronous while making interpreter shutdown wait for the refresh.
+    threading.Thread(target=_refresh, name="huske-update-check", daemon=False).start()
 
 
 def _refresh() -> None:

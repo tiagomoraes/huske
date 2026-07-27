@@ -156,6 +156,7 @@ class HeuristicDistiller:
 def build_distiller(
     model: str,
     *,
+    backend: str = "mlx",
     endpoint: str = "http://127.0.0.1:11434",
     timeout: float = 120.0,
     max_statements: int = 8,
@@ -163,16 +164,22 @@ def build_distiller(
 ) -> Distiller:
     """Construct the distiller for ``model``.
 
-    ``heuristic`` / ``fake`` → the dependency-free test distiller; anything else
-    → an Ollama-backed distiller pointed at ``endpoint``. ``think`` enables the
-    model's reasoning pass (off by default; extraction does not need it).
+    ``heuristic`` / ``fake`` → the dependency-free test distiller. Backend
+    ``ollama`` → a daemon-backed distiller pointed at ``endpoint`` (``think``
+    enables its reasoning pass; extraction does not need it). Anything else →
+    the built-in MLX backend, which runs the model itself in an isolated
+    subprocess (no daemon; downloads from Hugging Face on first use).
     """
     if model in ("heuristic", "fake"):
         return HeuristicDistiller(max_statements=max_statements)
-    from huske.distill.client import OllamaClient
+    if backend == "ollama":
+        from huske.distill.client import OllamaClient
 
-    client = OllamaClient(endpoint, timeout=timeout)
-    return OllamaDistiller(client, model, max_statements=max_statements, think=think)
+        client = OllamaClient(endpoint, timeout=timeout)
+        return OllamaDistiller(client, model, max_statements=max_statements, think=think)
+    from huske.distill.mlx_backend import MLXDistiller
+
+    return MLXDistiller(model, max_statements=max_statements, timeout=timeout)
 
 
 def distill_transcript(

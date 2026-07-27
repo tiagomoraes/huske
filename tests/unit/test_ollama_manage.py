@@ -97,6 +97,32 @@ def test_ensure_ready_skips_management_when_disabled(monkeypatch: pytest.MonkeyP
     assert started == []
 
 
+@pytest.mark.parametrize(("backend", "reason"), [("mlx", "no_runtime"), ("heuristic", "no_daemon")])
+def test_ensure_ready_is_inert_on_other_backends(
+    monkeypatch: pytest.MonkeyPatch, backend: str, reason: str
+) -> None:
+    """The default backend is `mlx`, so most users must never touch this path.
+
+    Auto-management manages *Ollama*. On any other backend a failing probe is
+    someone else's problem — starting a daemon nobody asked for, for a model
+    the backend doesn't even use, would be worse than the failure it reports.
+    """
+    down = Readiness(False, "not ready", "hint", reason=reason)
+    monkeypatch.setattr(ollama_manage, "probe_distill", _seq(down))
+    touched: list[str] = []
+    monkeypatch.setattr(
+        ollama_manage, "start_daemon", lambda *_a, **_k: touched.append("start") or True
+    )
+    monkeypatch.setattr(
+        ollama_manage, "pull_model", lambda *_a, **_k: touched.append("pull") or True
+    )
+
+    result = ollama_manage.ensure_ready("qwen3.5:0.8b", backend=backend, auto_manage=True)
+
+    assert result is down, "the probe result should pass straight through"
+    assert touched == [], "auto-management must not run"
+
+
 def test_ensure_ready_no_cli_does_not_attempt_start(monkeypatch: pytest.MonkeyPatch) -> None:
     down = Readiness(False, "unreachable", "hint", reason="unreachable")
     monkeypatch.setattr(ollama_manage, "probe_distill", _seq(down))

@@ -1,9 +1,9 @@
 """Durable send-outbox: which transcripts the huske server has acknowledged.
 
-A finalized Transcript is immutable (one Chunk → one Transcript), so the unit of
-truth is ``(rel_path, content_hash)``: once the server acks that pair we never
-re-send it. If a Mac records while offline, the rows simply aren't there yet and
-the next reconcile picks them up. Stdlib ``sqlite3`` only — no extra deps.
+A persisted Transcript is immutable, so the unit of truth is
+``(rel_path, content_hash)``: once the server acks that pair we never re-send
+it. If a Mac records while offline, the rows simply aren't there yet and the
+next reconcile picks them up. Stdlib ``sqlite3`` only — no extra deps.
 """
 
 from __future__ import annotations

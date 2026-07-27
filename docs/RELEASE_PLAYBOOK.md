@@ -115,8 +115,10 @@ The script:
 2. Creates annotated tag `v$VERSION` and pushes it.
 3. Extracts `## $VERSION` from `CHANGELOG.md` as release notes.
 4. `gh release create v$VERSION --verify-tag …` — this triggers
-   `.github/workflows/release.yml`, which builds sdist + wheel and
-   publishes to PyPI via trusted publishing.
+   `.github/workflows/release.yml`, which builds sdist + wheel, publishes
+   to PyPI via trusted publishing, and builds + attaches `Huske.app.zip`
+   (ad-hoc signed; the website's download button points at
+   `releases/latest/download/Huske.app.zip`).
 5. Polls until the workflow finishes (default 180 s).
 6. Opens the back-merge PR `chore/sync-main-after-v$VERSION` from a temp
    branch (NOT `head=main` — that would auto-delete `main` because of

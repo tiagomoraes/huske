@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "huske"
-version = "0.10.0"
+version = "0.11.1"
 description = "Always-on terminal audio recorder + local transcription (Parakeet / Whisper on Apple Silicon)"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
@@ -31,6 +31,10 @@ dependencies = [
     # engine; mlx-whisper stays available via `asr_engine = "whisper"`.
     "parakeet-mlx>=0.5; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "mlx-whisper>=0.4; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    # Built-in LLM distillation backend (`distill_backend = "mlx"`, the
+    # default): huske runs the model itself in an isolated subprocess — no
+    # external daemon. Rides the same MLX/Metal stack as transcription.
+    "mlx-lm>=0.22; sys_platform == 'darwin' and platform_machine == 'arm64'",
     # Used by the engines to resample 48 kHz capture to the 16 kHz both models
     # want, without shelling out to ffmpeg. Small, ships wheels for Apple Silicon.
     "soxr>=0.3; sys_platform == 'darwin' and platform_machine == 'arm64'",

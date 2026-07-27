@@ -257,6 +257,11 @@ def main() -> int:
             "formula manually. The script does not auto-insert because the "
             "block ordering matters for readability."
         )
+        print(
+            "\nNote `brew style` and `brew audit` both PASS with these missing "
+            "— only `brew install --build-from-source` catches it, so do not "
+            "skip that step. (v0.11.0 shipped needing six: the mlx-lm stack.)"
+        )
     if removed:
         print(f"\nWARN: formula has {len(removed)} resources no longer in pip report:")
         for name in removed:
@@ -277,6 +282,14 @@ def main() -> int:
         f"    git commit -m 'Update huske to v{version}'\n"
         f"    git push\n"
     )
+    # Non-zero when the formula is knowingly incomplete: the resource list has
+    # to be edited by hand, and a green exit reads as "tap is ready to push".
+    # The formula is still written — this is "not finished", not "failed".
+    if added or removed:
+        print(
+            "Exiting non-zero: the resource list above still needs hand-editing.\n"
+        )
+        return 1
     return 0
 
 

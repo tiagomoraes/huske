@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -41,11 +41,36 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+  build-app:
+    name: Build Huske.app
+    runs-on: macos-15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Build and package Huske.app
+        run: ./macos/scripts/build-app.sh
+
+      # Stable asset name — the website's download button points at
+      # releases/latest/download/Huske.app.zip. Ad-hoc signed (no notarization);
+      # the site documents the right-click → Open first launch.
+      - name: Zip the app bundle
+        run: ditto -c -k --keepParent macos/dist/Huske.app Huske.app.zip
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: huske-app
+          path: Huske.app.zip
+          if-no-files-found: error
+
   attach-github-assets:
     name: Attach GitHub release assets
     if: ${{ github.event_name == 'release' }}
     needs:
       - build
+      - build-app
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -57,10 +82,18 @@ jobs:
           name: python-package-distributions
           path: dist
 
+      - name: Download app artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: huske-app
+          path: app
+
       - name: Upload distributions to release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${GITHUB_REF_NAME}" dist/* --clobber --repo "${GITHUB_REPOSITORY}"
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" dist/* --clobber --repo "${GITHUB_REPOSITORY}"
+          gh release upload "${GITHUB_REF_NAME}" app/Huske.app.zip --clobber --repo "${GITHUB_REPOSITORY}"
 
   publish-pypi:
     name: Publish to PyPI
