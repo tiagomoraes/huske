@@ -6,6 +6,8 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.11.1 - 2026-07-27
+
 ### Fixed
 
 - **Autostart no longer pins the wrong microphone for the whole session.**

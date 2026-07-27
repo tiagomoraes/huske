@@ -147,7 +147,7 @@ session-only — set `distill_enabled` in config to make it the default.
 For prerelease builds or exact GitHub tags, install directly from the repository:
 
 ```bash
-uv tool install "git+https://github.com/tiagomoraes/huske.git@v0.11.0"
+uv tool install "git+https://github.com/tiagomoraes/huske.git@v0.11.1"
 ```
 
 See [quickstart.md](specs/001-huske-recorder/quickstart.md) for the full setup.
