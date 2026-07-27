@@ -784,10 +784,19 @@ def run_session(
                 seq = result["chunk_seq"]
                 on_result(seq)
                 if result["ok"]:
-                    tp = Path(result["transcript_path"])
-                    state.update(last_saved=tp)
-                    on_event("info", f"chunk {seq:03d} → {tp.name}")
-                    _on_written(tp)
+                    transcript_path = result.get("transcript_path")
+                    if transcript_path is not None:
+                        tp = Path(transcript_path)
+                        state.update(last_saved=tp)
+                        on_event("info", f"chunk {seq:03d} → {tp.name}")
+                        _on_written(tp)
+                    elif result.get("skipped_empty"):
+                        on_event("info", "no speech detected — nothing saved")
+                    else:
+                        on_event(
+                            "error",
+                            f"chunk {seq:03d} produced no transcript path",
+                        )
                 else:
                     on_event(
                         "error",
@@ -894,11 +903,21 @@ def _main_loop(
             seq = result["chunk_seq"]
             on_result(seq)
             if result["ok"]:
-                tp = Path(result["transcript_path"])
-                state.update(last_saved=tp, queue_depth=_depth())
-                state.push_event("info", f"chunk {seq:03d} → {tp.name}")
-                if on_written is not None:
-                    on_written(tp)
+                transcript_path = result.get("transcript_path")
+                if transcript_path is not None:
+                    tp = Path(transcript_path)
+                    state.update(last_saved=tp, queue_depth=_depth())
+                    state.push_event("info", f"chunk {seq:03d} → {tp.name}")
+                    if on_written is not None:
+                        on_written(tp)
+                elif result.get("skipped_empty"):
+                    state.update(queue_depth=_depth())
+                    state.push_event("info", "no speech detected — nothing saved")
+                else:
+                    state.push_event(
+                        "error",
+                        f"chunk {seq:03d} produced no transcript path",
+                    )
             else:
                 state.push_event(
                     "error",
@@ -974,7 +993,21 @@ def run_recover(
                 continue
             seen += 1
             if result["ok"]:
-                _print(f"[ok]   chunk {result['chunk_seq']:03d} → {result['transcript_path']}")
+                if result.get("transcript_path") is not None:
+                    _print(
+                        f"[ok]   chunk {result['chunk_seq']:03d} "
+                        f"→ {result['transcript_path']}"
+                    )
+                elif result.get("skipped_empty"):
+                    _print(
+                        f"[skip] chunk {result['chunk_seq']:03d}: "
+                        "no speech detected"
+                    )
+                else:
+                    _print(
+                        f"[fail] chunk {result['chunk_seq']:03d}: "
+                        "worker produced no transcript path"
+                    )
             else:
                 _print(f"[fail] chunk {result['chunk_seq']:03d}: {result['error'].splitlines()[0]}")
         worker.stop(drain_timeout=5.0)

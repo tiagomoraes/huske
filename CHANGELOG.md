@@ -75,6 +75,13 @@ This project uses semantic versioning after the first public release.
   **`huske devices [--json]`** — list microphone inputs and how the
   configured one resolves.
 
+- **Silent chunks no longer become files.** A chunk whose transcription
+  produced no text is not written at all, instead of persisting a transcript
+  whose whole body is `_(no speech detected)_`. `huske run` reports
+  "no speech detected — nothing saved" and `huske recover` skips the chunk.
+  Huske.app hides the legacy placeholder files already on disk, so the
+  transcript list stops filling with empty days.
+
 ### Removed
 
 - **The Rich terminal live panel.** `huske run` is now a headless engine:

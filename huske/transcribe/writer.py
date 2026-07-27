@@ -65,6 +65,18 @@ def write_transcript(t: Transcript, target: Path) -> Path:
     return final
 
 
+def write_transcript_if_nonempty(t: Transcript, target: Path) -> Path | None:
+    """Write ``t`` only when it contains substantive transcript text.
+
+    The renderer still understands empty transcripts for compatibility with
+    older files and direct callers, but the live transcription pipeline should
+    not turn an ASR result containing only whitespace into a persisted chunk.
+    """
+    if not t.body or not t.body.strip():
+        return None
+    return write_transcript(t, target)
+
+
 def build_transcript_from_segments(
     *,
     session_id: str,
@@ -125,8 +137,8 @@ def body_from_source_segments(
     the rendered transcript; a run is also broken when it exceeds
     ``_MAX_RUN_DURATION_SECONDS`` so long monologues keep periodic timestamp
     anchors. Empty/missing ``source`` never merges with a neighboring run.
-    Returns ``""`` if nothing remains — the caller (the transcript renderer)
-    substitutes the "no speech detected" placeholder.
+    Returns ``""`` if nothing remains. The live pipeline skips persistence in
+    that case; the renderer still supports the legacy no-speech placeholder.
     """
     blocks: list[str] = []
     current_source: str | None = None
