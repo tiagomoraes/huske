@@ -32,10 +32,13 @@ it about your day.
   built-in capture APIs. Grant the macOS audio/screen capture permission once.
 - **Local transcription** — [Parakeet](https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3)
   (`parakeet-tdt-0.6b-v3`) on the Apple Silicon GPU via MLX. It is multilingual
-  (auto-detected, ~25 languages) and, being a transducer, emits nothing on
-  silence instead of hallucinating repeated filler the way Whisper does. Audio
-  never leaves your machine. `--asr-engine whisper` keeps the legacy mlx-whisper
-  path.
+  (~25 languages) and, being a transducer, emits nothing on silence instead of
+  hallucinating repeated filler the way Whisper does. Audio never leaves your
+  machine. Parakeet *infers* the language per decode window and cannot be told
+  which one, so if you speak a non-English language mixed with English jargon
+  and need the transcript pinned to one language, use the Whisper engine, whose
+  decoder takes a language token:
+  `--asr-engine whisper --model large-v3-turbo --language pt`.
 - **Speech-gated segmentation** — files split on real pauses in speech, not a
   fixed clock: a chunk opens when speech starts and closes after a pause
   (`--silence-split`, default 45 s) or at the `--chunk-minutes` cap (default
@@ -53,9 +56,16 @@ it about your day.
   the mic and system are captured on independent clocks — see the PR notes.)
 - **Resilient** — graceful stop finalizes the partial chunk; SIGKILL + restart
   auto-recovers orphaned audio.
-- **Pretty terminal UI** — Rich Live panel with countdown, mic + system level
-  meters, queue depth, last-saved transcript, rolling event log, and runtime
-  controls for pause/resume and screenshots.
+- **Native macOS app** — huske's face: live level meters, start/stop/pause,
+  a ⌘K command palette, mid-session toggles, a transcript browser with search,
+  a Doctor pane, an engine-validated settings editor, and open-at-login +
+  record-on-open switches, plus a menu bar extra. It also attaches to sessions
+  started from the terminal or at login. Built from source in `macos/`; see
+  [docs/macos-app.md](docs/macos-app.md).
+- **Headless engine** — `huske run` records with no UI chrome: plain progress
+  lines on stdout and a macOS menu bar item for pause/screenshots/stop. Ideal
+  under a LaunchAgent or over SSH. (The old Rich terminal panel was retired
+  in favor of the app — see `docs/adr/0007-app-first-retire-the-tui.md`.)
 - **LLM-ready output** — every transcript is a single Markdown file with full
   YAML frontmatter; the directory layout is documented in
   `~/huske/transcripts/README.md` (auto-generated).
@@ -116,21 +126,15 @@ requires **Screen Recording** permission and can be interrupted by another app's
 screen share. Run `huske doctor --system-audio-backend tap` if the system level
 meter goes silent during screen sharing.
 
-Runtime controls in the live UI:
+Runtime controls live in the app and the menu bar:
 
-```text
-?       open or close the controls overlay
-
-Inside controls:
-p       pause or resume audio recording
-s       enable or disable periodic screenshots
-d       toggle LLM distillation (statements)
-i       choose microphone input device
-q       graceful stop
-Esc     close controls
-
-Ctrl+C  graceful stop from anywhere
-```
+- **Huske.app** — pause/resume, screenshots, distillation, and microphone
+  switching from the Record pane — or from anywhere via the ⌘K command
+  palette.
+- **Menu bar** — terminal and LaunchAgent sessions get a huske menu bar item
+  with pause/resume, screenshots, distillation, and stop.
+- **Ctrl+C** — graceful stop for terminal sessions (finalizes the current
+  chunk and drains pending transcriptions).
 
 Pausing finalizes the current partial chunk and stops writing audio until you
 resume. Toggling screenshots takes effect immediately, using the configured
@@ -143,16 +147,21 @@ session-only — set `distill_enabled` in config to make it the default.
 For prerelease builds or exact GitHub tags, install directly from the repository:
 
 ```bash
-uv tool install "git+https://github.com/tiagomoraes/huske.git@v0.10.0"
+uv tool install "git+https://github.com/tiagomoraes/huske.git@v0.11.0"
 ```
 
 See [quickstart.md](specs/001-huske-recorder/quickstart.md) for the full setup.
 
 ### Run on login (macOS)
 
-`huske autostart install` registers a per-user
+The easiest way is in **Huske.app → Configuration → This app**: switch on
+*Open Huske at login* and *Start recording when Huske opens* — your Mac
+records from the moment you sign in, with the app as the UI.
+
+Prefer no app at all? `huske autostart install` registers a per-user
 [LaunchAgent](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html)
-that runs `huske run --no-ui` automatically every time you log in.
+that runs a headless `huske run` automatically every time you log in (the
+menu bar item is then the only UI).
 
 ```bash
 # Install — writes ~/Library/LaunchAgents/me.huske.plist and loads it now.
@@ -164,7 +173,7 @@ huske autostart install --config ~/.config/huske/config.toml --log-level DEBUG
 # Show current state (installed, loaded, pid, last exit code).
 huske autostart status
 
-# Manually start/stop without uninstalling.
+# Manually start/stop without uninstalling (repeated stop is a no-op).
 huske autostart start
 huske autostart stop
 
@@ -184,7 +193,7 @@ Settings → Privacy & Security. If the prompts don't appear after login, run
 `huske autostart start` once from the terminal so they fire while you're
 present.
 
-**Logs.** The agent has no TUI; stdout and stderr are appended to:
+**Logs.** The agent is headless; stdout and stderr are appended to:
 
 ```text
 ~/Library/Logs/huske/agent.out.log
@@ -447,6 +456,7 @@ metadata can contain private or legally sensitive information.
 - [Transcript format contract](specs/001-huske-recorder/contracts/transcript-format.md) — the LLM-consumer interface.
 - [Quickstart](specs/001-huske-recorder/quickstart.md) — end-to-end setup.
 - [Glossary](CONTEXT.md) — domain language (Chunk, Segment, Passage, …).
+- [macOS app](docs/macos-app.md) — the native SwiftUI app over the same engine.
 - [Off-device server](docs/server.md) — replicate transcripts to a VPS and serve
   them to a co-located agent (opt-in).
 - [Transcript distillation](docs/distillation.md) — distil transcripts into

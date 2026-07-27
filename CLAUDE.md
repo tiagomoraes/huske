@@ -7,9 +7,29 @@ contribution rules live in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Project Shape
 
-- Python CLI/TUI package in `huske/` (entry point: `huske.cli:app`, exposed as
-  the `huske` console script — subcommands: `run`, `recover`, `doctor`, and the
-  opt-in `index` / `mcp` for local semantic search).
+- Python CLI package in `huske/` (entry point: `huske.cli:app`, exposed as
+  the `huske` console script — subcommands: `run` (headless engine), `recover`,
+  `doctor`, `devices`, `config`, and the opt-in `index` / `mcp` for local
+  semantic search). There is no terminal UI anymore — the macOS app is the
+  face; `--no-ui` survives as a hidden no-op (ADR 0007).
+- Native macOS app in `macos/` (SwiftPM: `HuskeKit` library + `Huske` SwiftUI
+  executable + XCTests). It is a shell over the engine's control socket and
+  CLI — never re-implement pipeline logic there (ADR 0006). Build/test with
+  `cd macos && swift build && swift test`; package with
+  `macos/scripts/build-app.sh`. When you add snapshot fields or commands to
+  `huske/ipc/protocol.py`, mirror them in
+  `macos/Sources/HuskeKit/ControlProtocol.swift` (add-only, defaulted) and
+  update both test suites. CI enforces this: the `swift` job runs
+  `PythonInteropTests`, which drives the real `ControlServer` with the Swift
+  client, so an unmirrored rename fails the build. Run it locally with
+  `HUSKE_INTEROP_PYTHON=$(command -v python3) PYTHONPATH=$PWD swift test
+  --filter PythonInterop` from `macos/` (it needs an *absolute* interpreter
+  path — `Foundation.Process` does not search `PATH`).
+- Which engine the app drives is decided by version, not install location:
+  `BinaryLocator` probes every candidate and picks the newest, since a Mac
+  often has several engines that upgrade at different times. Never compare
+  version strings lexically (`0.9.0` > `0.11.0`); use `EngineVersion`. See the
+  0.11.1 amendment in `docs/adr/0006-native-macos-app.md`.
 - Unit and integration tests in `tests/`.
 - Product specs and contracts in `specs/001-huske-recorder/`.
 - Public contributor documentation in `README.md`, `CONTRIBUTING.md`, and
@@ -51,10 +71,11 @@ modules that pass audio through a single pipeline:
 to the worker, and moves invalid ones to `incomplete/`. `session.py` holds
 a per-session lockfile that recovery uses to detect orphans.
 
-`ui/live.py` is a Rich Live panel driven by `RenderState` (in `models.py`),
-which the orchestrator updates at ~8 Hz. `--no-ui` swaps the live panel for
-plain stdout. UI state is read-only from the UI's perspective — only the
-orchestrator mutates it.
+`RenderState` (in `models.py`) is the live session state the orchestrator
+updates at ~8 Hz; `build_control_snapshot()` serializes it onto the control
+socket for the macOS app and the menu bar helper. Only the orchestrator
+mutates it. (The Rich terminal panel that used to render it was removed —
+ADR 0007; `huske run` prints plain progress lines instead.)
 
 `config.py` merges YAML config + CLI overrides into a single immutable
 `RuntimeConfig` (Pydantic). `paths.py` derives every filesystem path from

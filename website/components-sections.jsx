@@ -231,7 +231,7 @@ const DAYS = [
 // Mirrors the README that huske writes to <output_root>/README.md
 // (transcript-format.md, "Auto-generated README" section).
 const LEDGER_README = [
-  "This directory is managed by the huske terminal app. Each subdirectory is a local calendar date in YYYY-MM-DD form, holding all transcripts whose chunk start time falls on that date.",
+  "This directory is managed by huske. Each subdirectory is a local calendar date in YYYY-MM-DD form, holding all transcripts whose chunk start time falls on that date.",
   "Each .md file is a single transcribed audio chunk; filenames sort chronologically (HHMMSS_<sessionid8>_<seq>.md). The YAML frontmatter at the top of each file is the authoritative metadata.",
   "To query: an LLM agent can be pointed at this directory and asked to read files by date/time. No bespoke tooling is required.",
 ];
@@ -722,7 +722,22 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.10.0", date: "2026-06-29", tag: "latest",
+    ver: "0.11.0", date: "2026-07-27", tag: "latest",
+    items: [
+      { kind: "added", text: <><strong>Huske.app — a native Mac app, now huske's UI.</strong> A SwiftUI app over the headless engine: start/stop/pause with live mic and system meters, chunk and queue state, a live activity feed, mid-session screenshot and distillation toggles, live microphone switching, a day-grouped transcript browser with full-text search, a Doctor pane, an engine-validated Configuration editor, a menu bar extra, and crash recovery. It attaches to a session started from a terminal or at login, and quitting while recording drains gracefully like Ctrl+C. Download <code>Huske.app.zip</code> above, or see <code>docs/macos-app.md</code>.</> },
+      { kind: "added", text: <><strong>⌘K command palette.</strong> Every session and navigation action — start/stop/pause, screenshots, distillation, panes, doctor, recovery, folders, settings — behind one fuzzy-searchable, keyboard-first palette.</> },
+      { kind: "added", text: <><strong>Record from the moment you log in, and install in one click.</strong> <em>Open Huske at login</em> and <em>Start recording when Huske opens</em> replace the LaunchAgent as the everyday autostart (the <code>huske autostart</code> LaunchAgent remains for menu-bar-only setups). Onboarding detects uv or Homebrew and installs — or upgrades — the engine with a single button, streaming the package manager's output into the window.</> },
+      { kind: "added", text: <><strong>Built-in distillation — Ollama is no longer required.</strong> <code>distill_backend</code> now defaults to <code>"mlx"</code>: huske runs the distillation LLM itself in an isolated subprocess, downloading <code>Qwen3.5-0.8B-4bit</code> (~0.6 GB) on first use exactly like the Parakeet weights, and idle-unloading it like the transcribe worker. Nothing to install or keep running. <code>distill_backend = "ollama"</code> still delegates to a local daemon.</> },
+      { kind: "added", text: <><strong>Transcripts that stay in the language you speak.</strong> Parakeet has no language input — it infers one per decode window — and on speech mixing a non-English language with English jargon that guess is unstable enough that a 0.2 s shift in a window boundary can flip two minutes of Portuguese into English. <code>language</code> now reaches the engine and drives a drift guard that re-decodes a window which collapsed into English. To <em>guarantee</em> a language, use the Whisper engine, whose decoder takes a real language token — <code>huske doctor</code> now says so plainly instead of letting the setting look enforced. Whisper also gained <code>large-v3-turbo</code>, faster <em>and</em> more accurate than <code>medium</code>.</> },
+      { kind: "added", text: <><strong>A control protocol for external UIs.</strong> <code>huske run --control-socket PATH</code> serves the JSON-line protocol at an explicit socket. Snapshots carry peak levels, chunk and session timing, warnings, recent events, output paths, and the active input device; clients can switch the microphone and list devices over the socket. Plus <code>huske config show|set|unset</code> and <code>huske devices</code> for editing config and inspecting inputs from the command line.</> },
+      { kind: "changed", text: <><strong>Silent chunks no longer become files.</strong> A chunk whose transcription produced no text is not written at all, instead of leaving a transcript whose whole body is <code>(no speech detected)</code>. <code>huske run</code> reports "no speech detected — nothing saved"; the app hides the placeholder files already on disk, so the transcript list stops filling with empty days.</> },
+      { kind: "changed", text: <><strong>The transport follows you through the app, and the transcript list stays fast.</strong> Recording state and its controls live in the sidebar — status pill, elapsed time, live meters — so you can watch levels from any pane and stop from anywhere. Transcripts are newest-first throughout, paged as you scroll, and a rescan reuses cached per-file verdicts keyed by size and mtime, so a refresh reads only the chunk that just landed.</> },
+      { kind: "removed", text: <><strong>The Rich terminal live panel.</strong> <code>huske run</code> is a headless engine now: plain progress lines on stdout, with Huske.app and the menu bar item as the interactive UIs. The <code>?</code>/<code>p</code>/<code>s</code>/<code>d</code>/<code>i</code>/<code>q</code> keyboard controls went with it; <code>--no-ui</code> remains an accepted no-op so existing launchers keep working.</> },
+      { kind: "fixed", text: <>The elapsed clock freezes when you stop instead of counting through the drain and overstating the session. Clicking the Dock icon reopens a closed window. Hover works everywhere again — the pointer-cursor overlay was swallowing AppKit mouse tracking — and every control now has its designed hover, pressed, and disabled states.</> },
+    ],
+  },
+  {
+    ver: "0.10.0", date: "2026-06-29",
     items: [
       { kind: "added", text: <><strong>Toggle distillation live from the TUI and menu bar.</strong> Distillation no longer has to be chosen at launch — press <code>d</code> in the live UI's <code>?</code> controls overlay, or pick <strong>Toggle distillation</strong> from the macOS menu-bar dropdown, to turn it on or off for the running session. Turning it on first runs the same readiness check as <code>huske doctor</code> (LLM daemon reachable, model pulled) and warns with a fix-it hint if not. It's session-only, so <code>distill_enabled</code> still sets the default.</> },
     ],
@@ -956,7 +971,7 @@ const FAQ = () => (
         <details>
           <summary>What permissions does it need on macOS? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>Microphone permission for your terminal, plus Audio Capture for the Core Audio tap on macOS 14.4+ or Screen Recording for the ScreenCaptureKit fallback. Screenshots also use Screen Recording. Run <code>huske doctor</code> first — it checks the effective backend and explains what's missing.</p>
+            <p>Microphone permission for Huske.app (or your terminal, when running the engine directly), plus Audio Capture for the Core Audio tap on macOS 14.4+ or Screen Recording for the ScreenCaptureKit fallback. Screenshots also use Screen Recording. The app's Doctor pane — or <code>huske doctor</code> — checks the effective backend and explains what's missing.</p>
           </div>
         </details>
         <details>
@@ -982,8 +997,8 @@ const FAQ = () => (
         <details>
           <summary>What is transcript distillation? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>An opt-in second stage for search. Set <code>distill_enabled = true</code> and a <strong>local</strong> LLM condenses each transcript into compact, self-contained <em>statements</em> — the decisions, facts, and commitments, minus the filler. huske embeds those into a separate index and your agent searches them first, then <code>fetch</code> grounds every hit back in the verbatim transcript. Denser recall for "what did we decide about X," with the source always one hop away.</p>
-            <p>It runs through a local daemon (Ollama), adds no Python dependency, and is off by default. The model is just a config string — the default <code>qwen3.5:0.8b</code> is the lightest tier and runs across the Apple-Silicon range; swap to <code>qwen3.5:0.8b-mlx</code> for the explicit MLX fast path, or any local tag. Fully on-device, and it degrades gracefully: if the daemon is down, recording and ordinary search carry on. Run <code>huske distill</code> to backfill your history. See the <a href="docs/#search">docs</a>.</p>
+            <p>An opt-in second stage for search. Flip it on in the app (Configuration → Distillation, or mid-session from the Record pane / ⌘K palette) and a <strong>local</strong> LLM condenses each transcript into compact, self-contained <em>statements</em> — the decisions, facts, and commitments, minus the filler. huske embeds those into a separate index and your agent searches them first, then <code>fetch</code> grounds every hit back in the verbatim transcript. Denser recall for "what did we decide about X," with the source always one hop away.</p>
+            <p>By default huske runs the model itself (built-in MLX backend — nothing to install; the default <code>Qwen3.5 0.8B</code> downloads on first use like the Parakeet weights), or point <code>distill_backend = "ollama"</code> at your own daemon. Fully on-device, off by default, and it degrades gracefully: if the model isn't ready, recording and ordinary search carry on. Run <code>huske distill</code> to backfill your history. See the <a href="docs/#search">docs</a>.</p>
           </div>
         </details>
         <details>
@@ -995,7 +1010,13 @@ const FAQ = () => (
         <details>
           <summary>How do I configure chunk length, model, output path? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>Flags: <code>--chunk-minutes</code> (0.1–60), <code>--model</code> (default <code>base</code>; choices <code>tiny</code>, <code>base</code>, <code>small</code>, <code>medium</code>, <code>large-v3</code>), <code>--output-root</code>, <code>--audio-root</code>, and <code>--system-audio-backend</code> (<code>auto</code>, <code>tap</code>, <code>sck</code>, <code>off</code>). Or set them in <code>~/.config/huske/config.toml</code>.</p>
+            <p>The app's <strong>Configuration</strong> pane edits everything with the engine's own validation — transcription model, chunking, audio backends, storage paths, distillation. The same settings live in <code>~/.config/huske/config.toml</code> and as flags (<code>--chunk-minutes</code>, <code>--output-root</code>, <code>--audio-root</code>, <code>--system-audio-backend</code> …) for scripted runs.</p>
+          </div>
+        </details>
+        <details>
+          <summary>Where did the terminal UI go? <span className="chev">→</span></summary>
+          <div className="answer">
+            <p>Retired in favor of the app — one UI, maintained properly. <code>huske run</code> still exists and records exactly the same; it's just headless now: plain progress lines, <kbd>Ctrl+C</kbd> to stop, a menu bar item for pause/screenshots/stop, and the same Markdown ledger. Terminal, SSH, and LaunchAgent workflows all keep working — you only lose the in-terminal dashboard, which now lives in Huske.app.</p>
           </div>
         </details>
         <details>
@@ -1016,12 +1037,12 @@ const FAQ = () => (
 const SETUP_CARDS = [
   {
     id: "autostart",
-    ph: "run on login",
+    ph: "record from login",
     cmd: "huske autostart install",
-    desc: "Registers a launchd agent that records from every login and restarts itself on crash.",
+    desc: "In the app it's two switches — Open at login + Start recording when Huske opens. This command is the app-less launchd alternative.",
     cta: "Autostart guide",
     href: "docs/#autostart",
-    aria: "Run on login — read the autostart guide",
+    aria: "Record from login — read the autostart guide",
   },
   {
     id: "mcp",
@@ -1038,7 +1059,7 @@ const SetupStrip = () => (
   <section className="setup-strip" aria-label="Set up huske">
     <div className="page">
       <div className="strip-head"><span className="num">→</span><span>go further</span></div>
-      <p className="strip-sub">Two opt-in commands take huske further: record from every login, and search your transcripts straight from your agent.</p>
+      <p className="strip-sub">Two opt-in set-ups take huske further: record from every login, and search your transcripts straight from your agent.</p>
       <div className="strip-grid">
         {SETUP_CARDS.map((c) => (
           <div className="strip-card" key={c.id}>

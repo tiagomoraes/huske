@@ -53,7 +53,7 @@ def list_input_devices() -> list[DeviceInfo]:
     return out
 
 
-def _match_input_device(devices: list[DeviceInfo], name: str) -> DeviceInfo | None:
+def match_input_device(devices: list[DeviceInfo], name: str) -> DeviceInfo | None:
     needle = name.lower()
     for d in devices:
         if d.name.lower() == needle:
@@ -87,7 +87,7 @@ def resolve_input_device_with_fallback(name: str | None) -> DeviceResolution:
     """Resolve the preferred input, falling back to the system default if absent."""
     devices = list_input_devices()
     if name:
-        matched = _match_input_device(devices, name)
+        matched = match_input_device(devices, name)
         if matched is not None:
             return DeviceResolution(device=matched, requested_name=name)
         fallback = _default_input_device(devices)

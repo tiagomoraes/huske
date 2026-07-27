@@ -109,7 +109,7 @@ html { transition: background-color var(--dur-2) var(--ease-standard), color var
 
 .hero-install-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 .hero-install { margin: 0; }
-.hero-install .install { max-width: 100%; }
+.hero-install .install, .hero-install .install-stack { max-width: 100%; }
 
 .hero-secondary {
   display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
@@ -255,7 +255,7 @@ html { transition: background-color var(--dur-2) var(--ease-standard), color var
 .install .foot strong { color: var(--fg); font-weight: 500; }
 
 .hero-install { margin-bottom: 22px; }
-.hero-install .install { max-width: 100%; }
+.hero-install .install, .hero-install .install-stack { max-width: 100%; }
 .hero-secondary {
   display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
   font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.04em;
@@ -270,42 +270,6 @@ html { transition: background-color var(--dur-2) var(--ease-standard), color var
 .hero-secondary .quiet-link:hover .arrow { transform: translateX(2px); }
 .hero-secondary .sep { color: var(--fg-faint); }
 
-/* ================================================================
-   Install section (own dedicated section)
-   ================================================================ */
-.install-section .install-block { display: flex; justify-content: flex-start; }
-.install-section .install { max-width: 640px; width: 100%; }
-.install-section .install-aux {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 56px;
-  margin-top: 56px;
-  padding-top: 40px;
-  border-top: 1px solid var(--border-soft);
-}
-@media (max-width: 880px) { .install-section .install-aux { grid-template-columns: 1fr; gap: 32px; } }
-.install-section .aux-eyebrow {
-  font-family: var(--font-mono); font-size: 11px; color: var(--fg-muted);
-  letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 18px;
-}
-.install-section .aux-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 16px; }
-.install-section .aux-list li {
-  display: grid; grid-template-columns: 36px 1fr; gap: 14px; align-items: baseline;
-  font-size: 14px; line-height: 1.55; color: var(--fg);
-}
-.install-section .aux-list .step {
-  font-family: var(--font-mono); font-size: 11px; color: var(--brand-amber);
-  letter-spacing: 0.06em; padding-top: 2px;
-}
-.install-section .aux-list code { font-size: 13px; }
-.install-section .aux-list .muted { color: var(--fg-muted); font-size: 13px; }
-.install-section .aux-p { font-size: 14.5px; line-height: 1.6; color: var(--fg-muted); margin: 0 0 18px; max-width: 44ch; }
-.install-section .aux-p code { font-size: 12.5px; }
-.install-section .aux-codes {
-  font-family: var(--font-mono); font-size: 12.5px; color: var(--paper-100);
-  background: var(--ink-900); padding: 14px 18px;
-  border-radius: var(--radius-md); border: 1px solid var(--ink-600);
-  display: flex; flex-direction: column; gap: 6px;
-}
-.install-section .aux-prompt { color: #5BA8C9; user-select: none; margin-right: 8px; }
 .tui {
   background: var(--ink-900);
   color: var(--paper-100);
@@ -402,6 +366,145 @@ html { transition: background-color var(--dur-2) var(--ease-standard), color var
 .tui .keys kbd {
   background: #20252D; border: 1px solid #2A2F38; border-bottom-width: 2px;
   border-radius: 3px; padding: 0 6px; color: var(--paper-100); font-size: 11px;
+}
+
+/* ================================================================
+   Huske.app hero demo — the same ink tokens as the app's dark theme
+   ================================================================ */
+.appdemo .app-body { display: flex; min-height: 380px; }
+
+.appdemo .app-side {
+  width: 172px; flex: none;
+  background: #11151B; border-right: 1px solid #20252D;
+  padding: 14px 10px 12px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.appdemo .app-brand { display: flex; align-items: center; gap: 8px; padding: 0 8px 14px; }
+.appdemo .app-brand svg { color: var(--brand-amber); }
+.appdemo .app-word { font-family: var(--font-serif); font-style: italic; font-size: 15px; color: var(--paper-100); }
+.appdemo .app-nav { display: flex; flex-direction: column; gap: 2px; }
+.appdemo .app-nav .item {
+  padding: 6px 9px; border-radius: 6px;
+  font-family: var(--font-sans); font-size: 12.5px; color: #9CA0A8;
+}
+.appdemo .app-nav .item.active { background: rgba(216,138,58,0.14); color: var(--paper-100); font-weight: 600; }
+.appdemo .app-badge {
+  margin-top: auto;
+  border: 1px solid #20252D; background: #0A0D11; border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 10px; letter-spacing: 0.1em; color: var(--paper-100);
+  display: flex; flex-direction: column; gap: 3px;
+}
+.appdemo .app-badge .dot { color: #C84A3A; animation: pulse 1.6s ease-in-out infinite; }
+.appdemo .app-badge .sub { color: #75767A; letter-spacing: 0; font-size: 10.5px; }
+
+.appdemo .app-main { flex: 1; min-width: 0; padding: 14px 18px 12px; display: flex; flex-direction: column; gap: 11px; }
+
+.appdemo .app-topbar { display: flex; align-items: center; gap: 10px; }
+.appdemo .pill.rec {
+  display: inline-flex; align-items: center; gap: 7px;
+  border: 1px solid rgba(200,74,58,0.38); background: rgba(200,74,58,0.13);
+  border-radius: var(--radius-pill); padding: 3px 11px;
+  font-size: 10px; letter-spacing: 0.1em; color: var(--paper-100); font-weight: 600;
+}
+.appdemo .pill.rec .dot { color: #C84A3A; animation: pulse 1.6s ease-in-out infinite; }
+.appdemo .clock { margin-left: auto; color: #9CA0A8; font-size: 12.5px; }
+.appdemo .btn {
+  font-family: var(--font-sans); font-size: 11.5px; padding: 4px 11px;
+  border-radius: 6px; border: 1px solid #2A2F38; background: #161A20; color: var(--paper-100);
+}
+.appdemo .btn.stop { background: #C84A3A; border-color: transparent; color: #F4EFE3; font-weight: 600; }
+
+.appdemo .app-card { border: 1px solid #2A2F38; background: #161A20; border-radius: 10px; padding: 11px 14px 12px; }
+.appdemo .card-label { font-size: 10px; letter-spacing: 0.12em; color: #75767A; margin-bottom: 8px; }
+.appdemo .app-meters { display: flex; flex-direction: column; gap: 7px; }
+.appdemo .meter .src { min-width: 86px; }
+
+.appdemo .app-cols { display: grid; grid-template-columns: 1fr 1.45fr; gap: 11px; }
+.appdemo .chunk-line { display: flex; align-items: baseline; }
+.appdemo .chunk-num { font-size: 24px; font-weight: 600; color: var(--paper-100); }
+.appdemo .chunk-timer { color: #9CA0A8; margin-left: 10px; font-size: 13px; }
+.appdemo .chunk-sub { color: #9CA0A8; font-size: 11.5px; margin-top: 6px; }
+.appdemo .chunk-saved { color: var(--ok); font-size: 11px; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.appdemo .app-log { margin-top: 0; padding-top: 0; border-top: 0; }
+
+.appdemo .app-foot {
+  display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+  margin-top: 1px; font-size: 11px; color: #75767A;
+}
+.appdemo .app-foot kbd {
+  background: #20252D; border: 1px solid #2A2F38; border-bottom-width: 2px;
+  border-radius: 3px; padding: 0 6px; color: var(--paper-100); font-size: 11px;
+}
+.appdemo .app-foot .grow { flex: 1; }
+
+@media (max-width: 720px) {
+  .appdemo .app-side { display: none; }
+  .appdemo .app-cols { grid-template-columns: 1fr; }
+  .appdemo .clock { display: none; }
+}
+
+/* ================================================================
+   Install stack — the app download (the primary action of the page)
+   as its own object, then the engine card for CLI installs
+   ================================================================ */
+.install-stack { display: flex; flex-direction: column; max-width: 540px; }
+.install-stack .install { max-width: none; }
+
+.app-cta {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 18px;
+  background: var(--brand-amber);
+  color: var(--ink-900); text-decoration: none;
+  border: 1px solid color-mix(in oklab, var(--ink-900) 22%, var(--brand-amber));
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  font-family: var(--font-sans); font-weight: 600; font-size: 15px;
+  transition: background var(--dur-1) var(--ease-standard);
+}
+.app-cta:hover { background: var(--brand-amber-700); }
+.app-cta:active { background: var(--brand-amber-700); box-shadow: none; transform: translateY(1px); }
+.app-cta svg { flex: none; }
+.app-cta .app-cta-ver {
+  margin-left: auto;
+  font-family: var(--font-mono); font-weight: 500; font-size: 11px;
+  padding: 2px 8px; border-radius: var(--radius-pill);
+  background: color-mix(in oklab, var(--ink-900) 14%, transparent);
+}
+
+.app-fineprint {
+  margin: 8px 2px 0;
+  font-family: var(--font-mono); font-size: 11px; line-height: 1.7;
+  color: color-mix(in oklab, var(--fg) 76%, var(--bg));
+  max-width: 62ch;
+}
+.app-fineprint strong { color: var(--fg); font-weight: 500; }
+
+.install-or { display: flex; align-items: center; gap: 10px; margin: 14px 0; }
+.install-or .line { flex: 1; height: 1px; background: var(--border-soft); }
+.install-or .or {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--fg-muted);
+}
+
+/* ================================================================
+   A11y — keyboard focus + reduced motion (site-wide)
+   ================================================================ */
+a:focus-visible, button:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--brand-amber);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}
+.app-cta:focus-visible, .install .tab:focus-visible {
+  border-radius: var(--radius-md);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The recording pulse becomes a solid dot; meters still track (data). */
+  .tui .rec .dot,
+  .appdemo .pill.rec .dot,
+  .appdemo .app-badge .dot { animation: none; }
+  html { scroll-behavior: auto; }
 }
 
 /* ================================================================

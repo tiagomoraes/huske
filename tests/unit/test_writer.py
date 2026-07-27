@@ -14,6 +14,7 @@ from huske.transcribe.writer import (
     build_transcript_from_segments,
     render_transcript,
     write_transcript,
+    write_transcript_if_nonempty,
 )
 
 
@@ -89,6 +90,25 @@ def test_no_overwrite_on_collision(tmp_path: Path) -> None:
     assert written != target
     assert written.exists()
     assert target.read_text() == "preexisting"
+
+
+def test_empty_transcript_is_not_written(tmp_path: Path) -> None:
+    target = tmp_path / "day" / "x.md"
+
+    written = write_transcript_if_nonempty(_t(body=" \n\t "), target)
+
+    assert written is None
+    assert not target.exists()
+    assert not target.parent.exists()
+
+
+def test_nonempty_transcript_is_written(tmp_path: Path) -> None:
+    target = tmp_path / "day" / "x.md"
+
+    written = write_transcript_if_nonempty(_t(body="Hello"), target)
+
+    assert written == target
+    assert target.exists()
 
 
 def test_build_helper_round_trip() -> None:

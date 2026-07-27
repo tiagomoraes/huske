@@ -104,3 +104,26 @@ Add an opt-in distillation subsystem (`huske.distill`), off by default:
 - **Typed statements (decision/action/question tags).** Useful but adds prompt
   complexity and model variance; v1 ships plain claims, leaving typing as a
   follow-up.
+
+## Amendment (v0.11): the built-in MLX backend is now the default
+
+The "in-process MLX LLM" rejection above conflated two things: *in-process*
+(GIL-hostile, correctly rejected) and *MLX-based* (fine). With the native macOS
+app, requiring users to install and run a separate Ollama daemon became the
+single worst step of the distillation UX — so the anticipated `mlx` backend
+landed, designed around the original objections:
+
+- **Not in-process.** `huske/distill/mlx_backend.py` runs `mlx-lm` in a private
+  **spawn subprocess**; the worker thread blocks on a pipe read (GIL-releasing),
+  exactly as it used to block on Ollama's HTTP socket. The drainer invariant
+  holds.
+- **Idle unloading built in.** The child drops the weights after ~2 min without
+  work and reloads from the local HF cache — the same RAM-over-disk trade as
+  the transcribe worker (see the footprint policy).
+- **Zero setup.** The default model (`mlx-community/Qwen3.5-0.8B-4bit`,
+  ~0.6 GB) downloads from Hugging Face on first use, like Parakeet. `mlx-lm`
+  ships in the base install on Apple Silicon.
+
+`distill_backend = "ollama"` remains fully supported for daemon users; known
+Ollama tags are auto-mapped to their MLX builds so pre-0.11 configs keep
+working unchanged.

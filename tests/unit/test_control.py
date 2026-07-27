@@ -14,9 +14,20 @@ def test_drain_returns_commands_in_send_order() -> None:
     ch.send(Command.STOP)
 
     assert ch.drain() == [
-        Command.PAUSE_RESUME,
-        Command.TOGGLE_SCREENSHOTS,
-        Command.STOP,
+        (Command.PAUSE_RESUME, None),
+        (Command.TOGGLE_SCREENSHOTS, None),
+        (Command.STOP, None),
+    ]
+
+
+def test_send_carries_an_argument() -> None:
+    ch = CommandChannel()
+    ch.send(Command.SET_INPUT_DEVICE, "MacBook Pro Microphone")
+    ch.send(Command.SET_INPUT_DEVICE, 3)
+
+    assert ch.drain() == [
+        (Command.SET_INPUT_DEVICE, "MacBook Pro Microphone"),
+        (Command.SET_INPUT_DEVICE, 3),
     ]
 
 
@@ -48,4 +59,4 @@ def test_concurrent_producers_do_not_lose_commands() -> None:
 
     drained = ch.drain()
     assert len(drained) == n_threads * per_thread
-    assert all(c is Command.PAUSE_RESUME for c in drained)
+    assert all(c == (Command.PAUSE_RESUME, None) for c in drained)
