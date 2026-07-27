@@ -253,7 +253,9 @@ struct ActiveSessionView: View {
 
             Spacer()
 
-            SessionClock(startedAt: snapshot.sessionStartedAt)
+            SessionClock(
+                startedAt: snapshot.sessionStartedAt,
+                endedAt: model.session.stopRequestedAt)
 
             if snapshot.stopping {
                 ProgressView()
@@ -283,16 +285,29 @@ struct ActiveSessionView: View {
 
 struct SessionClock: View {
     let startedAt: Date?
+    let endedAt: Date?
+    /// Overridable so the compact transport in the sidebar can share this.
+    var font: Font = .brandMono(13, .medium)
+    var tint: Color = Theme.fgMuted
 
+    @ViewBuilder
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            if let startedAt {
-                Text(Self.format(context.date.timeIntervalSince(startedAt)))
-                    .font(.brandMono(13, .medium))
-                    .foregroundStyle(Theme.fgMuted)
-                    .help("Session duration")
+        if let startedAt {
+            if let endedAt {
+                clockText(at: endedAt, startedAt: startedAt)
+            } else {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    clockText(at: context.date, startedAt: startedAt)
+                }
             }
         }
+    }
+
+    private func clockText(at date: Date, startedAt: Date) -> some View {
+        Text(Self.format(date.timeIntervalSince(startedAt)))
+            .font(font)
+            .foregroundStyle(tint)
+            .help(endedAt == nil ? "Session duration" : "Recorded duration")
     }
 
     static func format(_ interval: TimeInterval) -> String {

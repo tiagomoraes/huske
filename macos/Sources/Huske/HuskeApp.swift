@@ -51,7 +51,7 @@ struct HuskeApp: App {
             MenuBarContent()
                 .environment(model)
         } label: {
-            Image(systemName: menuBarSymbol)
+            menuBarLabel
         }
 
         Settings {
@@ -61,14 +61,22 @@ struct HuskeApp: App {
         }
     }
 
-    private var menuBarSymbol: String {
+    /// One compact brand signature whose trailing rune reflects session state.
+    private var menuBarLabel: some View {
+        let state = menuBarState
+        return Image(nsImage: .huskeMenuBarGlyph(for: state))
+            .accessibilityLabel(Text(state.accessibilityLabel))
+            .help(state.accessibilityLabel)
+    }
+
+    private var menuBarState: HuskeMenuBarState {
         guard let snap = model.session.snapshot, model.session.isBusy else {
-            return "waveform"
+            return .idle
         }
-        if snap.stopping { return "ellipsis.circle" }
-        if snap.paused { return "pause.circle" }
-        if snap.recording { return "record.circle" }
-        return "waveform"
+        if snap.stopping { return .stopping }
+        if snap.paused { return .paused }
+        if snap.recording { return .recording }
+        return .idle
     }
 }
 

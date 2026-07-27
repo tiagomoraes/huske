@@ -36,6 +36,22 @@ enum ScreenRenderer {
         let transcriptsModel = makeTranscriptsModel()
         transcriptsModel.pane = .transcripts
         screens.append(("root-transcripts", AnyView(RootView().environment(transcriptsModel))))
+        // The transport dock is the reason this one exists: recording state and
+        // its controls must be present on a pane that isn't Record.
+        let recordingElsewhere = makeTranscriptsModel()
+        recordingElsewhere.pane = .transcripts
+        recordingElsewhere.session.setPhaseForDemo(.active(attached: false))
+        recordingElsewhere.session.ingest(message: .state(demoSnapshot(now: Date())))
+        screens.append(
+            ("root-transcripts-recording", AnyView(RootView().environment(recordingElsewhere))))
+        let pausedElsewhere = makeTranscriptsModel()
+        pausedElsewhere.pane = .transcripts
+        pausedElsewhere.session.setPhaseForDemo(.active(attached: false))
+        var paused = demoSnapshot(now: Date())
+        paused.paused = true
+        pausedElsewhere.session.ingest(message: .state(paused))
+        screens.append(
+            ("root-transcripts-paused", AnyView(RootView().environment(pausedElsewhere))))
         let doctorModel = makeDoctorModel()
         doctorModel.pane = .doctor
         screens.append(("root-doctor", AnyView(RootView().environment(doctorModel))))
@@ -160,15 +176,15 @@ enum ScreenRenderer {
                 TranscriptDay(
                     date: "2026-07-21",
                     entries: [
-                        entry("2026-07-21", "091500", 1, "8a3f2c19"),
-                        entry("2026-07-21", "093000", 2, "8a3f2c19"),
                         entry("2026-07-21", "101210", 3, "8a3f2c19"),
+                        entry("2026-07-21", "093000", 2, "8a3f2c19"),
+                        entry("2026-07-21", "091500", 1, "8a3f2c19"),
                     ]),
                 TranscriptDay(
                     date: "2026-07-18",
                     entries: [
-                        entry("2026-07-18", "084500", 1, "b71e0440"),
                         entry("2026-07-18", "112000", 2, "b71e0440"),
+                        entry("2026-07-18", "084500", 1, "b71e0440"),
                     ]),
             ]
         )

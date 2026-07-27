@@ -131,15 +131,18 @@ struct StatusPill: View {
     let text: String
     let color: Color
     var pulsing = false
+    /// Tighter geometry for the sidebar rail. Same type scale — only the
+    /// padding and dot shrink, so the pill still reads as the same component.
+    var compact = false
 
     @State private var pulse = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: compact ? 6 : 7) {
             Circle()
                 .fill(color)
-                .frame(width: 7, height: 7)
+                .frame(width: compact ? 6 : 7, height: compact ? 6 : 7)
                 .opacity(pulsing && !reduceMotion ? (pulse ? 1.0 : 0.35) : 1.0)
                 .animation(
                     pulsing && !reduceMotion
@@ -153,8 +156,8 @@ struct StatusPill: View {
                 .kerning(1.1)
                 .foregroundStyle(Theme.fg)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.horizontal, compact ? 8 : 12)
+        .padding(.vertical, compact ? 3.5 : 6)
         .background(Capsule().fill(color.opacity(0.13)))
         .overlay(Capsule().strokeBorder(color.opacity(0.38), lineWidth: 1))
     }

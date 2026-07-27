@@ -27,6 +27,10 @@ public final class SessionController {
     public internal(set) var engineLog: [String] = []
     /// Set while a stop was requested and the engine is finalizing.
     public internal(set) var stopRequested = false
+    /// Freezes the recording clock while the engine finalizes and drains.
+    /// Local stops use the click time; externally initiated stops use the
+    /// first stopping snapshot received from the engine.
+    public internal(set) var stopRequestedAt: Date?
 
     @ObservationIgnored private var engine: EngineProcess?
     @ObservationIgnored private var client: LineSocketClient?
@@ -60,6 +64,7 @@ public final class SessionController {
         guard case .idle = phaseOrFailed() else { return }
         let path = socketPath ?? SessionDiscovery.makeAppSocketPath()
         stopRequested = false
+        stopRequestedAt = nil
         seenEventIDs.removeAll()
         eventLog = []
         engineLog = []
@@ -98,6 +103,7 @@ public final class SessionController {
         guard case .idle = phaseOrFailed() else { return false }
         guard let path = SessionDiscovery.findLiveEngineSocket() else { return false }
         stopRequested = false
+        stopRequestedAt = nil
         seenEventIDs.removeAll()
         eventLog = []
         snapshot = nil
@@ -111,6 +117,9 @@ public final class SessionController {
     /// Graceful stop: the engine finalizes the current chunk and drains
     /// transcriptions before exiting. Progress arrives via snapshots.
     public func requestStop() {
+        if stopRequestedAt == nil {
+            stopRequestedAt = Date()
+        }
         stopRequested = true
         if let client, client.isConnected {
             client.send(.stop)
@@ -153,6 +162,9 @@ public final class SessionController {
     public func ingest(message: ControlMessage) {
         switch message {
         case .state(let snap):
+            if snap.stopping, stopRequestedAt == nil {
+                stopRequestedAt = Date()
+            }
             snapshot = snap
             mergeEvents(snap.events)
         case .devices(let list):
@@ -213,6 +225,7 @@ public final class SessionController {
         }
         snapshot = nil
         stopRequested = false
+        stopRequestedAt = nil
     }
 
     private func clientDisconnected() {
@@ -226,6 +239,7 @@ public final class SessionController {
         phase = .idle
         snapshot = nil
         stopRequested = false
+        stopRequestedAt = nil
     }
 
     private func makeClient(path: String) -> LineSocketClient? {

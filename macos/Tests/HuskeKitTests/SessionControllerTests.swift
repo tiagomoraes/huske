@@ -27,9 +27,22 @@ final class SessionControllerTests: XCTestCase {
         controller.ingest(message: .state(makeSnapshot()))
         XCTAssertEqual(controller.snapshot?.sessionId, "20260721T090000_abcd")
         XCTAssertFalse(controller.isDraining)
+        XCTAssertNil(controller.stopRequestedAt)
 
         controller.ingest(message: .state(makeSnapshot(stopping: true)))
         XCTAssertTrue(controller.isDraining)
+        XCTAssertNotNil(controller.stopRequestedAt)
+    }
+
+    func testStopRequestFreezesClockImmediatelyAndOnlyOnce() {
+        let controller = SessionController()
+
+        controller.requestStop()
+        let firstStop = controller.stopRequestedAt
+        controller.requestStop()
+
+        XCTAssertNotNil(firstStop)
+        XCTAssertEqual(controller.stopRequestedAt, firstStop)
     }
 
     func testEventLogDeduplicatesAcrossSnapshots() {

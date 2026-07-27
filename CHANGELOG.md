@@ -47,6 +47,13 @@ This project uses semantic versioning after the first public release.
 
 ### Changed
 
+- **The transcript browser opens on the newest chunk and stays fast as the
+  folder grows.** Days and chunks are ordered newest-first throughout, the
+  sidebar renders a page at a time (arrow-key navigation opens pages as it
+  walks past them), and a rescan reuses cached per-file verdicts keyed by size
+  and mtime — so a refresh reads the one chunk that just landed instead of
+  every file on disk. A finished chunk landing at the top no longer yanks a
+  reader out of the window they scrolled open.
 - The macOS app is fully brand-styled (IBM Plex, hidden title bar, custom
   sidebar) with engine-capability detection for older CLIs, curated model
   pickers in Configuration, pointer cursors, arrow-key transcript
@@ -75,6 +82,13 @@ This project uses semantic versioning after the first public release.
   **`huske devices [--json]`** — list microphone inputs and how the
   configured one resolves.
 
+- **The transport follows you through the app.** Recording state and its
+  controls moved into the sidebar as a persistent dock — status pill, elapsed
+  time, and live mic + system meters — so you can watch levels from the
+  Transcripts pane and stop from anywhere. The ambient Stop is two-step
+  (a stop cannot be undone); the Record console's labelled Stop and ⌘. stay
+  single-action. The menu bar mark is now drawn per session state rather than
+  a static glyph.
 - **Silent chunks no longer become files.** A chunk whose transcription
   produced no text is not written at all, instead of persisting a transcript
   whose whole body is `_(no speech detected)_`. `huske run` reports
@@ -93,6 +107,11 @@ This project uses semantic versioning after the first public release.
 
 ### Fixed
 
+- **The elapsed clock stops when you stop.** It kept counting while the engine
+  finalized and drained, so a stop that took a while reported a session longer
+  than the recording. The clock now freezes at the moment stop was requested —
+  the click for a local stop, the first `stopping` snapshot for one started
+  elsewhere.
 - **Clicking the Dock icon reopens the window.** After closing the last
   window (the menu bar extra keeps huske alive), a Dock click now brings the
   main window back instead of doing nothing.

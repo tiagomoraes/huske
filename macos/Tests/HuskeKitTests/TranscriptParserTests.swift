@@ -91,6 +91,18 @@ final class TranscriptParserTests: XCTestCase {
         XCTAssertTrue(doc.isEmpty)
     }
 
+    func testUnrecognizedNonemptyBodyIsNotTreatedAsNoSpeech() throws {
+        let text = """
+            ---
+            session_id: x
+            ---
+
+            body that does not match the run format
+            """
+        let doc = try XCTUnwrap(TranscriptParser.parse(text))
+        XCTAssertFalse(doc.isEmpty)
+    }
+
     func testMissingFrontmatterReturnsNil() {
         XCTAssertNil(TranscriptParser.parse("# just a heading\n\nsome text"))
     }
@@ -120,7 +132,7 @@ final class TranscriptParserTests: XCTestCase {
 }
 
 final class TranscriptScannerTests: XCTestCase {
-    func testScansDayFoldersNewestFirst() throws {
+    func testScansDaysAndChunksNewestFirst() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("huske-scan-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -144,7 +156,96 @@ final class TranscriptScannerTests: XCTestCase {
 
         let days = TranscriptScanner.scan(root: root)
         XCTAssertEqual(days.map(\.date), ["2026-05-07", "2026-05-06"])
-        XCTAssertEqual(days[1].entries.map(\.chunkSeq), [1, 2])
-        XCTAssertEqual(days[1].entries[0].timeString, "08:45:00")
+        XCTAssertEqual(days[1].entries.map(\.chunkSeq), [2, 1])
+        XCTAssertEqual(days[1].entries[0].timeString, "09:00:00")
+    }
+
+    func testOmitsLegacyNoSpeechTranscriptsAndEmptyDays() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("huske-scan-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let dayDir = root.appendingPathComponent("2026-05-07")
+        try FileManager.default.createDirectory(
+            at: dayDir, withIntermediateDirectories: true)
+        try """
+            ---
+            session_id: x
+            ---
+
+            # 09:15 – 09:30 (Wed 2026-05-07)
+
+            _(no speech detected)_
+            """.write(
+                to: dayDir.appendingPathComponent("091500_b71e0440_001.md"),
+                atomically: true,
+                encoding: .utf8)
+
+        XCTAssertTrue(TranscriptScanner.scan(root: root).isEmpty)
+    }
+
+    func testWarmCacheSkipsRereadingUnchangedFiles() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("huske-scan-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: root) }
+        let dayDir = root.appendingPathComponent("2026-05-07")
+        try fm.createDirectory(at: dayDir, withIntermediateDirectories: true)
+
+        for seq in 1...3 {
+            try "---\nsession_id: x\n---\n\n[09:15:00 · mic] hello"
+                .write(
+                    to: dayDir.appendingPathComponent(
+                        String(format: "0915%02d_b71e0440_%03d.md", seq, seq)),
+                    atomically: true, encoding: .utf8)
+        }
+
+        let cold = TranscriptScanner.scan(root: root, cache: TranscriptScanCache())
+        XCTAssertEqual(cold.filesRead, 3)
+        XCTAssertEqual(cold.days.first?.entries.count, 3)
+
+        let warm = TranscriptScanner.scan(root: root, cache: cold.cache)
+        XCTAssertEqual(warm.filesRead, 0, "unchanged files must reuse their cached verdict")
+        XCTAssertEqual(warm.days, cold.days)
+
+        // A new chunk costs exactly one read.
+        try "---\nsession_id: x\n---\n\n[09:16:00 · mic] more"
+            .write(
+                to: dayDir.appendingPathComponent("091600_b71e0440_004.md"),
+                atomically: true, encoding: .utf8)
+        let incremental = TranscriptScanner.scan(root: root, cache: warm.cache)
+        XCTAssertEqual(incremental.filesRead, 1)
+        XCTAssertEqual(incremental.days.first?.entries.count, 4)
+    }
+
+    func testCacheInvalidatesOnRewriteAndDropsDeletedFiles() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("huske-scan-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: root) }
+        let dayDir = root.appendingPathComponent("2026-05-07")
+        try fm.createDirectory(at: dayDir, withIntermediateDirectories: true)
+        let marker = dayDir.appendingPathComponent("091500_b71e0440_001.md")
+        let keeper = dayDir.appendingPathComponent("091600_b71e0440_002.md")
+        try "---\nsession_id: x\n---\n\n_(no speech detected)_"
+            .write(to: marker, atomically: true, encoding: .utf8)
+        try "---\nsession_id: x\n---\n\n[09:16:00 · mic] hi"
+            .write(to: keeper, atomically: true, encoding: .utf8)
+
+        let cold = TranscriptScanner.scan(root: root, cache: TranscriptScanCache())
+        XCTAssertEqual(cold.days.first?.entries.map(\.chunkSeq), [2])
+        XCTAssertEqual(cold.cache.count, 2)
+
+        // Rewriting the marker with real content must re-read it, not serve
+        // the stale "this is a marker" verdict.
+        try "---\nsession_id: x\n---\n\n[09:15:00 · mic] actually spoke"
+            .write(to: marker, atomically: true, encoding: .utf8)
+        let rewritten = TranscriptScanner.scan(root: root, cache: cold.cache)
+        XCTAssertEqual(rewritten.filesRead, 1)
+        XCTAssertEqual(rewritten.days.first?.entries.map(\.chunkSeq), [2, 1])
+
+        try fm.removeItem(at: marker)
+        let pruned = TranscriptScanner.scan(root: root, cache: rewritten.cache)
+        XCTAssertEqual(pruned.cache.count, 1, "deleted files must drop out of the cache")
     }
 }

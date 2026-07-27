@@ -109,7 +109,9 @@ struct SidebarView: View {
 
             Spacer()
 
-            sessionBadge
+            // Always present, in every state — the transport is chrome, and a
+            // box that comes and goes would move the footer under the cursor.
+            TransportDock()
                 .padding(.horizontal, 14)
                 .padding(.bottom, 8)
 
@@ -132,14 +134,6 @@ struct SidebarView: View {
                 .baselineOffset(1)
         }
         .accessibilityAddTraits(.isHeader)
-    }
-
-    @ViewBuilder
-    private var sessionBadge: some View {
-        let session = model.session
-        if session.isBusy, let snap = session.snapshot {
-            SessionBadgeView(snapshot: snap) { model.pane = .record }
-        }
     }
 
     private var footer: some View {
@@ -186,52 +180,6 @@ struct SidebarItemView: View {
         .animation(Theme.easeFast, value: hovering)
         .accessibilityLabel(pane.title)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
-    }
-}
-
-/// The sidebar's live-session card: a glanceable status that jumps to Record.
-struct SessionBadgeView: View {
-    let snapshot: ControlSnapshot
-    let action: () -> Void
-
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(snapshot.stopping || snapshot.paused ? Theme.warn : Theme.recordRed)
-                        .frame(width: 6, height: 6)
-                    Text(
-                        snapshot.stopping
-                            ? "FINISHING" : (snapshot.paused ? "PAUSED" : "RECORDING")
-                    )
-                    .font(.brandMono(10, .semibold))
-                    .kerning(1.0)
-                    .foregroundStyle(Theme.fg)
-                }
-                Text("chunk \(String(format: "%03d", snapshot.currentChunkSeq)) · queue \(snapshot.queueDepth)")
-                    .font(.brandMono(10))
-                    .foregroundStyle(Theme.fgMuted)
-            }
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
-                    .fill(hovering ? Theme.bgSunken.opacity(0.95) : Theme.bgSunken.opacity(0.6))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.radiusMD, style: .continuous)
-                    .strokeBorder(hovering ? Theme.cardBorder : Theme.divider, lineWidth: 1)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: Theme.radiusMD))
-        }
-        .buttonStyle(.plain)
-        .pointingCursor(hovering: $hovering)
-        .animation(Theme.easeFast, value: hovering)
-        .help("Go to the Record pane")
-        .accessibilityLabel("Live session — go to Record")
     }
 }
 

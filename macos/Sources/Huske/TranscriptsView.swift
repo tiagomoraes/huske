@@ -7,8 +7,15 @@ struct TranscriptsView: View {
     @State private var query = ""
     @State private var searchHits: [TranscriptEntry]?
     @State private var searchTask: Task<Void, Never>?
+    @State private var visibleLimit = Self.pageSize
     @FocusState private var searchFocused: Bool
     @Environment(\.screenRendering) private var screenRendering
+
+    /// The sidebar renders at most this many rows, growing by the same amount
+    /// as the bottom sentinel scrolls into view. The list is already lazy, so
+    /// this is about bounding identity diffing as the folder grows, not draw
+    /// cost.
+    private static let pageSize = 150
 
     var body: some View {
         HStack(spacing: 0) {
@@ -22,11 +29,17 @@ struct TranscriptsView: View {
         }
         .background(Theme.bg)
         .onAppear {
-            model.transcripts.refresh()
+            model.transcripts.refreshIfStale()
             autoSelectIfNeeded()
         }
         .onChange(of: model.transcripts.days) {
             autoSelectIfNeeded()
+        }
+        .onChange(of: query) {
+            // New result set — start from the first page again. Deliberately
+            // not reset on `days`: a finished chunk lands at the top and must
+            // not yank a reader back out of a window they scrolled open.
+            visibleLimit = Self.pageSize
         }
         .onChange(of: model.transcriptSearchFocusRequest) {
             searchFocused = true
@@ -49,7 +62,7 @@ struct TranscriptsView: View {
             days.contains { $0.entries.contains(sel) }
         } ?? false
         guard !stillExists else { return }
-        selection = days.first?.entries.last // newest day, newest chunk
+        selection = days.first?.entries.first
     }
 
     // MARK: list
@@ -170,10 +183,13 @@ struct TranscriptsView: View {
     }
 
     private func resultsList(sections: [(String, [TranscriptEntry])], showDay: Bool) -> some View {
-        ScrollViewReader { proxy in
+        let flat = sections.flatMap(\.1)
+        let hidden = max(0, flat.count - visibleLimit)
+
+        return ScrollViewReader { proxy in
             PaneScroll {
                 LazyVStack(alignment: .leading, spacing: 1, pinnedViews: []) {
-                    ForEach(sections, id: \.0) { title, entries in
+                    ForEach(Self.window(sections, limit: visibleLimit), id: \.0) { title, entries in
                         Text(title)
                             .font(.brandMono(10.5, .medium))
                             .kerning(0.6)
@@ -193,13 +209,15 @@ struct TranscriptsView: View {
                             .id(entry.id)
                         }
                     }
+                    if hidden > 0 {
+                        loadMoreRow(hidden: hidden)
+                    }
                 }
                 .padding(.bottom, 14)
             }
             .focusable()
             .focusEffectDisabled()
             .onMoveCommand { direction in
-                let flat = sections.flatMap(\.1)
                 guard !flat.isEmpty else { return }
                 let currentIndex = selection.flatMap { flat.firstIndex(of: $0) }
                 let next: Int
@@ -208,11 +226,66 @@ struct TranscriptsView: View {
                 case .up: next = currentIndex.map { max($0 - 1, 0) } ?? 0
                 default: return
                 }
-                selection = flat[next]
-                withAnimation(Theme.easeFast) {
-                    proxy.scrollTo(flat[next].id, anchor: .center)
+                let target = flat[next]
+                selection = target
+                guard next >= visibleLimit else {
+                    withAnimation(Theme.easeFast) { proxy.scrollTo(target.id, anchor: .center) }
+                    return
+                }
+                // Walked off the end of the window: open enough pages to reach
+                // the row, then scroll once it exists in the hierarchy.
+                visibleLimit = (next / Self.pageSize + 1) * Self.pageSize
+                Task { @MainActor in
+                    withAnimation(Theme.easeFast) { proxy.scrollTo(target.id, anchor: .center) }
                 }
             }
+        }
+    }
+
+    /// Take the first `limit` entries across sections, dropping sections that
+    /// fall entirely past it.
+    private static func window(
+        _ sections: [(String, [TranscriptEntry])], limit: Int
+    ) -> [(String, [TranscriptEntry])] {
+        var remaining = limit
+        var out: [(String, [TranscriptEntry])] = []
+        for (title, entries) in sections {
+            guard remaining > 0 else { break }
+            out.append((title, entries.count <= remaining ? entries : Array(entries.prefix(remaining))))
+            remaining -= min(entries.count, remaining)
+        }
+        return out
+    }
+
+    /// Bottom sentinel: loads the next page as it scrolls into view, and stays
+    /// clickable so the window can still be opened without a trackpad.
+    private func loadMoreRow(hidden: Int) -> some View {
+        Button {
+            visibleLimit += Self.pageSize
+        } label: {
+            HStack(spacing: 6) {
+                Spacer(minLength: 0)
+                Text("\(hidden) older chunk\(hidden == 1 ? "" : "s")")
+                    .font(.brandMono(10.5))
+                    .foregroundStyle(Theme.fgFaint)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(Theme.fgFaint)
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointingCursor()
+        .help("Show more transcripts")
+        // Recreated on each bump so the sentinel re-fires while it stays in
+        // view; skipped under ImageRenderer, where PaneScroll lays every row
+        // out at once and nothing would bound the growth.
+        .id(visibleLimit)
+        .onAppear {
+            guard !screenRendering else { return }
+            visibleLimit += Self.pageSize
         }
     }
 

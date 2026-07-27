@@ -56,8 +56,14 @@ public struct TranscriptDocument: Equatable, Sendable {
     public let heading: String?
     public let runs: [TranscriptRun]
     public let rawBody: String
-    /// True when the body is the literal no-speech marker.
-    public var isEmpty: Bool { runs.isEmpty }
+    /// True when the body is the legacy literal no-speech marker.
+    public var isEmpty: Bool {
+        guard runs.isEmpty else { return false }
+        let content = rawBody.components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("# ") }
+        return content == ["_(no speech detected)_"]
+    }
 }
 
 public struct TranscriptFilenameInfo: Equatable, Sendable {
