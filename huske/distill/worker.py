@@ -100,6 +100,13 @@ class DistillWorker:
         self._queue.put(_SENTINEL)  # wake the thread if it is blocked on get()
         self._thread.join(timeout=drain_timeout)
         self._thread = None
+        # The built-in MLX distiller owns an LLM subprocess; release it.
+        closer = getattr(self._distiller, "close", None)
+        if callable(closer):
+            try:
+                closer()
+            except Exception:
+                pass
 
     @property
     def alive(self) -> bool:

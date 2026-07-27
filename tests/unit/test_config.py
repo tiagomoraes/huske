@@ -33,9 +33,9 @@ def test_defaults_are_sane() -> None:
 def test_distill_defaults_are_light_and_opt_in() -> None:
     cfg = RuntimeConfig()
     assert cfg.distill_enabled is False  # opt-in; never on by default
-    assert cfg.distill_backend == "ollama"
+    assert cfg.distill_backend == "mlx"  # built-in: no external daemon
     # Lightest portable tier — runs across the whole Apple-Silicon range.
-    assert cfg.distill_model == "qwen3.5:0.8b"
+    assert cfg.distill_model == "mlx-community/Qwen3.5-0.8B-4bit"
     assert cfg.distill_think is False  # non-reasoning distillation by default
 
 

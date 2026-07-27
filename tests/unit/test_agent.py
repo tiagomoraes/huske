@@ -113,7 +113,7 @@ def test_render_plist_custom_path_env() -> None:
 
 def test_build_program_args_default() -> None:
     args = agent.build_program_args(huske_argv=["/bin/huske"])
-    assert args == ["/bin/huske", "run", "--no-ui", "--log-level", "INFO"]
+    assert args == ["/bin/huske", "run", "--log-level", "INFO"]
 
 
 def test_build_program_args_with_config_resolves_to_absolute(tmp_path: Path) -> None:
@@ -195,7 +195,9 @@ def test_install_agent_writes_plist_and_bootstraps(
     parsed = plistlib.loads(path.read_bytes())
     assert parsed["Label"] == "me.huske"
     assert parsed["ProgramArguments"][0] == "/opt/homebrew/bin/huske"
-    assert "--no-ui" in parsed["ProgramArguments"]
+    # The TUI is gone: the agent runs the headless engine, no --no-ui needed.
+    assert "--no-ui" not in parsed["ProgramArguments"]
+    assert "run" in parsed["ProgramArguments"]
 
     assert any(call[:1] == ["bootout"] for call in fake_launchctl)
     bootstrap_calls = [c for c in fake_launchctl if c[0] == "bootstrap"]
@@ -396,8 +398,20 @@ def test_stop_agent_sends_sigterm(
     force_macos: None,
     fake_launchctl: list[list[str]],
 ) -> None:
-    agent.stop_agent()
+    assert agent.stop_agent() is True
     assert any(call[:2] == ["kill", "TERM"] for call in fake_launchctl)
+
+
+def test_stop_agent_is_noop_when_already_stopped(
+    force_macos: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _stub(args: list[str]) -> FakeResult:
+        return FakeResult(returncode=3, stderr="No process to signal.")
+
+    monkeypatch.setattr(agent, "_run_launchctl", _stub)
+
+    assert agent.stop_agent() is False
 
 
 def test_start_agent_raises_on_failure(

@@ -84,12 +84,21 @@ def test_heuristic_distiller_splits_sentences() -> None:
 
 def test_build_distiller_routing() -> None:
     assert isinstance(build_distiller("heuristic"), HeuristicDistiller)
-    real = build_distiller("qwen3.5:0.8b", endpoint="http://127.0.0.1:11434")
+    real = build_distiller(
+        "qwen3.5:0.8b", backend="ollama", endpoint="http://127.0.0.1:11434"
+    )
     assert isinstance(real, OllamaDistiller)
     assert real.model_id == "qwen3.5:0.8b"
     assert real.backend == "ollama"
     assert real._think is False  # non-reasoning by default
-    assert build_distiller("qwen3.5:0.8b", think=True)._think is True
+    assert build_distiller("qwen3.5:0.8b", backend="ollama", think=True)._think is True
+    # The default backend is the built-in MLX runtime (no daemon).
+    from huske.distill.mlx_backend import MLXDistiller
+
+    builtin = build_distiller("qwen3.5:0.8b")
+    assert isinstance(builtin, MLXDistiller)
+    assert builtin.backend == "mlx"
+    builtin.close()
 
 
 def test_ollama_distiller_calls_chat_no_thinking_by_default() -> None:

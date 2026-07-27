@@ -6,8 +6,16 @@ client search the statements first — then drill into the verbatim transcript f
 detail. This is *two-stage retrieval*: find the claim, then read what was
 actually said.
 
-It is **off by default**, runs **entirely on-device**, and adds **no Python
-dependency** (the LLM call is loopback HTTP to a local daemon). The design
+It is **off by default**, runs **entirely on-device**, and is
+**self-contained**: the default backend (`distill_backend = "mlx"`) runs the
+model inside huske itself via `mlx-lm` — in an isolated subprocess, on the same
+MLX/Metal stack as transcription — and downloads the weights from Hugging Face
+on first use (default `mlx-community/Qwen3.5-0.8B-4bit`, ~0.6 GB), exactly like
+the Parakeet model. There is nothing to install, start, or keep running.
+Setting `distill_backend = "ollama"` instead delegates to a local Ollama
+daemon (for models MLX doesn't serve, or an already-running daemon); the known
+Qwen tags (`qwen3.5:0.8b` etc.) are auto-mapped to their MLX builds, so a
+config written for the old Ollama-only default keeps working. The design
 rationale is in [adr/0005-llm-distillation.md](adr/0005-llm-distillation.md);
 the domain terms are in [../CONTEXT.md](../CONTEXT.md) (**Statement**).
 
@@ -108,9 +116,10 @@ continue and `huske distill` catches up later. Enabling it mid-history does **no
 trigger a surprise whole-corpus backfill — run `huske distill` for that
 explicitly.
 
-You can also flip distillation on or off **without restarting** a session: press
-`d` in the live UI's `?` controls overlay, or pick **Toggle distillation** from
-the macOS menu-bar dropdown. Turning it on first checks that the daemon and model
+You can also flip distillation on or off **without restarting** a session: use
+the toggle in Huske.app's Record pane (or its ⌘K palette), or pick **Toggle
+distillation** from the macOS menu-bar dropdown. Turning it on first checks
+that the daemon and model
 are ready (the same probe as `huske doctor`) and warns with a fix-it hint if they
 are not. This runtime toggle is session-only; set `distill_enabled = true` above
 to make distillation the default for every run.

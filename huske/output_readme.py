@@ -9,7 +9,7 @@ from pathlib import Path
 
 _README_TEMPLATE = """# Huske transcripts
 
-This directory is managed by the `huske` terminal app. It is a day-organized,
+This directory is managed by `huske`. It is a day-organized,
 LLM-readable log of what was said on this machine. Point an agent here and ask
 about a day, a time range, or a topic — no bespoke tooling is required.
 
@@ -36,7 +36,8 @@ about a day, a time range, or a topic — no bespoke tooling is required.
 - `gap_seconds`    — total silence/disconnect gaps within the chunk
 - `audio_sources`  — subset of [microphone, system] effectively captured
 - `model`          — `<engine>:<size>`, e.g. `parakeet:tdt-0.6b-v3`
-- `language`       — ISO 639-1, or `auto` when the engine auto-detects
+- `language`       — configured language (ISO 639-1), or `auto` if unset;
+  enforced only on the whisper engine
 - `incomplete`     — true only for recovery/partial chunks
 - `huske_version`  — semver of the producing huske binary
 

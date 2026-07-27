@@ -1,8 +1,9 @@
 # Development
 
-huske is a Python CLI/TUI application for macOS audio capture and local
-transcription. Most core behavior is testable without real devices; device and
-Whisper checks are isolated in integration tests.
+huske is a headless Python engine (plus a native macOS app in `macos/`) for
+macOS audio capture and local transcription. Most core behavior is testable
+without real devices; device and Whisper checks are isolated in integration
+tests.
 
 ## Local setup
 
@@ -66,7 +67,6 @@ huske/
   chunker/       WAV chunk rotation
   recovery/      orphaned audio recovery
   transcribe/    worker process and transcript writing
-  ui/            Rich live terminal UI
 docs/            maintainer and contributor documentation
 website/         static public website served by GitHub Pages
 specs/           feature specs, contracts, and planning notes

@@ -124,7 +124,9 @@ finalized (orphaned) ──valid WAV──▶ queued
 | `segments` | `list[Segment] \| None` | Optional inline-timestamp segments (start/end seconds within chunk). |
 
 **Validation rules** (enforced by writer):
-- `body` is UTF-8 text. Empty is allowed (silent chunk) but the file is still written; `body` becomes a single-line note `_(no speech detected)_`.
+- `body` is UTF-8 text. Empty is allowed in memory, but the live transcription
+  pipeline does not persist a file for it. The renderer retains support for the
+  legacy single-line note `_(no speech detected)_`.
 - All datetimes serialize as ISO 8601 with offset (e.g., `2026-05-07T12:30:00-03:00`).
 - The output file's MD5 of frontmatter+body is logged so a future re-transcription can detect drift.
 
@@ -143,10 +145,10 @@ finalized (orphaned) ──valid WAV──▶ queued
 | `chunk_minutes` | `float` | `15` | Allowed range: 0.1–60. |
 | `output_root` | `Path` | `~/huske/transcripts` | Day folders live here. |
 | `audio_root` | `Path` | `~/huske/audio` | Per-session subdirs created under here. |
-| `model` | `str` | `"base"` | One of `tiny`, `base`, `small`, `medium`, `large-v3`. |
+| `model` | `str` | `"base"` | Whisper engine only. One of `tiny`, `base`, `small`, `medium`, `large-v3`, `large-v3-turbo`. |
 | `compute_type` | `str` | `"int8"` | Kept for back-compat; `float32` opts out of fp16 inference, other values use the MLX default. |
 | `device` | `str` | `"auto"` | Kept for back-compat; `cuda` is rejected on macOS. |
-| `language` | `str \| None` | `None` (auto-detect) | ISO 639-1. |
+| `language` | `str \| None` | `None` (engine decides) | ISO 639-1. Enforced on the `whisper` engine (its decoder takes a language token). On `parakeet` the language is inferred per decode window and cannot be set, so this only drives the drift guard that re-decodes a window which collapsed into English. |
 | `keep_audio` | `bool` | `False` | Retain audio after successful transcription (compressed per `keep_audio_format`). |
 | `keep_audio_format` | `str` | `"opus"` | Format for kept audio: `opus` (lossy, smallest), `flac` (lossless), or `wav`. |
 | `input_device` | `str \| None` | `None` (system default) | Preferred microphone device name. If unavailable, Huske falls back to the default input with a warning. |

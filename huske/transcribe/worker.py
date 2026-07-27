@@ -9,7 +9,8 @@ isolated from PortAudio in the parent.
 The worker is engine-agnostic: it builds one ``TranscriptionEngine`` (see
 ``huske.transcribe.engines``) per session from the job's ``asr_engine`` field,
 transcribes each per-source WAV, tags the segments with their source,
-de-duplicates cross-channel echo, and renders the Markdown transcript.
+de-duplicates cross-channel echo, and writes a Markdown transcript only when
+the result contains text.
 """
 
 from __future__ import annotations
@@ -53,6 +54,7 @@ class TranscribeResult:
     ok: bool
     transcript_path: str | None
     error: str | None
+    skipped_empty: bool = False
 
 
 # format -> (libsndfile container, subtype, file extension)
@@ -188,7 +190,7 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
     from huske.transcribe.writer import (
         body_from_source_segments,
         build_transcript_from_segments,
-        write_transcript,
+        write_transcript_if_nonempty,
     )
 
     # The engine persists for the worker's lifetime; ``unload`` drops only its
@@ -313,7 +315,6 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
 
             output_root = _Path(job_data["output_root"])
             day = output_root / start_time.date().isoformat()
-            day.mkdir(parents=True, exist_ok=True)
             primary_path = next(iter(audio_paths.values()))
             chunk_proxy = AudioChunk(
                 chunk_seq=transcript.chunk_seq,
@@ -323,7 +324,7 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
                 audio_path=_Path(primary_path),
             )
             target = day / transcript_filename(chunk_proxy).name
-            written = write_transcript(transcript, target)
+            written = write_transcript_if_nonempty(transcript, target)
 
             # Audio cleanup. Without --keep-audio, drop the per-source WAVs.
             # With it, transcode each WAV to the configured (compressed) format
@@ -344,7 +345,8 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
                 {
                     "chunk_seq": job_data["chunk_seq"],
                     "ok": True,
-                    "transcript_path": str(written),
+                    "transcript_path": str(written) if written is not None else None,
+                    "skipped_empty": written is None,
                     "error": None,
                 }
             )

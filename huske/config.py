@@ -9,12 +9,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-ModelSize = Literal["tiny", "base", "small", "medium", "large-v3"]
+ModelSize = Literal["tiny", "base", "small", "medium", "large-v3", "large-v3-turbo"]
 # Which ASR backend transcribes finalized chunks. `parakeet` (NVIDIA Parakeet
 # via parakeet-mlx) is the default: non-autoregressive, so it emits nothing on
 # silence/noise instead of hallucinating repeated phrases the way Whisper does,
-# and it auto-detects language across ~25 languages. `whisper` keeps the legacy
-# mlx-whisper path selectable.
+# and it covers ~25 languages. It cannot be *told* which one, though (the
+# language is inferred per decode window), so `whisper` — whose decoder takes a
+# language token — stays selectable and is the right pick when `language` must be
+# enforced. See `huske/transcribe/engines/parakeet.py`.
 ASREngine = Literal["parakeet", "whisper"]
 # What to do with a microphone segment detected as an acoustic echo of a system
 # segment (speaker bleed when not wearing headphones): drop it, keep it but tag
@@ -31,10 +33,13 @@ SystemAudioBackend = Literal["auto", "tap", "sck", "off"]
 # smaller, speech-optimized) or `flac` (lossless, ~2x), or `wav` to keep the
 # uncompressed original. Encoded via libsndfile (soundfile) — no extra dependency.
 AudioKeepFormat = Literal["opus", "flac", "wav"]
-# Backend that turns a finalized transcript into searchable Statements. Only a
-# local Ollama daemon for now; kept a Literal so adding an `mlx`/`openai` backend
-# is a one-line change that the config layer already validates.
-DistillBackend = Literal["ollama"]
+# Backend that turns a finalized transcript into searchable Statements.
+#   mlx    : built-in (default) — huske runs the LLM itself via mlx-lm in an
+#            isolated subprocess; the model downloads from Hugging Face on
+#            first use, exactly like the Parakeet weights. Nothing to install.
+#   ollama : delegate to a local Ollama daemon (for users who already run one
+#            or want a model MLX doesn't serve).
+DistillBackend = Literal["mlx", "ollama"]
 
 
 _MLX_WHISPER_REPO_BY_SIZE: dict[str, str] = {
@@ -43,6 +48,11 @@ _MLX_WHISPER_REPO_BY_SIZE: dict[str, str] = {
     "small": "mlx-community/whisper-small-mlx",
     "medium": "mlx-community/whisper-medium-mlx",
     "large-v3": "mlx-community/whisper-large-v3-mlx",
+    # Distilled large-v3: measurably *faster* than `medium` on Apple Silicon
+    # (~19x vs ~14x realtime) and more accurate, which makes it the size to
+    # reach for when `language` has to be enforced. Same weights class as
+    # large-v3 but 4 decoder layers instead of 32.
+    "large-v3-turbo": "mlx-community/whisper-large-v3-turbo",
 }
 
 
@@ -97,6 +107,14 @@ class RuntimeConfig(BaseModel):
     model: ModelSize = "base"
     compute_type: ComputeType = "int8"
     device: Device = "auto"
+    # Expected spoken language (ISO 639-1, e.g. "pt"). None lets the engine
+    # decide. How much this *guarantees* depends on the engine, and the
+    # difference matters: `whisper` takes a real language token, so the language
+    # is enforced. `parakeet` has no language input at all — it infers one per
+    # decode window from the audio — so here `language` only powers a drift
+    # guard that re-decodes a window which collapsed into English (a real failure
+    # mode on speech mixing a non-English language with English jargon). If your
+    # transcripts must be in one language, use `asr_engine = "whisper"`.
     language: str | None = None
     # When recording mic + system audio on speakers (no headphones), the system
     # output is played acoustically and re-captured by the mic. `echo_cancel`
@@ -156,9 +174,18 @@ class RuntimeConfig(BaseModel):
     screenshots_jpeg_quality: int = Field(default=60, ge=1, le=100)
 
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    # Deprecated no-op: `huske run` is always headless since the Rich terminal
+    # panel was retired in favor of the macOS app. Accepted so existing config
+    # files and launchers (`--no-ui`) keep working.
     no_ui: bool = False
     menu_bar_enabled: bool = True
     menu_bar_label_style: Literal["text", "icon"] = "text"
+    # Explicit control-socket path for an external UI (the native macOS app in
+    # ``macos/``). When set, `huske run` serves its JSON-line control protocol
+    # at this exact path and does NOT spawn the bundled Python menu bar helper
+    # — the external UI owns all presentation. Normally passed as
+    # ``--control-socket`` by the app rather than written to the config file.
+    control_socket: Path | None = None
 
     # Backend used to capture system audio on macOS.
     #   auto: Core Audio tap on macOS 14.4+ (resilient to screen-share
@@ -234,16 +261,15 @@ class RuntimeConfig(BaseModel):
     # gracefully: if the daemon/model is unavailable, recording + passage search
     # continue untouched.
     distill_enabled: bool = False
-    # Backend daemon. Only "ollama" today (see DistillBackend).
-    distill_backend: DistillBackend = "ollama"
-    # Any model the backend can serve. Default is Qwen3.5 0.8B (~1 GB resident,
-    # multilingual, 256K context) — the lightest tier, and portable: it runs on
-    # the Metal/llama.cpp path across the whole Apple-Silicon range, and Ollama
-    # auto-accelerates it on its MLX engine where supported. Pull it with
-    # `ollama pull qwen3.5:0.8b`. For the explicit MLX-weights fast path on
-    # capable (32GB+) Macs, pull the `qwen3.5:0.8b-mlx` build and set it here;
-    # swap up to `qwen3.5:2b` / `qwen3.5:4b` for more quality, or any local tag.
-    distill_model: str = "qwen3.5:0.8b"
+    # Where the LLM runs (see DistillBackend). "mlx" is self-contained.
+    distill_backend: DistillBackend = "mlx"
+    # The model. For the built-in mlx backend this is a Hugging Face repo
+    # (default: Qwen3.5 0.8B 4-bit, ~0.6 GB download, multilingual — the
+    # lightest tier; swap to .../Qwen3.5-2B-4bit for more quality). The known
+    # Ollama tags (`qwen3.5:0.8b`, `:2b`, `:4b`) are auto-mapped to their MLX
+    # builds so pre-0.11 configs keep working. For the ollama backend this is
+    # the daemon's tag (e.g. `qwen3.5:0.8b`, pulled with `ollama pull`).
+    distill_model: str = "mlx-community/Qwen3.5-0.8B-4bit"
     # Loopback endpoint of the local LLM daemon (Ollama's default).
     distill_endpoint: str = "http://127.0.0.1:11434"
     # Per-call ceiling. A local model is slow; this bounds one passage's distill.
@@ -273,6 +299,13 @@ class RuntimeConfig(BaseModel):
     )
     @classmethod
     def _expand(cls, v: Any) -> Path:
+        return Path(str(v)).expanduser()
+
+    @field_validator("control_socket", mode="before")
+    @classmethod
+    def _expand_optional(cls, v: Any) -> Path | None:
+        if v is None:
+            return None
         return Path(str(v)).expanduser()
 
     @model_validator(mode="after")

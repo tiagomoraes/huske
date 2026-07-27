@@ -6,6 +6,125 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.11.0 - 2026-07-27
+
+### Added
+
+- **Transcripts that stay in the language you speak.** Parakeet has no
+  language input — it infers one per decode window — and on speech that mixes
+  a non-English language with English jargon that guess is unstable enough
+  that moving a window boundary by 0.2 s can flip two minutes of Portuguese
+  into English. `language` now reaches the Parakeet engine and drives a drift
+  guard: a window that collapsed into English is re-decoded as two overlapping
+  halves. For a language that must be *guaranteed*, use the Whisper engine,
+  whose decoder takes a real language token — `huske doctor` and `huske run`
+  now say so instead of letting the setting look enforced. Whisper also gained
+  the `large-v3-turbo` model, which is both faster and more accurate than
+  `medium`:
+  `asr_engine = "whisper"`, `model = "large-v3-turbo"`, `language = "pt"`.
+- **⌘K command palette in Huske.app.** Every session and navigation action —
+  start/stop/pause, screenshots, distillation, panes, doctor, recovery,
+  folders, settings — behind one fuzzy-searchable, keyboard-first palette.
+- **Record from the moment you log in.** Huske.app gained *Open Huske at
+  login* (an SMAppService login item) and *Start recording when Huske opens*
+  — in Configuration → "This app" and in Settings (⌘,). Together they replace
+  the LaunchAgent as the everyday autostart (the `huske autostart` LaunchAgent
+  remains for app-less, menu-bar-only setups).
+- **One-click engine install and upgrade.** Onboarding detects uv or Homebrew
+  and installs the engine with a single button, streaming the package
+  manager's output into the window; it also notices a terminal-side install
+  by itself. The outdated-engine screen upgrades the same way, using
+  whichever manager owns the current binary.
+
+- **Built-in distillation — no more Ollama requirement.** `distill_backend`
+  now defaults to `"mlx"`: huske runs the distillation LLM itself via
+  `mlx-lm` in an isolated subprocess, downloading the default model
+  (`mlx-community/Qwen3.5-0.8B-4bit`, ~0.6 GB) from Hugging Face on first
+  use — exactly like the Parakeet weights. Nothing to install or keep
+  running; the model idle-unloads after ~2 min like the transcribe worker.
+  `distill_backend = "ollama"` still delegates to a local daemon, and the
+  known Qwen tags (`qwen3.5:0.8b` …) auto-map to their MLX builds so
+  existing configs keep working. See the amendment in
+  `docs/adr/0005-llm-distillation.md`.
+
+### Changed
+
+- **The transcript browser opens on the newest chunk and stays fast as the
+  folder grows.** Days and chunks are ordered newest-first throughout, the
+  sidebar renders a page at a time (arrow-key navigation opens pages as it
+  walks past them), and a rescan reuses cached per-file verdicts keyed by size
+  and mtime — so a refresh reads the one chunk that just landed instead of
+  every file on disk. A finished chunk landing at the top no longer yanks a
+  reader out of the window they scrolled open.
+- The macOS app is fully brand-styled (IBM Plex, hidden title bar, custom
+  sidebar) with engine-capability detection for older CLIs, curated model
+  pickers in Configuration, pointer cursors, arrow-key transcript
+  navigation, and a Dock badge while recording.
+
+- **Native macOS app — now huske's UI.** A SwiftUI app (`macos/`, built with
+  `macos/scripts/build-app.sh` → `Huske.app`) over the headless engine:
+  start/stop/pause with live mic + system level meters, chunk/queue state and
+  a live activity feed, mid-session screenshot and distillation toggles, live
+  microphone switching, a day-grouped transcript browser with per-run
+  rendering and full-text search, a Doctor pane, an engine-validated
+  Configuration editor, a menu bar extra, and crash recovery. It attaches to
+  sessions started from a terminal or the login LaunchAgent, and quitting
+  while recording drains gracefully like Ctrl+C. See `docs/macos-app.md` and
+  `docs/adr/0006-native-macos-app.md`.
+- **Richer control protocol (v2) for external UIs.** `huske run` gained
+  `--control-socket PATH` to serve its JSON-line control protocol at an
+  explicit socket for an external UI (no bundled menu bar helper). Snapshots
+  now carry peak levels, chunk/session timing, warnings, recent events,
+  output paths, and the active input device — all backward compatible — and
+  clients can switch the microphone (`set_input_device`) and request the
+  device list over the socket.
+- **`huske config show|set|unset`** — inspect and edit
+  `~/.config/huske/config.toml` from the command line with the same
+  validation as `huske run` (`--json` output for tooling), and
+  **`huske devices [--json]`** — list microphone inputs and how the
+  configured one resolves.
+
+- **The transport follows you through the app.** Recording state and its
+  controls moved into the sidebar as a persistent dock — status pill, elapsed
+  time, and live mic + system meters — so you can watch levels from the
+  Transcripts pane and stop from anywhere. The ambient Stop is two-step
+  (a stop cannot be undone); the Record console's labelled Stop and ⌘. stay
+  single-action. The menu bar mark is now drawn per session state rather than
+  a static glyph.
+- **Silent chunks no longer become files.** A chunk whose transcription
+  produced no text is not written at all, instead of persisting a transcript
+  whose whole body is `_(no speech detected)_`. `huske run` reports
+  "no speech detected — nothing saved" and `huske recover` skips the chunk.
+  Huske.app hides the legacy placeholder files already on disk, so the
+  transcript list stops filling with empty days.
+
+### Removed
+
+- **The Rich terminal live panel.** `huske run` is now a headless engine:
+  plain progress lines on stdout, with Huske.app and the menu bar item as the
+  interactive UIs. The `?`/`p`/`s`/`d`/`i`/`q` keyboard controls went with
+  it; `--no-ui` (and the `no_ui` config key) remain as accepted no-ops so
+  existing launchers keep working. See
+  `docs/adr/0007-app-first-retire-the-tui.md`.
+
+### Fixed
+
+- **The elapsed clock stops when you stop.** It kept counting while the engine
+  finalized and drained, so a stop that took a while reported a session longer
+  than the recording. The clock now freezes at the moment stop was requested —
+  the click for a local stop, the first `stopping` snapshot for one started
+  elsewhere.
+- **Clicking the Dock icon reopens the window.** After closing the last
+  window (the menu bar extra keeps huske alive), a Dock click now brings the
+  main window back instead of doing nothing.
+- **Hover works again everywhere in the app.** The stateless pointer-cursor
+  overlay introduced after the redesign swallowed AppKit mouse tracking, so
+  transcript rows, sidebar items, and icon buttons stopped highlighting.
+  Hover is now tracked by AppKit itself (cursor rect + tracking area on one
+  event-transparent view) and every control got the design-spec hover,
+  pressed, and disabled states — including the previously feedback-less
+  primary and secondary buttons.
+
 ## 0.10.0 - 2026-06-29
 
 ### Added

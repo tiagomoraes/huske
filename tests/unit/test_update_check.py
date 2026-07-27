@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -379,6 +382,45 @@ def test_notify_skips_refresh_when_cache_fresh(
     update_check.notify_if_outdated()
 
     assert called == []
+
+
+def test_refresh_finishes_before_interpreter_shutdown(tmp_path: Path) -> None:
+    """A short CLI must not exit while the refresh thread is still running.
+
+    The refresh can be inside OpenSSL when a command such as
+    ``huske autostart install`` exits.  Abandoning it as a daemon thread lets
+    OpenSSL's process cleanup race the live thread and can segfault the CLI.
+    """
+    sentinel = tmp_path / "refresh-finished"
+    code = """
+import os
+import time
+from pathlib import Path
+
+from huske import update_check
+
+
+def delayed_refresh() -> None:
+    time.sleep(0.2)
+    Path(os.environ["HUSKE_UPDATE_CHECK_TEST_SENTINEL"]).write_text(
+        "done", encoding="utf-8"
+    )
+
+
+update_check._refresh = delayed_refresh
+update_check._spawn_refresh()
+"""
+    env = os.environ.copy()
+    env["HUSKE_UPDATE_CHECK_TEST_SENTINEL"] = str(sentinel)
+
+    subprocess.run(
+        [sys.executable, "-c", code],
+        check=True,
+        env=env,
+        timeout=5,
+    )
+
+    assert sentinel.read_text(encoding="utf-8") == "done"
 
 
 # ---------------------------------------------------------------------------

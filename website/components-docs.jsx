@@ -133,17 +133,24 @@ const DocsHero = () => (
 const InstallDoc = () => (
   <DocsSection id="install" num="01" title="Install">
     <p className="docs-lead">
-      huske is a single Python tool for macOS on Apple Silicon. Pick a package
-      manager — <code>uv</code> is recommended for its speed and isolated install.
+      The fastest path is <strong>Huske.app</strong>: download, open, and one
+      click installs the engine. The engine is also a single Python tool you
+      can install directly — for agents, SSH sessions, and headless Macs.
     </p>
     <ul className="docs-facts">
-      <li><span className="k">os</span><span className="v">macOS 13+ (14.4+ recommended — the Core Audio tap survives screen sharing)</span></li>
+      <li><span className="k">os</span><span className="v">app macOS 14+ · engine macOS 13+ (14.4+ recommended — the Core Audio tap survives screen sharing)</span></li>
       <li><span className="k">python</span><span className="v">{HUSKE_PYTHONS.slice(0, -1).join(", ")}, or {HUSKE_PYTHONS[HUSKE_PYTHONS.length - 1]}</span></li>
       <li><span className="k">disk</span><span className="v">~3 GB for the default <code>base</code> model (downloaded on first run)</span></li>
       <li><span className="k">audio</span><span className="v">no BlackHole, Aggregate Device, or Audio MIDI Setup — Apple's built-in capture is used</span></li>
     </ul>
 
     <InstallTabs />
+    <p className="docs-aside">
+      The app build is ad-hoc signed, not notarized: macOS blocks the very
+      first open. Approve it under <strong>System Settings → Privacy &amp;
+      Security → "Open Anyway"</strong> (one time), or build it yourself from
+      source with <code>macos/scripts/build-app.sh</code>.
+    </p>
 
     <h3>Optional extras</h3>
     <p>The base install records and transcribes. Two opt-in extras add separate, lazily-loaded subsystems:</p>
@@ -196,8 +203,9 @@ const FirstRunDoc = () => (
       </li>
       <li>
         <h4>Record.</h4>
+        <p>In <strong>Huske.app</strong>: hit <strong>Start Recording</strong> (⌘R). The Record pane shows live level meters, the current chunk and queue, and an activity feed; pause, screenshots, distillation, and mic switching are one ⌘K away. From a terminal, the same engine runs headless:</p>
         <DocsTerminal><DocsCmd cmd="huske run" /></DocsTerminal>
-        <p>The Rich live panel shows the countdown, mic and system level meters, queue depth, and the last saved transcript. <kbd>Ctrl+C</kbd> finalizes the partial chunk, transcribes it, and exits. The Parakeet model downloads on the first transcription.</p>
+        <p>Plain progress lines on stdout; <kbd>Ctrl+C</kbd> finalizes the partial chunk, transcribes it, and exits (a menu bar item carries pause/screenshots/stop). The Parakeet model downloads on the first transcription.</p>
       </li>
       <li>
         <h4>Read the output.</h4>
@@ -219,9 +227,11 @@ const FirstRunDoc = () => (
 const AutostartDoc = () => (
   <DocsSection id="autostart" num="03" title="Autostart on login">
     <p className="docs-lead">
-      <code>huske autostart install</code> registers a per-user <code>launchd</code>
-      LaunchAgent that runs <code>huske run --no-ui</code> automatically at every
-      login. macOS only.
+      The everyday autostart lives in the app: <strong>Configuration → This
+      app → Open Huske at login</strong> + <strong>Start recording when Huske
+      opens</strong>. Prefer no app at all? <code>huske autostart install</code>
+      registers a per-user <code>launchd</code> LaunchAgent that runs a headless
+      <code> huske run</code> at every login. macOS only.
     </p>
     <DocsTerminal>
       <DocsCmd cmd="huske autostart install" note="write the plist and load it now" />
@@ -249,7 +259,7 @@ const AutostartDoc = () => (
       The first time the agent records, macOS prompts for Microphone and the
       capture permission for the resolved binary. If the prompts don't appear
       after login, run <code>huske autostart start</code> once from a terminal so
-      they fire while you're present. The agent has no TUI; output is appended to:
+      they fire while you're present. The agent is headless; output is appended to:
     </p>
     <DocsCode lang="text" code={"~/Library/Logs/huske/agent.out.log\n~/Library/Logs/huske/agent.err.log"} />
     <p className="docs-aside">
@@ -292,7 +302,7 @@ const COMMON_CONFIG = [
   { key: "keep_audio", def: "false", desc: "Keep audio after transcription (compressed — see keep_audio_format).", flag: "--keep-audio" },
   { key: "keep_audio_format", def: "opus", desc: "Format for kept audio: opus (lossy, smallest), flac (lossless), or wav.", flag: "--keep-audio-format" },
   { key: "log_level", def: "INFO", desc: "DEBUG, INFO, WARNING, ERROR.", flag: "--log-level" },
-  { key: "no_ui", def: "false", desc: "Disable the live UI; emit plain log lines.", flag: "--no-ui" },
+  { key: "no_ui", def: "false", desc: "Deprecated no-op — huske run is always headless now (the terminal panel moved into Huske.app).", flag: "--no-ui" },
   { key: "screenshots_enabled", def: "false", desc: "Capture a JPEG of every display periodically. Loud — see privacy.", flag: "--screenshots" },
   { key: "screenshots_interval_seconds", def: "60", desc: "Seconds between screenshots (1–3600).", flag: "--screenshot-interval" },
 ];
