@@ -39,6 +39,13 @@ from huske.transcribe.worker import TranscriptionWorker, chunk_to_job
 
 _HEARTBEAT_TIMEOUT_SECONDS = 5.0
 
+# Mic doctor: how long the mic stream may go without delivering audio (in
+# awake/monotonic time, so sleep doesn't count) before we recycle it, and the
+# minimum spacing between rescan/reopen attempts. Reopening tears the stream
+# down for a moment, so both are deliberately coarse.
+_MIC_RESTART_STALE_SECONDS = 30.0
+_MIC_RECLAIM_INTERVAL_SECONDS = 30.0
+
 
 def _print(msg: str) -> None:
     print(msg, flush=True)
@@ -439,6 +446,11 @@ def run_session(
         actual_sources.append("system")
     rotator.set_default_audio_sources(list(actual_sources))
     state.update(recording=True)
+    if device_resolution.fallback_used and device_resolution.warning:
+        # Sticky until the mic doctor in _main_loop reclaims the configured
+        # device (it is often absent at login — e.g. Bluetooth earbuds that
+        # connect a few seconds after the LaunchAgent starts us).
+        state.set_warning("microphone", device_resolution.warning)
 
     screenshotter: ScreenshotCapturer | None = None
     if cfg.screenshots_enabled:
@@ -751,6 +763,7 @@ def run_session(
             on_written=_on_written,
             on_tick=_on_tick,
             pending_count=_pending_count,
+            mic_fallback=device_resolution.fallback_used,
         )
 
         # Phase 2: stopping. Keep publishing state while we drain so the app
@@ -872,12 +885,21 @@ def _main_loop(
     on_written: Callable[[Path], None] | None = None,
     on_tick: Callable[[], None] | None = None,
     pending_count: Callable[[], int] | None = None,
+    mic_fallback: bool = False,
 ) -> None:
     """Run the asyncio-free main loop: poll worker results, refresh state,
     publish control-plane snapshots, watch the capture heartbeat."""
 
     def _depth() -> int:
         return pending_count() if pending_count is not None else worker.queue_depth
+
+    # Mic-doctor bookkeeping. Staleness is measured in monotonic (awake) time
+    # so waking from sleep gives the stream a grace period to resume on its
+    # own before we recycle it.
+    prev_mic_last = capture.mic_last_callback_at
+    last_mic_progress = time.monotonic()
+    last_mic_reclaim = time.monotonic()
+    mic_ever_active = False
 
     while not stop_flag.is_set():
         if pump_commands is not None:
@@ -896,6 +918,50 @@ def _main_loop(
                 )
             else:
                 state.clear_warning("heartbeat")
+
+        # Mic doctor: while capture runs on a fallback microphone (the
+        # configured one was absent at startup — e.g. Bluetooth earbuds that
+        # connect shortly after login), or a mic that once worked stopped
+        # delivering audio (device vanished after sleep/wake), periodically
+        # refresh the device list and reopen on the best device available.
+        mic_ever_active = mic_ever_active or capture.mic_active
+        mic_last = capture.mic_last_callback_at
+        if mic_last != prev_mic_last:
+            prev_mic_last = mic_last
+            last_mic_progress = time.monotonic()
+        if not state.paused:
+            mic_dead = mic_ever_active and (
+                not capture.mic_active
+                or time.monotonic() - last_mic_progress > _MIC_RESTART_STALE_SECONDS
+            )
+            if (
+                ((mic_fallback and cfg.input_device) or mic_dead)
+                and time.monotonic() - last_mic_reclaim >= _MIC_RECLAIM_INTERVAL_SECONDS
+            ):
+                last_mic_reclaim = time.monotonic()
+                log.debug(
+                    "mic_reclaim_attempt",
+                    requested=cfg.input_device,
+                    mic_fallback=mic_fallback,
+                    mic_dead=mic_dead,
+                )
+                resolution = capture.reclaim_mic(cfg.input_device)
+                if resolution is not None and resolution.device is not None:
+                    if not resolution.fallback_used:
+                        if mic_fallback:
+                            state.push_event(
+                                "info",
+                                f"microphone reclaimed: '{resolution.device.name}'",
+                            )
+                            log.info("mic_reclaimed", device=resolution.device.name)
+                        mic_fallback = False
+                        state.clear_warning("microphone")
+                    else:
+                        # Landed on a fallback device — keep trying to claim
+                        # the configured one on later ticks.
+                        mic_fallback = bool(cfg.input_device)
+                        if resolution.warning:
+                            state.set_warning("microphone", resolution.warning)
 
         # Worker result drain (non-blocking).
         result = worker.poll_result(timeout=0.0)

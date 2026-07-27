@@ -30,6 +30,11 @@ import numpy as np
 import numpy.typing as npt
 import sounddevice as sd
 
+from huske.capture.devices import (
+    DeviceInfo,
+    DeviceResolution,
+    resolve_input_device_with_fallback,
+)
 from huske.capture.system_audio import (
     SystemAudioPermissionError,
     SystemAudioStream,
@@ -175,6 +180,13 @@ class CaptureCoordinator:
     def last_callback_at(self) -> datetime | None:
         candidates = [t for t in (self._mic_last, self._sys_last) if t is not None]
         return max(candidates) if candidates else None
+
+    @property
+    def mic_last_callback_at(self) -> datetime | None:
+        """Last mic-only callback — system audio keeps `last_callback_at`
+        fresh even when the mic stream is dead, so mic health needs its own
+        timestamp."""
+        return self._mic_last
 
     def peak_levels_db(self) -> tuple[float, float]:
         """Return (mic_db, system_db) peak since last call. dBFS, floor -120."""
@@ -424,6 +436,107 @@ class CaptureCoordinator:
                 self._paused.clear()
         self._on_event("info", "microphone capture switched")
         return True
+
+    def reclaim_mic(self, requested_name: str | None) -> DeviceResolution | None:
+        """Re-scan audio devices and move mic capture onto the best one.
+
+        PortAudio snapshots the device list once at initialization, so a
+        microphone that appears after startup (e.g. Bluetooth earbuds that
+        connect shortly after login) is invisible to ``sd.query_devices()``.
+        Refreshing the snapshot requires re-initializing PortAudio, which is
+        only safe while no PortAudio stream is open — the system-audio
+        backends don't use PortAudio, so closing the mic stream first is
+        sufficient. Capture then reopens on whatever the refreshed
+        resolution yields.
+
+        Returns the post-refresh :class:`DeviceResolution` (``fallback_used``
+        tells the caller whether the requested device was claimed), or
+        ``None`` when no mic could be opened at all — capture continues
+        system-audio-only and the caller may retry later.
+        """
+        old_stream = self._mic_stream
+        with self._pause_lock:
+            was_paused = self._paused.is_set()
+            self._paused.set()
+            self._mic_stream = None
+            self._mic_active = False
+            self._clear_buffers()
+            with self._peak_lock:
+                self._mic_peak = 0.0
+
+        if old_stream is not None:
+            try:
+                old_stream.stop()
+                old_stream.close()
+            except Exception:
+                pass
+
+        try:
+            sd._terminate()
+            sd._initialize()
+        except Exception as exc:
+            self._on_event("warn", f"audio device rescan failed: {exc}")
+
+        resolution = resolve_input_device_with_fallback(requested_name)
+        new_stream = self._open_mic_stream(resolution.device)
+
+        if new_stream is None and resolution.device is not None and not resolution.fallback_used:
+            # The requested device is visible but would not open (Bluetooth
+            # devices briefly refuse streams while (re)negotiating). Fall back
+            # to the system default and report fallback so the caller retries.
+            fallback = resolve_input_device_with_fallback(None)
+            new_stream = self._open_mic_stream(fallback.device)
+            resolution = DeviceResolution(
+                device=fallback.device,
+                requested_name=requested_name,
+                fallback_used=True,
+                warning=(
+                    f"Configured microphone '{requested_name}' found but not "
+                    "openable yet; using "
+                    f"'{fallback.device.name if fallback.device else 'none'}'."
+                ),
+            )
+
+        with self._pause_lock:
+            self._mic_stream = new_stream
+            self._mic_device_index = (
+                resolution.device.index
+                if new_stream is not None and resolution.device is not None
+                else None
+            )
+            self._mic_active = new_stream is not None
+            if not was_paused:
+                self._paused.clear()
+
+        if new_stream is None:
+            self._on_warning(
+                "microphone",
+                "Microphone unavailable — capturing system audio only.",
+            )
+            return None
+
+        self._on_warning_clear("microphone")
+        return resolution
+
+    def _open_mic_stream(self, device: DeviceInfo | None) -> sd.InputStream | None:
+        """Open + start an input stream on ``device``, or None on failure."""
+        if device is None:
+            return None
+        try:
+            stream = sd.InputStream(
+                device=device.index,
+                channels=1,
+                samplerate=self._cfg.sample_rate,
+                blocksize=self._cfg.block_size,
+                dtype="float32",
+                latency="high",
+                callback=self._mic_callback,
+            )
+            stream.start()
+            return stream
+        except Exception as exc:
+            self._on_event("error", f"mic reopen failed: {exc}")
+            return None
 
     def stop(self, timeout: float = 5.0) -> None:
         self._stop.set()
