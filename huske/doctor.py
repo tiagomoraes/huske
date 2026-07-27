@@ -450,6 +450,30 @@ def run_doctor(
     # Model cached check (does not download — we attempt to load only at run time).
     checks.append(Check("model", True, model_desc))
 
+    # Language enforceability. Parakeet has no language input — it infers one per
+    # decode window — so a configured `language` is a hint there, not a promise,
+    # and code-switched speech can come out in English. Say so plainly rather
+    # than letting the transcript frontmatter imply otherwise.
+    if cfg.language:
+        pinned = cfg.asr_engine == "whisper"
+        checks.append(
+            Check(
+                "language",
+                pinned,
+                f"'{cfg.language}'" + ("" if pinned else " (parakeet cannot enforce it)"),
+                None
+                if pinned
+                else (
+                    "parakeet infers the language per decode window, so speech "
+                    "mixing "
+                    f"{cfg.language} with English can be transcribed as English. "
+                    "huske re-decodes windows it catches drifting; to enforce "
+                    "the language outright set asr_engine = \"whisper\" (with "
+                    'model = "large-v3-turbo").'
+                ),
+            )
+        )
+
     # sounddevice working.
     try:
         with _suppress_native_output(json_output):

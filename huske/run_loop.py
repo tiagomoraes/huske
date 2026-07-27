@@ -124,6 +124,17 @@ def run_session(
     log = logging_setup.get_logger("huske.run")
     log.info("starting", session_id=session.session_id, version_hint=__version__)
 
+    # A configured `language` is only a promise on whisper, whose decoder takes a
+    # language token. Parakeet infers the language per decode window and can
+    # collapse code-switched speech into English; huske re-decodes windows it
+    # catches, but say once, up front, that the setting is a hint here.
+    if cfg.language and cfg.asr_engine == "parakeet":
+        _print(
+            f"[warn] language={cfg.language!r} cannot be enforced by the parakeet "
+            'engine — set asr_engine = "whisper" to pin it'
+        )
+        log.warning("language_not_enforceable", language=cfg.language, engine=cfg.asr_engine)
+
     # Resolve + validate input device.
     device_resolution = resolve_input_device_with_fallback(cfg.input_device)
     if device_resolution.warning:

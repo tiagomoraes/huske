@@ -8,6 +8,18 @@ This project uses semantic versioning after the first public release.
 
 ### Added
 
+- **Transcripts that stay in the language you speak.** Parakeet has no
+  language input — it infers one per decode window — and on speech that mixes
+  a non-English language with English jargon that guess is unstable enough
+  that moving a window boundary by 0.2 s can flip two minutes of Portuguese
+  into English. `language` now reaches the Parakeet engine and drives a drift
+  guard: a window that collapsed into English is re-decoded as two overlapping
+  halves. For a language that must be *guaranteed*, use the Whisper engine,
+  whose decoder takes a real language token — `huske doctor` and `huske run`
+  now say so instead of letting the setting look enforced. Whisper also gained
+  the `large-v3-turbo` model, which is both faster and more accurate than
+  `medium`:
+  `asr_engine = "whisper"`, `model = "large-v3-turbo"`, `language = "pt"`.
 - **⌘K command palette in Huske.app.** Every session and navigation action —
   start/stop/pause, screenshots, distillation, panes, doctor, recovery,
   folders, settings — behind one fuzzy-searchable, keyboard-first palette.

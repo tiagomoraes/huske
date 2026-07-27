@@ -32,10 +32,13 @@ it about your day.
   built-in capture APIs. Grant the macOS audio/screen capture permission once.
 - **Local transcription** — [Parakeet](https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3)
   (`parakeet-tdt-0.6b-v3`) on the Apple Silicon GPU via MLX. It is multilingual
-  (auto-detected, ~25 languages) and, being a transducer, emits nothing on
-  silence instead of hallucinating repeated filler the way Whisper does. Audio
-  never leaves your machine. `--asr-engine whisper` keeps the legacy mlx-whisper
-  path.
+  (~25 languages) and, being a transducer, emits nothing on silence instead of
+  hallucinating repeated filler the way Whisper does. Audio never leaves your
+  machine. Parakeet *infers* the language per decode window and cannot be told
+  which one, so if you speak a non-English language mixed with English jargon
+  and need the transcript pinned to one language, use the Whisper engine, whose
+  decoder takes a language token:
+  `--asr-engine whisper --model large-v3-turbo --language pt`.
 - **Speech-gated segmentation** — files split on real pauses in speech, not a
   fixed clock: a chunk opens when speech starts and closes after a pause
   (`--silence-split`, default 45 s) or at the `--chunk-minutes` cap (default

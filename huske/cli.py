@@ -67,7 +67,8 @@ def run(
         None,
         "--asr-engine",
         help="Transcription backend: parakeet (default, silence-robust, "
-        "multilingual) or whisper (legacy mlx-whisper).",
+        "multilingual but infers the language per window and cannot be pinned) "
+        "or whisper (mlx-whisper; the only engine that enforces --language).",
     ),
     parakeet_model: str | None = typer.Option(
         None,

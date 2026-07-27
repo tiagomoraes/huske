@@ -11,10 +11,14 @@ Two engines ship today:
 
 * ``parakeet`` — NVIDIA Parakeet (TDT) via the MLX port ``parakeet-mlx``. The
   default. Non-autoregressive, so it emits nothing on silence/noise instead of
-  hallucinating repeated tokens the way Whisper does, and it auto-detects the
-  language (multilingual on ``parakeet-tdt-0.6b-v3``). See ``parakeet.py``.
-* ``whisper`` — the legacy mlx-whisper path, kept selectable. Pairs with an
-  energy gate to suppress its silence hallucinations. See ``whisper.py``.
+  hallucinating repeated tokens the way Whisper does. Multilingual on
+  ``parakeet-tdt-0.6b-v3``, but the language is *inferred per decode window and
+  cannot be set*, so code-switched speech can collapse into English; ``language``
+  only drives the drift guard there. See ``parakeet.py``.
+* ``whisper`` — the legacy mlx-whisper path, kept selectable. The only engine
+  that can be *pinned* to a language (its decoder takes a language token), so it
+  is the right choice when ``language`` must be enforced. Pairs with an energy
+  gate to suppress its silence hallucinations. See ``whisper.py``.
 
 Both load 16 kHz mono audio with ``soundfile`` + ``soxr`` (no ffmpeg
 dependency) and run on the same MLX/Metal stack — Apple Silicon only.
@@ -44,7 +48,7 @@ def build_engine(
     if engine == "parakeet":
         from huske.transcribe.engines.parakeet import ParakeetEngine
 
-        return ParakeetEngine(model_id=parakeet_model)
+        return ParakeetEngine(model_id=parakeet_model, language=language)
     if engine == "whisper":
         from huske.transcribe.engines.whisper import WhisperEngine
 

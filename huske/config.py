@@ -9,12 +9,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-ModelSize = Literal["tiny", "base", "small", "medium", "large-v3"]
+ModelSize = Literal["tiny", "base", "small", "medium", "large-v3", "large-v3-turbo"]
 # Which ASR backend transcribes finalized chunks. `parakeet` (NVIDIA Parakeet
 # via parakeet-mlx) is the default: non-autoregressive, so it emits nothing on
 # silence/noise instead of hallucinating repeated phrases the way Whisper does,
-# and it auto-detects language across ~25 languages. `whisper` keeps the legacy
-# mlx-whisper path selectable.
+# and it covers ~25 languages. It cannot be *told* which one, though (the
+# language is inferred per decode window), so `whisper` — whose decoder takes a
+# language token — stays selectable and is the right pick when `language` must be
+# enforced. See `huske/transcribe/engines/parakeet.py`.
 ASREngine = Literal["parakeet", "whisper"]
 # What to do with a microphone segment detected as an acoustic echo of a system
 # segment (speaker bleed when not wearing headphones): drop it, keep it but tag
@@ -46,6 +48,11 @@ _MLX_WHISPER_REPO_BY_SIZE: dict[str, str] = {
     "small": "mlx-community/whisper-small-mlx",
     "medium": "mlx-community/whisper-medium-mlx",
     "large-v3": "mlx-community/whisper-large-v3-mlx",
+    # Distilled large-v3: measurably *faster* than `medium` on Apple Silicon
+    # (~19x vs ~14x realtime) and more accurate, which makes it the size to
+    # reach for when `language` has to be enforced. Same weights class as
+    # large-v3 but 4 decoder layers instead of 32.
+    "large-v3-turbo": "mlx-community/whisper-large-v3-turbo",
 }
 
 
@@ -100,6 +107,14 @@ class RuntimeConfig(BaseModel):
     model: ModelSize = "base"
     compute_type: ComputeType = "int8"
     device: Device = "auto"
+    # Expected spoken language (ISO 639-1, e.g. "pt"). None lets the engine
+    # decide. How much this *guarantees* depends on the engine, and the
+    # difference matters: `whisper` takes a real language token, so the language
+    # is enforced. `parakeet` has no language input at all — it infers one per
+    # decode window from the audio — so here `language` only powers a drift
+    # guard that re-decodes a window which collapsed into English (a real failure
+    # mode on speech mixing a non-English language with English jargon). If your
+    # transcripts must be in one language, use `asr_engine = "whisper"`.
     language: str | None = None
     # When recording mic + system audio on speakers (no headphones), the system
     # output is played acoustically and re-captured by the mic. `echo_cancel`

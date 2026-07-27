@@ -83,7 +83,7 @@ huske_version: 0.5.0
 | `gap_seconds` | float | Total silence/disconnect gaps within the chunk; 0 if continuous. |
 | `audio_sources` | list[string] | Subset of `["microphone", "system"]`. Reflects what was effectively captured (may shrink if a source dropped mid-chunk). |
 | `model` | string | `<engine>:<size>`, e.g. `parakeet:tdt-0.6b-v3` (default) or `mlx-whisper:medium`. |
-| `language` | string | ISO 639-1, or `auto` when the engine auto-detects (Parakeet does not report a per-chunk language). |
+| `language` | string | The *configured* language (ISO 639-1), or `auto` when none was set. Note this records intent, not a detection: only the `whisper` engine can be pinned to a language: Parakeet infers one per decode window, does not report it, and can disagree with this field on code-switched speech. |
 | `incomplete` | boolean | `true` if produced from recovery, graceful-stop short chunk, or partial transcription. |
 | `huske_version` | string | Semver of the producing huske binary. |
 
@@ -134,7 +134,9 @@ huske_version: 0.5.0
   (~90 s of segment span) so long single-source monologues keep periodic
   timestamp anchors instead of collapsing every interior segment behind one
   head timestamp.
-- A chunk with no detected speech writes the body as: `_(no speech detected)_`.
+- A chunk with no detected speech does not produce a transcript file. Readers
+  should continue to tolerate legacy files whose body is
+  `_(no speech detected)_`.
 
 ---
 
