@@ -207,6 +207,10 @@ def _markdown_text_to_jsx(line: str) -> str:
 
     Handles:
       - backtick code spans → ``<code>...</code>``
+      - ``**bold**`` → ``<strong>...</strong>``, ``*italic*`` → ``<em>...</em>``
+        (every CHANGELOG bullet opens with a bold lede, and leaving the
+        asterisks in renders them literally on the site — the bug 0.9.1's
+        release notes had to apologize for)
       - curly braces → entity-escape (so JSX doesn't read them as expressions)
     Other characters pass through. ``<``/``>`` outside backticks are left
     alone — none appear in our CHANGELOG text in practice.
@@ -226,6 +230,20 @@ def _markdown_text_to_jsx(line: str) -> str:
             code_escaped = code.replace("{", "&#123;").replace("}", "&#125;")
             out.append(f"<code>{code_escaped}</code>")
             i = end + 1
+        elif ch == "*":
+            # Emphasis spans may themselves contain code, so recurse on the
+            # inner text. An unclosed marker is passed through as a literal.
+            wide = line.startswith("**", i)
+            marker = "**" if wide else "*"
+            end = line.find(marker, i + len(marker))
+            if end == -1:
+                out.append(ch)
+                i += 1
+                continue
+            inner = _markdown_text_to_jsx(line[i + len(marker) : end])
+            tag = "strong" if wide else "em"
+            out.append(f"<{tag}>{inner}</{tag}>")
+            i = end + len(marker)
         elif ch == "{":
             out.append("&#123;")
             i += 1

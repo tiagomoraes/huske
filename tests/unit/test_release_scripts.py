@@ -61,6 +61,29 @@ def test_markdown_to_jsx_unclosed_backtick_is_passed_through() -> None:
     assert "`" in out  # we don't crash; we just leave the stray tick
 
 
+def test_markdown_to_jsx_bold_becomes_strong() -> None:
+    """Every CHANGELOG bullet opens with a bold lede; literal `**` shipped to
+    the site once already (see the 0.9.1 notes) and must not again."""
+    out = release_script._markdown_text_to_jsx("**Speech-gated segmentation.** Files split.")
+    assert out == "<strong>Speech-gated segmentation.</strong> Files split."
+    assert "*" not in out
+
+
+def test_markdown_to_jsx_italic_becomes_em() -> None:
+    out = release_script._markdown_text_to_jsx("it *suppresses* rather than eliminates")
+    assert out == "it <em>suppresses</em> rather than eliminates"
+
+
+def test_markdown_to_jsx_code_inside_bold_is_nested() -> None:
+    out = release_script._markdown_text_to_jsx("**`huske devices [--json]`** lists inputs")
+    assert out == "<strong><code>huske devices [--json]</code></strong> lists inputs"
+
+
+def test_markdown_to_jsx_unclosed_emphasis_is_passed_through() -> None:
+    assert release_script._markdown_text_to_jsx("2 * 3 = 6") == "2 * 3 = 6"
+    assert release_script._markdown_text_to_jsx("**oops unterminated").startswith("*")
+
+
 # ---------------------------------------------------------------------------
 # release.py — CHANGELOG section → JSX items array
 # ---------------------------------------------------------------------------
