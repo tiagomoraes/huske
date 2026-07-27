@@ -8,6 +8,20 @@ This project uses semantic versioning after the first public release.
 
 ### Fixed
 
+- **Autostart no longer pins the wrong microphone for the whole session.**
+  When `huske run` starts before the configured microphone has connected —
+  typical for the login LaunchAgent with Bluetooth earbuds, which pair a few
+  seconds after login — huske fell back to the default mic and stayed there
+  forever, because PortAudio only sees hot-plugged devices after a
+  re-initialization. With speech-gated chunking, a fallback mic that hears
+  nothing meant no chunk ever opened and the session looked stuck "waiting"
+  despite reporting recording. A mic doctor in the run loop now rescans the
+  device list every 30 s while on a fallback mic and hot-swaps onto the
+  configured device as soon as it appears; it also restarts a mic whose
+  stream stopped delivering audio (device vanished after sleep/wake). The
+  fallback warning is sticky until the configured device is claimed, so it
+  stays visible in Huske.app and the menu bar rather than scrolling past.
+
 - **Huske.app runs the newest engine installed, not the first one it finds.**
   A Mac accumulates engines from different managers — `uv tool` in
   `~/.local/bin`, Homebrew in `/opt/homebrew/bin` — and they upgrade at
