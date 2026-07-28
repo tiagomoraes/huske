@@ -722,7 +722,14 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.11.1", date: "2026-07-27", tag: "latest",
+    ver: "0.12.0", date: "2026-07-28", tag: "latest",
+    items: [
+      { kind: "added", text: <><strong>huske starts Ollama for you.</strong> Only relevant if you have set <code>distill_backend = "ollama"</code> — the default backend runs the model itself and needs none of this. When distillation turns on, huske now starts the daemon if the <code>ollama</code> CLI is installed but idle, and pulls the configured model if it's missing, streaming progress into the activity feed, instead of only telling you the daemon is unreachable. It only ever runs the local <code>ollama</code> CLI and will never install Ollama for you. Set <code>distill_auto_manage = false</code> to go back to being told about the problem rather than having it fixed.</> },
+      { kind: "fixed", text: <><strong>A latent crash in the built-in distillation backend.</strong> <code>mlx_lm.load()</code> returns two values or three depending on how it's called, and huske unpacked exactly two — correct today, but one argument away from breaking. Found by turning on the type checker in CI, which had been configured and never enforced.</> },
+    ],
+  },
+  {
+    ver: "0.11.1", date: "2026-07-27",
     items: [
       { kind: "fixed", text: <><strong>Autostart no longer pins the wrong microphone for the whole session.</strong> Starting at login with Bluetooth earbuds — which pair a few seconds after you sign in — meant huske fell back to the default mic and stayed there, because PortAudio only sees hot-plugged devices after re-initializing. With speech-gated chunking a fallback mic that hears nothing opens no chunk at all, so the session looked stuck on "waiting" while reporting that it was recording. huske now rescans every 30 s while on a fallback mic and switches to the configured device the moment it appears; it also restarts a mic whose stream died after sleep/wake, and keeps the warning visible until the right device is claimed.</> },
       { kind: "fixed", text: <><strong>Huske.app runs the newest engine it finds, not the first.</strong> The app drives the <code>huske</code> CLI, and a Mac collects copies of it — <code>uv tool</code> in <code>~/.local/bin</code>, Homebrew in <code>/opt/homebrew/bin</code> — that upgrade at different times. It used to take whichever came first by location, so a stale install could shadow a current one and the app would offer to upgrade the old engine while a new one sat beside it. It now picks the highest version installed, and Configuration shows which engine is in use plus any others it found.</> },
