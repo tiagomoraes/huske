@@ -26,6 +26,26 @@ add local workflow notes, but this file is the shared baseline.
 - Use synthetic audio and redacted paths in tests and examples.
 - Treat `huske doctor` output as potentially sensitive.
 
+## The Authenticated Read Surface
+
+`huske/mcp/oauth.py` + `huske/mcp/connector.py` are the only code in this repo
+that can expose transcripts to the network (opt-in, via `mcp_public_url`; see
+`docs/adr/0008-public-mcp-connector.md`). Rules when touching them:
+
+- **Never loosen a refusal into a warning.** Connector mode must keep failing to
+  start without a passphrase and over plain HTTP. Both are what stand between a
+  misconfiguration and a published transcript archive.
+- **Never redirect on an authorization error.** `/oauth/authorize` renders errors
+  on huske's own origin because a `redirect_uri` that has not been validated
+  against a registered client is an open redirect.
+- Keep both modules **stdlib-only** — they must import without `huske[mcp]`, which
+  is what makes them unit-testable by driving ASGI scope/receive/send directly
+  (see `tests/unit/test_mcp_connector.py`). Same rule as `huske/sync/`.
+- Persist **hashes, never credentials**: passphrase via scrypt, tokens via
+  sha256. There is a test asserting a token string never reaches `oauth.db`.
+- The static loopback token must keep working on the same endpoint. Breaking it
+  silently migrates every local client.
+
 ## Gitflow and Branch Names
 
 This repository follows a lightweight Gitflow model:

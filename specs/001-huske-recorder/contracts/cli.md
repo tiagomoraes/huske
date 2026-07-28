@@ -19,7 +19,17 @@ Installed as `huske` via `pyproject.toml` `[project.scripts]`. Also accessible a
 huske run [OPTIONS]          Start a recording session (default if no subcommand).
 huske recover [OPTIONS]      Process orphaned audio from prior runs without recording.
 huske doctor [OPTIONS]       Diagnose audio device + model setup; exit non-zero on failure.
+huske devices [OPTIONS]      List microphone input devices.
+huske config <verb>          Inspect and edit ~/.config/huske/config.toml.
 huske autostart <verb>       Manage the macOS LaunchAgent that runs huske on login.
+huske index [OPTIONS]        Build/refresh the local semantic index (needs huske[mcp]).
+huske distill [OPTIONS]      Distil transcripts into statement sidecars with a local LLM.
+huske mcp [OPTIONS]          Serve transcript search over MCP (needs huske[mcp]).
+huske mcp <verb>             Manage connector access (set-password, revoke, status).
+huske connect [CLIENT]       Show how to wire huske into each LLM client.
+huske export [OPTIONS]       Write one Markdown digest per day for file-reading tools.
+huske serve [OPTIONS]        Off-device server: receive + index pushed transcripts.
+huske sync [OPTIONS]         Push unreplicated transcripts to a huske server.
 huske --version              Print version and exit.
 huske --help                 Print help.
 ```
@@ -193,6 +203,77 @@ session is attached.
 | `0` | Command succeeded. `status` returns 0 only when the agent is installed AND loaded. |
 | `1` | `launchctl` returned non-zero, plist already exists (without `--force`), or `status` reports not-installed/not-loaded. |
 | `2` | Not running on macOS. |
+
+---
+
+## `huske mcp`
+
+**Purpose**: Serve transcript search to LLM clients over Streamable HTTP MCP.
+Requires the `huske[mcp]` extra. Bound to `127.0.0.1` by default and guarded by a
+static bearer token (`~/.config/huske/mcp_token`, mode `0600`). Tools: `search`,
+`fetch`, `recap`, `overview`. Prompts: `catch_me_up`, `what_was_said_about`.
+
+**Options**:
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--host` | str | `127.0.0.1` | Bind address. |
+| `--port` | int (1–65535) | `7641` | Port. |
+| `--public-url` | str | (none) | Public HTTPS URL of this endpoint, e.g. `https://huske.example.com/mcp`. Setting it enables **connector mode** (OAuth 2.1 discovery, registration, and sign-in served alongside the MCP endpoint) so Claude and ChatGPT can attach it from any device. Same as the `mcp_public_url` config key. |
+| `--config` | path | `~/.config/huske/config.toml` | |
+
+**Verbs**:
+
+```text
+huske mcp set-password    Prompt for the connector passphrase; store its scrypt hash.
+huske mcp revoke --all    Revoke every issued connector token.
+huske mcp revoke --client-id <id>   Revoke one client's tokens.
+huske mcp status          Print connector configuration and attached-client counts.
+```
+
+**Connector mode invariants**: the daemon exits `1` if `--public-url` /
+`mcp_public_url` is set without a passphrase, or if the URL is not HTTPS. The
+static token keeps working on the same endpoint, so loopback clients are
+unaffected. See `docs/integrations.md` and `docs/adr/0008-public-mcp-connector.md`.
+
+**Exit codes**: `0` clean shutdown, `1` missing extra / missing index / invalid
+connector configuration, `2` config error.
+
+---
+
+## `huske connect`
+
+**Purpose**: Print the exact wiring for one LLM client, or a summary of all of
+them with per-client status resolved from the live config and token files. Read-only:
+writes no config and never creates a token.
+
+**Argument**: `CLIENT` (optional) — one of `claude-code`, `claude-desktop`,
+`claude-app`, `chatgpt`, `codex`, `cursor`, `hermes`. Common aliases are accepted
+(`claude`, `claude-ios`, `cowork`, `gpt`, `vps`, …). Omit for the summary.
+
+**Exit codes**: `0` printed, `2` unknown client or config error.
+
+---
+
+## `huske export`
+
+**Purpose**: Write one Markdown file per day under `export_root`, for tools that
+read files rather than speaking MCP. Incremental (a day is skipped when its
+transcripts and statement sidecars are both unchanged) and atomic.
+
+**Options**:
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--export-root` | path | `~/huske/export` | Where day files are written. |
+| `--statements-only` | bool | `false` | Emit only distilled key points, omitting verbatim text. |
+| `--since` | str | (all) | Only export days on or after this `YYYY-MM-DD`. |
+| `--force` | bool | `false` | Rewrite days whose source content is unchanged. |
+| `--output-root` | path | `~/huske/transcripts` | Transcript source. |
+| `--config` | path | `~/.config/huske/config.toml` | |
+
+**Exit codes**: `0` success, `1` no transcripts or a day failed to write, `2`
+config error.
 
 ---
 

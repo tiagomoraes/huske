@@ -6,6 +6,89 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+### Added
+
+- **Connector mode: reach your transcripts from Claude on your phone, from
+  ChatGPT, or from any hosted agent — while the Mac is asleep.** Replication
+  (0.10) already put an always-on, indexed copy on a VPS, but the read endpoint
+  stayed loopback-only, so exactly one agent could query it: one running on that
+  box. Claude on an iPhone and ChatGPT are not co-located with anything and
+  cannot be made so. Setting `mcp_public_url` now makes `huske mcp` additionally
+  serve a small **single-tenant OAuth 2.1 authorization server** — the only thing
+  either client can attach to, since neither lets you paste a bearer header into
+  a connector. One passphrase, one read-only scope, no accounts, no external
+  identity provider, ~600 stdlib lines. Add one HTTPS URL as a custom connector
+  and sign in once.
+
+  Off by default: unset, behavior is byte-identical to before — loopback bind,
+  static token, no OAuth routes served at all. Loopback clients (Claude Code, a
+  co-located agent) keep using the static token on the same endpoint and need no
+  migration. The daemon refuses to start in connector mode without a passphrase
+  or over plain HTTP, because the failure being guarded against is publishing a
+  transcript archive with no credential in front of it. Specs implemented: PKCE
+  S256 (mandatory), RFC 7591 dynamic client registration, RFC 8414 + RFC 9728
+  discovery, RFC 8707 audience-bound tokens, RFC 9207 `iss`, RFC 7009
+  revocation; rotating refresh tokens, single-use codes, exact redirect-URI
+  matching, and global (not per-IP) backoff on failed passphrases. This amends
+  ADR 0004's deliberate "exposing the read/MCP endpoint publicly: rejected" —
+  see [ADR 0008](docs/adr/0008-public-mcp-connector.md) for which premise broke.
+- **`recap` and `overview` MCP tools.** `search` could not answer "what happened
+  yesterday": a date range is not a semantic neighborhood, so embedding the word
+  "yesterday" returns whatever sounds like it. `recap` returns a date range
+  whole and in chronological order, grouped by day and session, with no embedding
+  computed; `overview` reports what the corpus covers and how dense each recent
+  day is, so a model can tell an empty index from an unlucky query instead of
+  guessing queries into the dark. Both are plain metadata scans over the existing
+  store. Two MCP **prompts** ship too — `catch_me_up` and
+  `what_was_said_about` — so clients that surface server prompts get one-tap
+  actions, and the server instructions now tell the model when to reach for
+  huske at all.
+- **`huske connect [client]`** — prints the exact wiring for Claude Code, Claude
+  Desktop/Cowork, Claude on iPhone/web, ChatGPT, Codex, Cursor, and a co-located
+  agent, and says which paths work *right now* by reading the live config and
+  token files. Every integration failure this replaces was a setup failure, not
+  a capability one. Side-effect free: it never writes config and never mints a
+  token.
+- **`huske mcp set-password` / `revoke` / `status`** for managing connector
+  access. `huske mcp` itself is unchanged as a bare command.
+- **`huske export`** — one Markdown file per day (distilled key points first,
+  verbatim conversation below) for destinations that read files and will never
+  speak MCP: a Claude Project, NotebookLM, an Obsidian vault, a synced folder.
+  huske natively writes many small files per day, which such a tool cannot rank.
+  Incremental (a day whose transcripts *and* statements are unchanged is skipped)
+  and atomic, so a sync client never uploads a partial file. Explicitly a
+  complement to the connector, not a substitute — it trades embedding search,
+  statement grounding, and date/source filters for whatever full-text search the
+  destination has, and syncing it to a third-party cloud puts plaintext
+  transcripts there.
+- **[docs/integrations.md](docs/integrations.md)** — the canonical guide: pick a
+  path in one question, per-client setup, the security posture, and a
+  troubleshooting table.
+
+### Fixed
+
+- **`pip install 'huske[mcp]'` resolved to an SDK `huske mcp` could not import.**
+  The `mcp` and `server` extras asked for `mcp>=1.12`, and the SDK's 2.0 line
+  renamed `mcp.server.fastmcp.FastMCP` to `mcp.server.mcpserver.MCPServer` — so a
+  fresh install got 2.0 and the MCP server failed at import. No test caught it
+  because CI installs only `.[dev]`, where `import mcp` is absent entirely. Both
+  extras now cap at `mcp>=1.12,<2`; the cap lifts with the 2.0 port.
+- **`recap` over a one-sided date range crashed.** `recap(date_from=...)` with no
+  `date_to` — "everything since the 1st", a normal call — formatted the open
+  bound as a date and raised. The open end is now reported as open. Caught by the
+  new mypy gate before it shipped.
+- **Timestamps were rendered in the *reader's* timezone, not the speaker's.** The
+  index stores epoch milliseconds — deliberately timezone-free, so range filters
+  stay integer comparisons — and both `fetch`'s `time_range` and the new `recap`
+  turned that back into a clock with `.astimezone()`. On the recording Mac those
+  agree and the bug is invisible; the moment a server in another zone answers,
+  every meeting is reported at the wrong hour (a 09:30 call as 04:30), which is
+  worse than no timestamp. Both now take the offset from the transcript's own
+  frontmatter — the `.md` is the published contract every consumer already reads
+  (ADR 0004) — cached per path, falling back to local only when the file is
+  unreadable. No reindex needed. Found by running the connector end to end with
+  the recording side deleted.
+
 ## 0.12.0 - 2026-07-28
 
 ### Changed

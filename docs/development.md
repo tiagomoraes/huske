@@ -53,11 +53,19 @@ Optional integration checks:
 ```bash
 pytest tests/integration/test_system_audio.py
 pytest tests/integration/test_real_whisper.py
+pytest tests/integration/test_connector_e2e.py
 ```
 
 `test_system_audio.py` requires macOS Screen Recording permission.
 `test_real_whisper.py` downloads and runs the `tiny` mlx-whisper model
 (Apple Silicon only — skipped on other platforms).
+`test_connector_e2e.py` starts the real `huske mcp` in connector mode on a free
+port and drives the whole OAuth flow over HTTP — registration, PKCE, sign-in,
+token exchange, refresh rotation — then calls a tool with the issued token. Run
+it whenever you touch `huske/mcp/`: it is the only check that catches the
+discovery or `/oauth/*` paths colliding with the routes FastMCP mounts, which no
+unit test can see. Needs the `mcp` extra installed (`pip install -e ".[dev,mcp]"`),
+so it skips on the CI baseline.
 
 ## Project layout
 

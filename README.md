@@ -71,8 +71,14 @@ it about your day.
   `~/huske/transcripts/README.md` (auto-generated).
 - **Local semantic search (opt-in MCP server)** — `huske[mcp]` adds on-device
   embedding + a local vector index so Claude Code, Claude Desktop, or ChatGPT
-  can search your transcripts by meaning. Embeddings and the index never leave
-  your machine; see [Search your transcripts from Claude / ChatGPT](#search-your-transcripts-from-claude--chatgpt-opt-in).
+  can search your transcripts by meaning, recap a date range, and see what the
+  corpus covers. Embeddings and the index never leave your machine; see
+  [Search your transcripts from Claude / ChatGPT](#search-your-transcripts-from-claude--chatgpt-opt-in).
+- **Reachable from your phone (opt-in)** — connector mode serves an OAuth 2.1
+  sign-in beside the MCP endpoint, so Claude on iOS/web, ChatGPT, or a hosted
+  agent can attach one HTTPS URL and query your transcripts *while the Mac is
+  asleep*. Off by default, loopback-only until you set it; see
+  [Reach it from any device](#reach-it-from-any-device-opt-in).
 - **LLM distillation into searchable statements (opt-in)** — distil each
   transcript into compact, self-contained claims with a **local** LLM (Ollama),
   search those, and drill into the verbatim transcript on demand. Fully
@@ -338,18 +344,76 @@ This adds two subcommands and one config flag:
    then fully quit and reopen the app. Cowork shares this config, so huske shows
    up there too once Desktop reloads it.
 
-   **ChatGPT** can only reach a public HTTPS endpoint, so it additionally needs
-   you to expose the local server through a tunnel (OpenAI's secure tunnel,
-   `cloudflared`, etc.). That sends transcript snippets through a public
-   endpoint to OpenAI — opt in deliberately.
+   **Claude on your phone and ChatGPT** can only reach a public HTTPS endpoint
+   with OAuth — see [Reach it from any device](#reach-it-from-any-device-opt-in).
+
+The server exposes four tools. `search` and `fetch` are the semantic pair;
+`recap` returns a **date range** whole and in order ("what happened today"), and
+`overview` reports what the corpus covers so a model can tell an empty index from
+an unlucky query. A date is not a semantic neighborhood, so asking `search` for
+"yesterday" returns whatever *sounds* like the word — `recap` is what makes
+"catch me up" work. Two prompts (`catch_me_up`, `what_was_said_about`) ship with
+it, so clients that surface server prompts get one-tap actions.
 
 > **Privacy.** Embedding and indexing are fully on-device, but *answering*
 > happens in whichever chat model you connect — so transcript snippets are
 > sent to that model's provider (Anthropic for Claude, OpenAI for ChatGPT)
 > when it reads a result, exactly as if you had pasted them in. The local
-> endpoint is loopback-bound and token-guarded; only the ChatGPT-via-tunnel
-> path widens that surface. The design rationale lives in
+> endpoint is loopback-bound and token-guarded. The design rationale lives in
 > [docs/adr/0001-http-only-mcp-daemon.md](docs/adr/0001-http-only-mcp-daemon.md).
+
+## Reach it from any device (opt-in)
+
+The loopback daemon answers from the Mac it runs on. If you want the same context
+from **Claude on your iPhone, ChatGPT, or a hosted agent** — including while that
+Mac is asleep — turn on **connector mode** wherever your always-on index lives
+(the [huske server](#replicate-to-a-server-you-control-opt-in) on a VPS, ideally).
+
+Neither Claude nor ChatGPT lets you paste a bearer header into a connector; both
+speak the MCP authorization spec instead. So `huske mcp` can serve a small
+single-tenant OAuth 2.1 authorization server alongside the MCP endpoint — one
+passphrase, one read-only scope, no accounts, no external identity provider.
+
+```bash
+huske mcp set-password                                          # scrypt-hashed, 0600
+huske config set mcp_public_url https://huske.example.com/mcp
+huske mcp                                                       # still binds loopback
+```
+
+Point a TLS reverse proxy at it (an allowlist of `/mcp`, `/.well-known/oauth-*`,
+and `/oauth/*` — never a catch-all), then add that one URL as a custom connector
+in Claude (Settings → Connectors) or ChatGPT (Settings → Connectors → Advanced).
+Sign in once with your passphrase; it stays connected across devices.
+
+Loopback clients are untouched: Claude Code and a co-located agent keep using the
+static token on `127.0.0.1`, and the daemon refuses to start in connector mode
+without a passphrase or over plain HTTP.
+
+```bash
+huske connect                  # per-client wiring, and whether it works today
+huske connect claude-app       # exact steps for one client
+huske mcp status               # is it configured? how many devices attached?
+huske mcp revoke --all         # cut every device off
+```
+
+**Not every destination speaks MCP.** For a Claude Project, NotebookLM, an
+Obsidian vault, or a shared folder, `huske export` writes **one Markdown file per
+day** (distilled key points first, verbatim conversation below) — incremental and
+atomic, so a sync client never uploads a partial file:
+
+```bash
+huske export                    # → ~/huske/export/YYYY-MM-DD.md
+huske export --statements-only  # key points only
+```
+
+That is a complement, not a substitute: you trade semantic search, statement
+grounding, and date/source filters for whatever full-text search the destination
+has — and syncing it to a third-party cloud puts plaintext transcripts there.
+
+Full guide, per client, with the security posture and troubleshooting:
+**[docs/integrations.md](docs/integrations.md)**. Rationale, and why it amends
+the loopback-only decision in ADR 0004:
+[docs/adr/0008-public-mcp-connector.md](docs/adr/0008-public-mcp-connector.md).
 
 ## Distil transcripts into searchable statements (opt-in)
 
@@ -432,6 +496,15 @@ metadata can contain private or legally sensitive information.
   huske server you configure. Run it only on infrastructure you control, over
   HTTPS, and treat that box as holding your full transcript history. See
   [docs/server.md](docs/server.md).
+- If you enable connector mode (`mcp_public_url`), that server will answer
+  *read* queries for your transcripts over the internet to anyone holding a token
+  minted by your passphrase. It is the one setting here that does so. Use a strong
+  passphrase, keep the reverse proxy to the documented path allowlist, enable
+  full-disk encryption on that box, and `huske mcp revoke --all` if a device is
+  lost. See [docs/integrations.md](docs/integrations.md#security-posture).
+- If you run `huske export` and sync that folder to a third-party cloud (Drive,
+  Dropbox, iCloud), plaintext transcripts are stored there under that provider's
+  retention and scanning policy. Prefer `--statements-only` if you do.
 - If you enable distillation (`distill_enabled`), transcript text is sent to the
   local LLM daemon you run. By default that is Ollama on loopback — on-device, so
   it stays on your machine; only pointing `distill_endpoint` at a remote daemon
@@ -456,13 +529,16 @@ metadata can contain private or legally sensitive information.
 - [Transcript format contract](specs/001-huske-recorder/contracts/transcript-format.md) — the LLM-consumer interface.
 - [Quickstart](specs/001-huske-recorder/quickstart.md) — end-to-end setup.
 - [Glossary](CONTEXT.md) — domain language (Chunk, Segment, Passage, …).
+- [LLM integrations](docs/integrations.md) — get huske context into Claude,
+  ChatGPT, Claude Code, and hosted agents, from any device.
 - [macOS app](docs/macos-app.md) — the native SwiftUI app over the same engine.
 - [Off-device server](docs/server.md) — replicate transcripts to a VPS and serve
   them to a co-located agent (opt-in).
 - [Transcript distillation](docs/distillation.md) — distil transcripts into
   searchable statements with a local LLM (opt-in).
 - [Architecture decisions](docs/adr/) — why the MCP daemon, search stack,
-  embed-worker isolation, and off-device server are built the way they are.
+  embed-worker isolation, off-device server, and public connector are built the
+  way they are.
 
 ## Community
 

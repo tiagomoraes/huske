@@ -170,6 +170,7 @@ const Nav = ({ theme, setTheme, base = "", docsHref = "docs/" }) => {
         <a href={at("how")}>how</a>
         <a href={at("output")}>output</a>
         <a href={at("search")}>search</a>
+        <a href={at("connect")}>connect</a>
         <a href={at("privacy")}>privacy</a>
         <a href={at("releases")}>releases</a>
         <a href={at("faq")}>faq</a>
@@ -208,6 +209,7 @@ const Footer = ({ base = "", docsHref = "docs/" }) => (
             <li><a href={`${base}#how`}>how it works</a></li>
             <li><a href={`${base}#output`}>output format</a></li>
             <li><a href={`${base}#search`}>search &amp; mcp</a></li>
+            <li><a href={`${base}#connect`}>connect any device</a></li>
             <li><a href={`${base}#privacy`}>privacy</a></li>
             <li><a href={`${base}#faq`}>faq</a></li>
             <li><a href={docsHref}>docs</a></li>

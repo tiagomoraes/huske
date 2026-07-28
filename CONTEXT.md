@@ -74,8 +74,8 @@ them, never the reverse.
 **Co-located agent**:
 An agent (the user's "hermes" agent) that runs on the **same host** as the
 **huske server** and queries its search locally — the same way Claude on the
-recording Mac reaches that Mac's loopback daemon. In the chosen design the
-**huske server**'s search is never queried across the network; only **Ingest**
+recording Mac reaches that Mac's loopback daemon. This is the default and only
+posture until **Connector** mode is turned on; with it off, only **Ingest**
 crosses the network.
 _Avoid_: "remote client" — the consuming agent is co-located, not remote.
 
@@ -84,6 +84,35 @@ The act — and the authenticated endpoint — by which a **huske server** recei
 a finalized **Transcript** pushed from a recording Mac and feeds it into the
 server's index. Because a finalized Transcript is immutable, Ingest is
 idempotent: re-pushing the same Transcript is a no-op.
+
+### Reaching the context from other devices (this initiative)
+
+**Connector**:
+An opt-in mode of the MCP read daemon in which it also serves an OAuth 2.1
+sign-in, so an LLM client that is **not** co-located — Claude on a phone,
+ChatGPT, a hosted agent — can attach it as a remote MCP server over HTTPS. A
+Connector is a *mode of the read daemon*, not a separate process: the same
+endpoint keeps accepting the loopback static token, so a **Co-located agent** is
+unaffected. Off unless `mcp_public_url` is set (see docs/adr/0008).
+_Avoid_: "gateway", "proxy" (nothing is forwarded — it is the same daemon);
+"public MCP" (the endpoint is authenticated, not public).
+
+**Recap**:
+A retrieval over a **date range** rather than a query: every **Statement** (or
+**Passage**) in the range, in chronological order, grouped by day and
+**RecordingSession**. Distinct from search because a date is not a semantic
+neighborhood — no embedding is computed. The unit an agent uses to answer "what
+happened today".
+_Avoid_: "summary" (a Recap is retrieved verbatim, never generated); "digest"
+(that is the **Export** artifact).
+
+**Export**:
+A rendered **one file per day** Markdown document written outside the transcript
+tree, for destinations that read files and cannot speak MCP (a Claude Project,
+NotebookLM, an Obsidian vault, a synced folder). Derived from Transcripts and
+Statements, never authoritative, and regenerable at any time.
+_Avoid_: treating an Export as a Transcript — the day folder remains the source
+of truth, and nothing reads an Export back in.
 
 ## Relationships
 
@@ -98,6 +127,9 @@ idempotent: re-pushing the same Transcript is a no-op.
 - The optional **huske server** holds a **Replica** of the **Transcripts** and
   serves **Passages** to a **co-located agent** when the recording Mac is
   offline.
+- A **Connector** lets a non-co-located client reach that same search; a
+  **Recap** answers a date range over it; an **Export** serves clients that
+  cannot reach it at all.
 
 ## Flagged ambiguities
 

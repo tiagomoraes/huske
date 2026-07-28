@@ -1015,6 +1015,66 @@ section.tight { padding: 56px 0; }
 .recall .wiring .wnote .ln .tick { color: var(--ok); }
 .recall .wiring .wnote .ln .warn { color: var(--warn); }
 
+/* reach map (#connect) — "where does the model run" rows and their follow-up
+   prose. Lives inside .recall .connect so it inherits that panel's padding
+   rhythm and mono type scale. */
+.recall .connect .reach {
+  display: flex; flex-direction: column; gap: 1px;
+  margin-top: 14px;
+  background: var(--border-soft);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.recall .connect .rrow {
+  display: grid; grid-template-columns: 108px minmax(0, 1fr);
+  gap: 14px; align-items: baseline;
+  padding: 12px 14px;
+  background: var(--bg-elev);
+}
+@media (max-width: 560px) {
+  .recall .connect .rrow { grid-template-columns: 1fr; gap: 6px; }
+}
+.recall .connect .rwhere {
+  font-family: var(--font-mono); font-size: 11px;
+  letter-spacing: 0.04em; color: var(--fg-muted);
+}
+.recall .connect .rrow.hot .rwhere { color: var(--brand-amber); }
+.recall .connect .rwho { font-size: 13.5px; line-height: 1.5; color: var(--fg); }
+/* flex, not inline: the pill stays a fixed left item so a wrapping detail
+   string forms a block beside it instead of running back underneath it. */
+.recall .connect .rhow {
+  margin-top: 6px;
+  display: flex; gap: 7px; align-items: baseline;
+  font-family: var(--font-mono); font-size: 11px; line-height: 1.55;
+  color: var(--fg-faint); letter-spacing: 0.02em;
+}
+.recall .connect .rhow .pill {
+  flex: 0 0 auto;
+  padding: 1px 6px; border-radius: var(--radius-xs);
+  border: 1px solid var(--border); color: var(--fg-muted);
+}
+.recall .connect .rrow.hot .rhow .pill { color: var(--brand-amber); border-color: var(--brand-amber); }
+.recall .connect .rrow.ok .rhow .pill { color: var(--ok); border-color: var(--ok); }
+.recall .connect .rnote {
+  margin: 12px 0 0; font-size: 12.5px; line-height: 1.6; color: var(--fg-muted);
+}
+.recall .connect .rnote code { font-family: var(--font-mono); font-size: 11.5px; }
+
+/* The connector-mode commands carry a full URL, which is far longer than the
+   short commands in #search. `.sc` is `white-space: nowrap` inside a panel that
+   clips, so on a phone the line would be cut mid-URL — on the one section whose
+   job is telling you what to type. Narrow screens drop the trailing `# note`
+   (supplementary, and already ellipsized there) and give the command its own
+   horizontal scroller, keeping the copy button in place. */
+@media (max-width: 620px) {
+  #connect .recall .sline { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+  #connect .recall .sline .snote { display: none; }
+  #connect .recall .sline .sc { overflow-x: auto; scrollbar-width: none; }
+  #connect .recall .sline .sc::-webkit-scrollbar { display: none; }
+  #connect .recall .sline .copy.ghost { opacity: 1; }
+}
+
 /* two-stage recall (distillation) — opt-in block under the search connect grid */
 .two-stage {
   margin-top: 24px;

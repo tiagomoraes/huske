@@ -97,9 +97,29 @@ models. It is off by default and adds no dependencies to the base install.
   worker) that `run_loop.py` feeds finalized transcript paths when
   `indexing_enabled`. Embedding must never run in the main process — same
   audio-drainer-starvation rule as whisper.
-- `mcp/server.py` serves `search`/`fetch` (ChatGPT's contract, plus optional
-  filters for Claude) over a loopback HTTP MCP endpoint with a bearer token +
-  Origin/Host validation.
+- `mcp/server.py` serves four tools over a Streamable-HTTP MCP endpoint with a
+  bearer token + Origin/Host validation: `search`/`fetch` (ChatGPT's contract,
+  plus optional filters for Claude) and `recap`/`overview` (time-scoped recall —
+  plain metadata scans, no embedding; a date range is not a semantic
+  neighborhood, so `search` cannot answer "what happened yesterday"). Two MCP
+  prompts ship alongside them.
+- `mcp/oauth.py` + `mcp/connector.py` are **connector mode** (opt-in via
+  `mcp_public_url`): a single-tenant OAuth 2.1 authorization server that lets
+  Claude on iOS/web, ChatGPT, and hosted agents attach the endpoint from any
+  device — neither client can send a custom bearer header, so this is the only
+  thing they can connect to. See ADR 0008, which amends ADR 0004's
+  loopback-only read posture, and the invariants in
+  [AGENTS.md](AGENTS.md#the-authenticated-read-surface): both modules stay
+  stdlib-only, the refusals (no passphrase, non-HTTPS URL) stay refusals, and
+  the static loopback token keeps working unchanged.
+- `connect.py` (`huske connect`) prints per-client wiring and resolves which
+  paths actually work from the live config; `export.py` (`huske export`) writes
+  one Markdown digest per day for file-reading destinations that cannot speak
+  MCP. Both are read-only with respect to config and credentials.
+- The `mcp`/`server` extras are pinned `mcp>=1.12,<2` — the SDK's 2.0 line
+  renamed `mcp.server.fastmcp.FastMCP` to `mcp.server.mcpserver.MCPServer`. CI
+  installs only `.[dev]`, so no test covers the import; do not lift the cap
+  without doing the port.
 
 The three load-bearing decisions are recorded in `docs/adr/0001-0003`. Keep the
 `sqlite-vec` schema and the model-versioning policy in `store.py` aligned with

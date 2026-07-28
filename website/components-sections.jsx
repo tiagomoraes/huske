@@ -588,7 +588,7 @@ const SearchRecall = () => {
             <div className="wmeta">
               <div className="row"><span className="k">endpoint</span><span className="v">127.0.0.1:7641/mcp</span></div>
               <div className="row"><span className="k">transport</span><span className="v">http · streamable</span></div>
-              <div className="row"><span className="k">tools</span><span className="v">search · fetch</span></div>
+              <div className="row"><span className="k">tools</span><span className="v">search · fetch · recap · overview</span></div>
               <div className="row"><span className="k">model</span><span className="v">multilingual-e5-base · 768d</span></div>
               <div className="row"><span className="k">index</span><span className="v">on-device · sqlite-vec</span></div>
               <div className="row"><span className="k">distill</span><span className="v">qwen3.5:0.8b · opt-in</span></div>
@@ -607,7 +607,7 @@ const SearchRecall = () => {
             </div>
             <div className="wnote">
               <div className="ln"><span className="tick">✓</span><span>Claude Code, Codex, Cursor &amp; more connect direct over loopback. No tunnel.</span></div>
-              <div className="ln"><span className="warn">⚠</span><span>ChatGPT needs a public HTTPS tunnel to reach it (opt-in).</span></div>
+              <div className="ln"><span className="tick">✓</span><span>Phone, web, and hosted agents: <a href="#connect">connector mode</a> (opt-in).</span></div>
             </div>
           </div>
         </div>
@@ -653,11 +653,188 @@ const SearchRecall = () => {
   );
 };
 
+// Where each client runs decides which endpoint it can use — the whole setup
+// story collapses to that one question, so the section leads with it.
+const REACH = [
+  {
+    id: "local",
+    where: "on this Mac",
+    who: "Claude Code · Codex · Cursor · Claude Desktop",
+    how: "loopback",
+    detail: "static token · no TLS · nothing exposed",
+    tone: "ok",
+  },
+  {
+    id: "remote",
+    where: "anywhere else",
+    who: "Claude on iPhone · ChatGPT · a hosted agent",
+    how: "connector",
+    detail: "one HTTPS url · oauth · answers while the Mac sleeps",
+    tone: "hot",
+  },
+];
+
+const CONNECTOR_STEPS = [
+  { cmd: "huske mcp set-password", note: "scrypt-hashed, 0600" },
+  { cmd: "huske config set mcp_public_url https://huske.example.com/mcp", note: "as clients see it" },
+  { cmd: "huske mcp", note: "still binds loopback" },
+];
+
+const Connect = () => (
+  <section id="connect">
+    <div className="page">
+      <SectionHead
+        num="05"
+        label="connect · any device"
+        lead={<>Your Mac sleeps. <span className="accent">Your context shouldn't.</span></>}
+        sub={<>Replicate to a server you control and the index stays awake — but a loopback endpoint only answers the machine it runs on. Connector mode serves a small single-tenant <strong>OAuth 2.1</strong> sign-in beside the MCP endpoint, because neither Claude nor ChatGPT will let you paste a bearer header into a connector. Add one HTTPS url on your phone, sign in once, and ask what was said in a meeting you left three weeks ago. Off by default.</>}
+      />
+
+      <div className="recall connect-grid">
+        <div className="panel connect">
+          <div className="cstep">
+            <div className="cstep-head"><span className="cnum">01</span> where does the model run?</div>
+            <div className="reach">
+              {REACH.map((r) => (
+                <div className={`rrow ${r.tone}`} key={r.id}>
+                  <div className="rwhere">{r.where}</div>
+                  <div className="rbody">
+                    <div className="rwho">{r.who}</div>
+                    <div className="rhow"><span className="pill">{r.how}</span> {r.detail}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="rnote">
+              One daemon serves both at once. Turning connector mode on changes nothing
+              for a client already on loopback.
+            </p>
+          </div>
+
+          <div className="cstep">
+            <div className="cstep-head"><span className="cnum">02</span> turn on connector mode</div>
+            <div className="setup">
+              {CONNECTOR_STEPS.map((s) => (
+                <div className="sline" key={s.cmd}>
+                  <code className="sc"><span className="sp">$</span> {s.cmd}</code>
+                  <span className="snote"># {s.note}</span>
+                  <CopyButton text={s.cmd} className="copy ghost mini" withLabel={false}/>
+                </div>
+              ))}
+            </div>
+            <p className="rnote">
+              Put a TLS reverse proxy in front, forwarding only <code>/mcp</code>,
+              {" "}<code>/.well-known/oauth-*</code> and <code>/oauth/*</code> — an allowlist,
+              never a catch-all. The daemon refuses to start without a passphrase, or over
+              plain HTTP.
+            </p>
+          </div>
+
+          <div className="cstep">
+            <div className="cstep-head"><span className="cnum">03</span> add one url</div>
+            <div className="reach">
+              <div className="rrow">
+                <div className="rwhere">Claude</div>
+                <div className="rbody">
+                  <div className="rwho">Settings → Connectors → Add custom connector</div>
+                  <div className="rhow">iPhone, iPad, web, and desktop, all from the one url</div>
+                </div>
+              </div>
+              <div className="rrow">
+                <div className="rwhere">ChatGPT</div>
+                <div className="rbody">
+                  <div className="rwho">Settings → Connectors → Advanced → Developer mode</div>
+                  <div className="rhow">then Create, and paste the same url</div>
+                </div>
+              </div>
+            </div>
+            <p className="rnote">
+              Claude registers itself, huske asks for your passphrase once, and it stays
+              connected across devices. Not sure what to paste? <code>huske connect</code>
+              {" "}prints the exact wiring per client — and which paths work right now.
+            </p>
+          </div>
+        </div>
+
+        <div className="panel wiring">
+          <div className="whead"><span className="dot"/> connector · oauth 2.1</div>
+          <div className="wmeta">
+            <div className="row"><span className="k">endpoint</span><span className="v">one https url · streamable http</span></div>
+            <div className="row"><span className="k">auth</span><span className="v">oauth 2.1 · pkce s256 · dcr</span></div>
+            <div className="row"><span className="k">scope</span><span className="v">transcripts:read · read-only</span></div>
+            <div className="row"><span className="k">tools</span><span className="v">search · fetch · recap · overview</span></div>
+            <div className="row"><span className="k">prompts</span><span className="v">catch_me_up · what_was_said_about</span></div>
+            <div className="row"><span className="k">tenancy</span><span className="v">single user · no accounts</span></div>
+          </div>
+          <div className="auth">
+            <div className="auth-head"><KeyGlyph/> one passphrase</div>
+            <p className="auth-p">
+              Stored as a scrypt hash at <code>~/.config/huske/mcp_password</code> (mode
+              {" "}<code>0600</code>) — the plaintext is never written. Failed attempts back
+              off globally, not per-IP, since an attacker rotating addresses would walk
+              straight through a per-IP counter.
+            </p>
+            <p className="auth-p">
+              Tokens are audience-bound to your exact endpoint, so one minted here can't be
+              replayed elsewhere. Refresh tokens rotate; <code>oauth.db</code> holds hashes,
+              not credentials. <code>huske mcp revoke --all</code> cuts every device off.
+            </p>
+          </div>
+          <div className="wnote">
+            <div className="ln"><span className="tick">✓</span><span>Answers while the recording Mac is asleep.</span></div>
+            <div className="ln"><span className="tick">✓</span><span>Loopback clients keep the static token, unchanged.</span></div>
+            <div className="ln"><span className="warn">⚠</span><span>The one setting that puts a read surface on the network. Opt in deliberately.</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div className="two-stage">
+        <div className="ts-head">
+          <span className="ts-tag">no mcp?</span>
+          <span>one file per day · huske export</span>
+        </div>
+        <div className="ts-grid">
+          <div className="ts-main">
+            <div className="ts-flow">
+              <span className="node">transcripts</span>
+              <span className="arr">→</span>
+              <span className="node">statements</span>
+              <span className="arr">→</span>
+              <span className="node hot">one .md per day</span>
+              <span className="arr">→</span>
+              <span className="node">any folder-reading tool</span>
+            </div>
+            <p className="ts-p">
+              A Claude Project, NotebookLM, an Obsidian vault, a shared folder — these read
+              files and will never speak MCP, and huske natively writes many small files a
+              day that such a tool can't rank. <code>huske export</code> collapses each day
+              into one document, distilled key points first, verbatim conversation below.
+              Incremental and atomic, so a sync client never uploads a half-written file.
+            </p>
+            <p className="ts-p">
+              A complement, not a substitute: you trade semantic search, statement
+              grounding, and date filters for whatever full-text search the destination
+              has — and syncing it to someone else's cloud puts plaintext transcripts
+              there. If the answer matters, use the connector.
+            </p>
+          </div>
+          <div className="ts-meta">
+            <div className="row"><span className="k">writes</span><span className="v">~/huske/export/YYYY-MM-DD.md</span></div>
+            <div className="row"><span className="k">slim</span><span className="v">--statements-only</span></div>
+            <div className="row"><span className="k">rerun</span><span className="v">skips unchanged days</span></div>
+            <div className="row"><span className="k">default</span><span className="v">off · never auto-syncs</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+);
+
 const Privacy = () => (
   <section id="privacy">
     <div className="page">
       <SectionHead
-        num="05"
+        num="06"
         label="privacy"
         lead={<>Local-first isn't a vibe. <span className="accent">It's the architecture.</span></>}
       />
@@ -891,7 +1068,7 @@ const Releases = () => (
   <section id="releases">
     <div className="page">
       <SectionHead
-        num="06"
+        num="07"
         label="releases"
         lead={<>A short, public <span className="accent">changelog.</span></>}
         sub={<>Semantic versioning after 0.1.0. Patch notes are written in plain English and live in the repo. Install with <code>uv tool upgrade huske</code>, <code>pipx upgrade huske</code>, or <code>brew upgrade huske</code>.</>}
@@ -928,7 +1105,7 @@ const Community = () => (
   <section id="community">
     <div className="page">
       <SectionHead
-        num="07"
+        num="08"
         label="community"
         lead={<>Open source. <span className="accent">Calmly maintained.</span></>}
         sub="huske is a small project. Contributions are welcome, issues are triaged in the open, and there's a clear PR template. Read the contributing guide before opening anything bigger than a typo fix."
@@ -970,7 +1147,7 @@ const FAQ = () => (
   <section id="faq" className="faq-section">
     <div className="page page-narrow">
       <SectionHead
-        num="08"
+        num="09"
         label="faq"
         lead={<>The questions that actually <span className="accent">come up.</span></>}
       />
@@ -1005,7 +1182,28 @@ const FAQ = () => (
           <summary>How does the semantic search / MCP server work? <span className="chev">→</span></summary>
           <div className="answer">
             <p><code>pip install 'huske[mcp]'</code> adds two subcommands. <code>huske index</code> embeds every transcript into a single local <code>sqlite-vec</code> file with a multilingual model running on the Apple GPU via MLX — the same stack as transcription, so nothing leaves the machine. Set <code>indexing_enabled = true</code> to keep it fresh automatically as you record.</p>
-            <p><code>huske mcp</code> serves a loopback HTTP MCP endpoint (bearer token + Origin checks) exposing <code>search</code> and <code>fetch</code>. Claude Code, Cursor, Codex, and most local agents connect directly over loopback — no tunnel. Claude Desktop connects through a small <code>mcp-remote</code> bridge, and ChatGPT needs an HTTPS tunnel; the <a href="docs/#search">docs</a> have copy-paste config for each. Answering still happens in whichever chat model you connect, so result snippets reach that provider when it reads them — the indexing and the index itself stay on-device.</p>
+            <p><code>huske mcp</code> serves a loopback HTTP MCP endpoint (bearer token + Origin checks) exposing four tools: <code>search</code> and <code>fetch</code> for topics, plus <code>recap</code> (a date range returned whole, in order) and <code>overview</code> (what the corpus actually covers). Claude Code, Cursor, Codex, and most local agents connect directly over loopback — no tunnel. Claude Desktop connects through a small <code>mcp-remote</code> bridge; the <a href="docs/#search">docs</a> have copy-paste config for each. Answering still happens in whichever chat model you connect, so result snippets reach that provider when it reads them — the indexing and the index itself stay on-device.</p>
+          </div>
+        </details>
+        <details>
+          <summary>Why can't I just ask <code>search</code> what happened yesterday? <span className="chev">→</span></summary>
+          <div className="answer">
+            <p>Because a date isn't a semantic neighborhood. Embedding the word "yesterday" and taking the nearest results returns whatever <em>sounds</em> like it, not what was recorded then — and an agent with no map of the corpus can't tell an empty index from an unlucky query.</p>
+            <p>So <code>recap</code> answers date ranges directly: every statement in the range, chronological, grouped by day and session, with no embedding computed. <code>overview</code> reports the coverage first. That pair is the difference between "catch me up on today" working and returning three unrelated fragments. Two prompts — <code>catch_me_up</code> and <code>what_was_said_about</code> — ship with the server, so clients that surface them get one-tap actions.</p>
+          </div>
+        </details>
+        <details>
+          <summary>Can I query my transcripts from my phone? <span className="chev">→</span></summary>
+          <div className="answer">
+            <p>Yes, with <a href="#connect">connector mode</a>. Replicate transcripts to a server you control, then set <code>mcp_public_url</code> there and <code>huske mcp</code> additionally serves a small single-tenant <strong>OAuth 2.1</strong> authorization server. Add that one HTTPS url as a custom connector in Claude (iPhone, iPad, web, desktop) or ChatGPT, sign in with your passphrase once, and it answers even while the recording Mac is asleep.</p>
+            <p>Why OAuth and not a token: neither client lets you attach a custom bearer header to a remote MCP server — both drive the MCP authorization spec instead. So "expose the token endpoint over TLS" isn't a lighter version of this; it's a version that doesn't connect. Off by default, and the daemon refuses to start without a passphrase or over plain HTTP. <code>huske connect</code> prints the exact steps per client.</p>
+          </div>
+        </details>
+        <details>
+          <summary>Why not just sync the transcripts to Google Drive? <span className="chev">→</span></summary>
+          <div className="answer">
+            <p>It's tempting — no infrastructure, and both Claude and ChatGPT already ship Drive connectors. Two things break. Retrieval quality: a Drive connector does keyword search over whole files, so you lose embedding search over passages, statement grounding, and every date/source filter — over a year of conversational speech across thousands of small files, that's a real downgrade. And it inverts the architecture: your full plaintext transcript history lives in someone else's index under their retention and scanning policy, where a server you run keeps custody with you.</p>
+            <p>Where it <em>is</em> useful is a per-day digest rather than the raw corpus, for destinations that read files and will never speak MCP. <code>huske export</code> does exactly that — one <code>.md</code> per day, key points first — and the <a href="#connect">connect section</a> spells out the trade-off.</p>
           </div>
         </details>
         <details>
@@ -1092,7 +1290,7 @@ const SetupStrip = () => (
 );
 
 Object.assign(window, {
-  SectionHead, Pillars, SetupStrip, HowItWorks, OutputPreview, SearchRecall, Privacy, Releases, Community, FAQ,
+  SectionHead, Pillars, SetupStrip, HowItWorks, OutputPreview, SearchRecall, Connect, Privacy, Releases, Community, FAQ,
   // Shared so the docs page (components-docs.jsx) reuses the same MCP setup
   // data and per-agent configs — single source of truth.
   MCP_ENDPOINT, MCP_TOKEN_PATH, SETUP_STEPS, AGENTS, agentPrompt, PromptText,

@@ -92,6 +92,7 @@ const DOCS_SECTIONS = [
   { id: "autostart", label: "Autostart on login" },
   { id: "config", label: "Configuration" },
   { id: "search", label: "Search & MCP" },
+  { id: "connect", label: "Connect any device" },
 ];
 
 const DocsToc = ({ active }) => (
@@ -526,7 +527,11 @@ const SearchDoc = () => (
       Search returns nothing until the index is built, so run <code>huske index</code>
       {" "}first (<code>--rebuild</code> after changing the embedding model). The
       server binds loopback at <code>{MCP_ENDPOINT}</code>, speaks Streamable HTTP,
-      and exposes two tools: <code>search</code> and <code>fetch</code>.
+      and exposes four tools: <code>search</code> and <code>fetch</code> for topics,
+      plus <code>recap</code> (a date range returned whole, in chronological order)
+      and <code>overview</code> (what the corpus covers). A date isn't a semantic
+      neighborhood, so <code>recap</code> — not <code>search</code> — is what answers
+      "what happened yesterday".
     </p>
 
     <h3>The bearer token</h3>
@@ -550,23 +555,116 @@ const SearchDoc = () => (
     </p>
     <ClientTabs />
 
-    <h3>ChatGPT &amp; always-on agents</h3>
+    <h3>ChatGPT, your phone, and hosted agents</h3>
     <p>
-      ChatGPT can't reach a loopback server and its connector UI has no field for
-      a bearer header. To use it, expose huske over a public HTTPS tunnel fronted
-      by a proxy that injects the token, then add a custom connector set to
-      <em> No authentication</em>:
+      None of these can reach a loopback server, and their connector UIs have no
+      field for a bearer header. That needs <a href="#connect">connector mode</a>
+      {" "}— the next section.
+    </p>
+  </DocsSection>
+);
+
+const ConnectDoc = () => (
+  <DocsSection id="connect" num="06" title="Connect any device">
+    <p className="docs-lead">
+      The loopback daemon answers the machine it runs on. To query your
+      transcripts from Claude on your iPhone, from ChatGPT, or from a hosted
+      agent — including while the recording Mac is asleep — turn on connector
+      mode wherever your always-on index lives.
+    </p>
+    <p>
+      Neither Claude nor ChatGPT lets you attach a custom header to a remote MCP
+      server; both drive the MCP authorization spec instead. So <code>huske mcp</code>
+      {" "}can serve a small single-tenant <strong>OAuth 2.1</strong> authorization
+      server beside the MCP endpoint — one passphrase, one read-only scope, no
+      accounts, no external identity provider. Off by default.
+    </p>
+    <DocsTerminal>
+      <DocsCmd cmd="huske mcp set-password" note="scrypt hash at ~/.config/huske/mcp_password · 0600" />
+      <DocsCmd cmd="huske config set mcp_public_url https://huske.example.com/mcp" note="the url clients will use" />
+      <DocsCmd cmd="huske mcp" note="still binds loopback · the proxy fronts it" />
+    </DocsTerminal>
+    <p>
+      The daemon <strong>refuses to start</strong> if the url is set without a
+      passphrase, or if it isn't HTTPS. Run it on the box that holds your
+      always-on index — the{" "}
+      <a href="https://github.com/tiagomoraes/huske/blob/main/docs/server.md" target="_blank" rel="noopener">off-device server</a>
+      {" "}if you replicate there, which is the point: it answers when your Mac
+      doesn't.
+    </p>
+
+    <h3>Reverse proxy</h3>
+    <p>
+      Forward exactly these paths. This allowlist <em>is</em> the security
+      boundary — a catch-all <code>reverse_proxy</code> is the footgun.
     </p>
     <DocsCode
-      lang="shell"
-      code={"# 1. expose the loopback server over public HTTPS\ncloudflared tunnel --url http://127.0.0.1:7641\n\n# 2. front it with a proxy that injects the bearer ChatGPT can't add (Caddy):\n#    huske.example.com {\n#      reverse_proxy 127.0.0.1:7641 {\n#        header_up Authorization \"Bearer {env.HUSKE_MCP_TOKEN}\"\n#      }\n#    }\nHUSKE_MCP_TOKEN=\"$(cat ~/.config/huske/mcp_token)\" caddy run\n\n# 3. ChatGPT → Settings → Apps & Connectors → Advanced → Developer mode,\n#    add a connector at https://huske.example.com/mcp, auth = none."}
+      lang="caddyfile"
+      path="Caddyfile"
+      code={"huske.example.com {\n    # write side — transcripts pushed from your Mac\n    @ingest path /ingest /healthz\n    handle @ingest {\n        reverse_proxy 127.0.0.1:7642\n    }\n\n    # read side — MCP plus OAuth discovery and sign-in\n    @mcp path /mcp /mcp/* /.well-known/oauth-* /.well-known/oauth-*/* /oauth/*\n    handle @mcp {\n        reverse_proxy 127.0.0.1:7641\n    }\n\n    handle {\n        respond \"not found\" 404\n    }\n}"}
     />
+    <p>
+      Verify discovery before touching a client. If these don't return JSON, no
+      client will get as far as a sign-in page:
+    </p>
+    <DocsTerminal>
+      <DocsCmd cmd="curl -s https://huske.example.com/.well-known/oauth-protected-resource/mcp" />
+      <DocsCmd cmd="curl -s https://huske.example.com/.well-known/oauth-authorization-server" />
+    </DocsTerminal>
+
+    <h3>Add the connector</h3>
+    <p>
+      <strong>Claude</strong> (iPhone, iPad, web, desktop): Settings →
+      Connectors → Add custom connector, paste the url. Claude registers itself,
+      huske asks for your passphrase once, and it stays connected across
+      devices.
+    </p>
+    <p>
+      <strong>ChatGPT</strong>: Settings → Connectors → Advanced → Developer
+      mode (Plus and above), then Create and paste the same url.
+    </p>
+    <p>
+      <strong>Claude Code from another machine</strong> needs no header — it runs
+      the OAuth flow itself and opens a browser once:
+      {" "}<code>claude mcp add --transport http huske https://huske.example.com/mcp</code>.
+    </p>
+
+    <h3>Managing access</h3>
+    <DocsTerminal>
+      <DocsCmd cmd="huske connect" note="per-client wiring, and what works right now" />
+      <DocsCmd cmd="huske mcp status" note="configured? how many devices attached?" />
+      <DocsCmd cmd="huske mcp revoke --all" note="cut every device off · loopback unaffected" />
+    </DocsTerminal>
     <p className="docs-aside">
-      A public tunnel weakens huske's loopback-only posture. For always-on remote
-      access, prefer the off-device server: <code>huske[server]</code> replicates
-      transcripts to a box you control and runs the agent co-located there, so the
-      read endpoint stays loopback. See
-      {" "}<a href="https://github.com/tiagomoraes/huske/blob/main/docs/server.md" target="_blank" rel="noopener">the server guide</a>.
+      Connector mode is the one setting that puts a read surface on the network.
+      Tokens are audience-bound to your exact endpoint, refresh tokens rotate,
+      codes are single-use and PKCE-bound, and <code>oauth.db</code> stores
+      hashes rather than credentials — but the box still holds your full
+      plaintext history. Enable full-disk encryption, use a strong passphrase,
+      and read the{" "}
+      <a href="https://github.com/tiagomoraes/huske/blob/main/docs/integrations.md#security-posture" target="_blank" rel="noopener">security posture</a>
+      {" "}first.
+    </p>
+
+    <h3>No MCP at the other end?</h3>
+    <p>
+      A Claude Project, NotebookLM, an Obsidian vault, or a shared folder reads
+      files and will never speak MCP — and huske natively writes many small files
+      a day that such a tool can't rank. <code>huske export</code> collapses each
+      day into one document, distilled key points first, verbatim conversation
+      below. Incremental and atomic, so a sync client never uploads a partial
+      file.
+    </p>
+    <DocsTerminal>
+      <DocsCmd cmd="huske export" note="→ ~/huske/export/YYYY-MM-DD.md" />
+      <DocsCmd cmd="huske export --statements-only" note="key points only, no verbatim text" />
+    </DocsTerminal>
+    <p className="docs-aside">
+      A complement, not a substitute: you trade semantic search, statement
+      grounding, and date filters for whatever full-text search the destination
+      has — and syncing that folder to a third-party cloud puts plaintext
+      transcripts there under its retention policy. If the answer matters, use
+      the connector.
     </p>
   </DocsSection>
 );
@@ -586,6 +684,7 @@ const Docs = () => {
           <AutostartDoc />
           <ConfigDoc />
           <SearchDoc />
+          <ConnectDoc />
         </article>
       </div>
     </React.Fragment>

@@ -17,16 +17,20 @@ trade-offs are recorded in
   Mac (ephemeral)                       VPS (always-on, single user)
   ──────────────                        ────────────────────────────
   huske run                             Caddy (TLS, public :443)
-    └─ finalize .md ─┐                     │  proxies ONLY /ingest + /healthz
-       sync outbox   │  POST https         ▼
-                     └────────────►   huske serve  (write token, :7642 loopback)
+    └─ finalize .md ─┐                     │  /ingest /healthz  → write, always
+       sync outbox   │  POST https         │  /mcp /oauth/* …   → read, only in
+                     └────────────►        │                      connector mode
+                                           ▼
+                                      huske serve  (write token, :7642 loopback)
                                             │  stores .md, indexes with CPU e5
                                             ▼
                                       sqlite-vec  (one file, WAL)
                                             ▲
-                                      huske mcp   (read token, :7641 loopback)
-                                            ▲  localhost
-                                       hermes (co-located agent)
+                                      huske mcp   (:7641 loopback)
+                                        ▲                    ▲
+                                   hermes                Claude / ChatGPT / phone
+                              (co-located agent,         (HTTPS + OAuth, only in
+                               static token)              connector mode)
 ```
 
 - The Mac **pushes the finalized transcript `.md`** (not audio, not vectors) to
@@ -34,10 +38,16 @@ trade-offs are recorded in
   Mac is offline the send is retried and reconciled on reconnect.
 - The server **re-derives its own index** from the `.md` using a CPU embedder
   (`fastembed`), since a Linux VPS has no Metal.
-- The **read MCP stays loopback-only** on the server — it is never exposed to the
-  internet. Only a **write-only ingest endpoint** is public. A stolen write token
-  lets someone push junk (bounded — transcripts are immutable and ingest is
-  idempotent), but **cannot read your history over the network**.
+- The **read MCP is loopback-only by default** — a co-located agent on the VPS
+  queries it directly, and only the **write-only ingest endpoint** is public. A
+  stolen write token lets someone push junk (bounded — transcripts are immutable
+  and ingest is idempotent) but cannot read your history.
+- **If you also want to reach it from your phone**, turn on opt-in
+  [connector mode](#5-connector-mode-reach-it-from-your-phone-opt-in): the same
+  read daemon additionally serves an OAuth 2.1 sign-in, so Claude and ChatGPT can
+  attach it as a custom connector from any device. That is the one thing here
+  that puts a read surface on the network — see
+  [ADR 0008](adr/0008-public-mcp-connector.md).
 
 ## 1. Server setup (the VPS)
 
@@ -112,7 +122,9 @@ sudo systemctl enable --now huske-serve huske-mcp
 ### Reverse proxy (Caddy) — only the ingest path is public
 
 This is the load-bearing security boundary: proxy **only** `/ingest` and
-`/healthz`. Never proxy the MCP read port — it must stay loopback.
+`/healthz`. Leave the MCP read port off the proxy entirely unless you are
+deliberately turning on connector mode (next section), which adds a specific,
+short allowlist of read paths — never a catch-all.
 
 ```caddyfile
 huske.example.com {
@@ -164,15 +176,78 @@ claude mcp add --transport http huske http://127.0.0.1:7641/mcp \
   --header "Authorization: Bearer $(cat ~/.config/huske/mcp_token)"
 ```
 
-Because the read endpoint is loopback-only, nothing but a process on the VPS can
-query your transcripts.
+With connector mode off, nothing but a process on the VPS can query your
+transcripts.
+
+## 5. Connector mode: reach it from your phone (opt-in)
+
+A co-located agent covers hermes and nothing else. Claude on your iPhone and
+ChatGPT are not co-located with anything, and cannot be — you do not control
+where they run. Reaching them means the read endpoint has to answer over the
+network, authenticated.
+
+Neither client can send a custom bearer header to a remote MCP server, so a
+widened static token would not work; both drive the MCP authorization spec
+(OAuth 2.1 + PKCE + discovery metadata + dynamic client registration). `huske mcp`
+therefore embeds a small single-tenant authorization server: one passphrase, one
+read-only scope, no accounts.
+
+```bash
+huske mcp set-password                                            # scrypt hash, 0600
+huske config set mcp_public_url https://huske.example.com/mcp     # as clients see it
+sudo systemctl restart huske-mcp
+```
+
+The daemon refuses to start if the URL is set without a passphrase, or if it is
+not HTTPS.
+
+Then extend the Caddy allowlist with the read paths — and *only* these:
+
+```caddyfile
+huske.example.com {
+    @ingest path /ingest /healthz
+    handle @ingest {
+        reverse_proxy 127.0.0.1:7642
+    }
+
+    @mcp path /mcp /mcp/* /.well-known/oauth-* /.well-known/oauth-*/* /oauth/*
+    handle @mcp {
+        reverse_proxy 127.0.0.1:7641
+    }
+
+    handle {
+        respond "not found" 404
+    }
+}
+```
+
+Verify discovery before touching a client — if these two do not return JSON, no
+client will get as far as a sign-in page:
+
+```bash
+curl -s https://huske.example.com/.well-known/oauth-protected-resource/mcp | jq
+curl -s https://huske.example.com/.well-known/oauth-authorization-server | jq
+```
+
+Now add `https://huske.example.com/mcp` as a custom connector in Claude
+(Settings → Connectors) or ChatGPT (Settings → Connectors → Advanced →
+Developer mode) and sign in with your passphrase. hermes keeps using loopback
+with the static token, unchanged.
+
+Manage it with `huske mcp status`, `huske mcp revoke --all`, and
+`huske connect claude-app`. Full client-by-client guide:
+**[docs/integrations.md](integrations.md)**.
 
 ## Tokens at a glance
 
-| Token | File | Guards | Who holds it |
+| Credential | File | Guards | Who holds it |
 | --- | --- | --- | --- |
-| write | `~/.config/huske/ingest_token` (server) → `~/.config/huske/sync_token` (Mac) | ingest (push) | server + every recording Mac |
-| read | `~/.config/huske/mcp_token` (server) | MCP search/fetch | the co-located agent |
+| write token | `~/.config/huske/ingest_token` (server) → `~/.config/huske/sync_token` (Mac) | ingest (push) | server + every recording Mac |
+| read token | `~/.config/huske/mcp_token` (server) | MCP search/fetch over loopback | the co-located agent |
+| connector passphrase | `~/.config/huske/mcp_password` (server, scrypt hash) | OAuth sign-in, connector mode only | you, in a browser |
+| issued OAuth tokens | `~/.config/huske/oauth.db` (server, hashed) | one per connected device | huske, on your behalf |
 
-To rotate the write token, delete `ingest_token` on the server, restart
-`huske serve`, and copy the newly printed value to each Mac's `sync_token`.
+All are mode `0600`. To rotate the write token, delete `ingest_token` on the
+server, restart `huske serve`, and copy the newly printed value to each Mac's
+`sync_token`. To rotate connector access, `huske mcp set-password` then
+`huske mcp revoke --all`.
