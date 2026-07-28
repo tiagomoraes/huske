@@ -211,9 +211,29 @@ def test_report_serializes_for_the_app(cfg: RuntimeConfig) -> None:
 # --- rendering -------------------------------------------------------------
 
 
-def test_render_warns_that_the_server_stays_running(cfg: RuntimeConfig) -> None:
-    """Otherwise `huske mcp` looks like a hung terminal."""
+def test_render_warns_that_the_server_stays_running(
+    cfg: RuntimeConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Otherwise `huske mcp` looks like a hung terminal.
+
+    `extra_installed` is pinned rather than inherited from the environment: CI
+    installs only `.[dev]`, so the extra is absent there and present locally,
+    which would make this assert on a different render branch in each place.
+    """
+    monkeypatch.setattr("huske.setup.extra_installed", lambda: True)
     assert "keeps running" in render(build_report(cfg))
+
+
+def test_render_hides_later_steps_while_one_is_blocked(
+    cfg: RuntimeConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A blocked step is the only instruction worth giving — listing the steps
+    behind it invites the user to try them and fail."""
+    monkeypatch.setattr("huske.setup.extra_installed", lambda: False)
+    out = render(build_report(cfg))
+    assert "Start here:" in out
+    assert "keeps running" not in out
+    assert "Next:" not in out
 
 
 def test_render_points_at_the_blocking_step_first(
