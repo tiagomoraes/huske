@@ -85,6 +85,30 @@ Add an opt-in distillation subsystem (`huske.distill`), off by default:
   replicating sidecars to the server is a forward-compatible follow-up (the
   sidecar makes it a file copy + the server's existing indexer).
 
+## Update — best-effort daemon auto-management
+
+The "external daemon users must install and keep running" friction (the original
+ADR-0002 objection) is softened: when distillation turns on — at launch or via
+the app / menu-bar toggle — huske, by default (`distill_auto_manage`), starts
+`ollama serve` if the `ollama` CLI is installed but idle, and `ollama pull`s the
+configured model if it is missing (streaming progress to the UI). It only ever
+runs the local `ollama` CLI — it never installs Ollama — and still degrades to
+the same actionable warning when it can't help, so the graceful-degradation and
+"no new Python dependency" properties hold. This runs off the hot path (the
+callers invoke it from a background thread, like the toggle), keeping the audio
+drainer unblocked. It does not change the default-off, opt-in nature of the
+subsystem.
+
+**Scope after the `mlx` backend landed (0.11.0).** The embedded backend below
+became the default, which makes this a *secondary* path rather than the answer
+to the friction — most users never reach it. `ensure_ready` returns the bare
+probe unless `distill_backend == "ollama"`, so it is inert for the built-in
+backend: starting a daemon nobody asked for, to serve a model that backend does
+not use, would be worse than the failure it reports. The probe's `reason` codes
+are split accordingly — `no_runtime` (mlx-lm missing, a broken install) is
+distinct from `unreachable` / `model_missing`, and only the latter two are
+actionable.
+
 ## Considered and rejected
 
 - **In-process MLX LLM.** Would ride the stack huske already ships, but holds a

@@ -147,9 +147,21 @@ uv pip install -e ".[dev,mcp]"
 # CI baseline — what PRs must pass
 pytest tests/unit
 pytest tests/integration/test_pipeline_no_whisper.py tests/integration/test_smoke.py
+ruff check .
+mypy huske
 
 # Run a single test
 pytest tests/unit/test_chunker.py::test_rotation_at_boundary_produces_finalized_chunk -xvs
+```
+
+When touching `macos/` (or `huske/ipc/` — the app consumes its wire format), CI
+also runs `swift build`, `swift test`, and the cross-language contract. Locally,
+from `macos/`:
+
+```bash
+swift build && swift test
+HUSKE_INTEROP_PYTHON=$(command -v python3) PYTHONPATH=$PWD/.. \
+  swift test --filter PythonInterop
 ```
 
 Additional local quality checks:
@@ -159,9 +171,23 @@ ruff check .
 mypy huske
 ```
 
-Ruff and Mypy are configured but not CI gates yet; report existing baseline
-failures instead of broad cleanup unless the task is specifically about lint or
-typing.
+Ruff and Mypy are **CI gates** (the `Lint & types` job) as of 0.11.2 — both were
+clean, so keep them that way rather than accumulating a new baseline.
+
+**Run mypy from an environment that has the dependencies installed** —
+`ignore_missing_imports = true` turns an absent package into `Any`, and every
+error involving it vanishes. An interpreter missing `mlx-lm` hid a real
+`Too many values to unpack` in `distill/mlx_backend.py` that CI caught on the
+first run of this gate. Use the repo venv (`.venv/bin/mypy huske`), not whatever
+`python` happens to resolve to.
+
+The `mcp` extra cuts the other way, and that asymmetry is expected: CI installs
+only `.[dev]`, so `import mcp` is `Any` and `@mcp.tool()` reads as untyped,
+making the ignore *required*; with `.[mcp]` installed it is typed and the same
+ignore is *redundant*. Those two lines carry
+`# type: ignore[untyped-decorator, unused-ignore]`, correct either way. A mypy
+result that only reproduces in one place is usually a dependency difference —
+check that before "fixing" the code.
 
 Optional integration checks:
 

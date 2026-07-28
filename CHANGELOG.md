@@ -6,6 +6,47 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.12.0 - 2026-07-28
+
+### Changed
+
+- **Ruff and mypy are CI gates now**, not conventions. Both were already clean;
+  they were just never enforced, so "clean" depended on whoever remembered to
+  run them. The new `Lint & types` job runs `ruff check .` and `mypy huske`.
+  The two `@mcp.tool()` ignores gained `unused-ignore` because CI installs only
+  `.[dev]` — without the `mcp` extra the decorator reads as untyped and the
+  ignore is required, while a machine with the extra sees it as redundant.
+- `scripts/update-homebrew-tap.py` retries the pip resolve before giving up.
+  It runs minutes after the release publishes, and PyPI's JSON API, simple
+  index and file CDN go live at different times — v0.11.1 failed once and
+  succeeded a minute later, unchanged. Four attempts, 20 s apart, then a
+  message that names propagation as the likely cause.
+- `actions/upload-artifact` in CI matches the release workflow (v7); it had
+  been left on v4.
+
+### Fixed
+
+- **A latent unpack bug in the built-in distillation backend.** `mlx_lm.load()`
+  is typed as returning either `(model, tokenizer)` or
+  `(model, tokenizer, config)` and is not overloaded, so the two-value unpack
+  could not be narrowed. Runtime was fine — we never pass `return_config` — but
+  the code was one keyword argument away from breaking, and no local run caught
+  it because an interpreter without `mlx-lm` sees the whole module as `Any`.
+  The new mypy gate found it on its first CI run.
+
+### Added
+
+- **huske auto-manages the local Ollama daemon for distillation.** Only relevant
+  on `distill_backend = "ollama"` — the default `mlx` backend downloads its own
+  model. When distillation turns on, at launch or via the app / menu-bar toggle,
+  huske now starts `ollama serve` if the `ollama` CLI is installed but idle, and
+  pulls the configured model if it's missing (streaming progress to the events
+  log), instead of only warning that the daemon is unreachable. It only ever
+  runs the local `ollama` CLI — it never installs Ollama — and still degrades to
+  the same actionable hint when it can't help. Opt out with
+  `distill_auto_manage = false` or `--no-distill-auto-manage`. The model it
+  starts and pulls is the existing, editable `distill_model`.
+
 ## 0.11.1 - 2026-07-27
 
 ### Fixed

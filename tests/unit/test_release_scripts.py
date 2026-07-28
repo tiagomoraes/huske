@@ -9,6 +9,8 @@ left to manual end-to-end validation since mocking those is brittle.
 from __future__ import annotations
 
 import importlib.util
+import json
+import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -462,3 +464,69 @@ def test_rewrite_formula_preserves_unrelated_content() -> None:
 def test_normalize_handles_underscores_and_case() -> None:
     assert update_homebrew_tap.normalize("Pyobjc_Core") == "pyobjc-core"
     assert update_homebrew_tap.normalize("PyYAML") == "pyyaml"
+
+
+# ---------------------------------------------------------------------------
+# update_homebrew_tap.py — pip resolve retry
+#
+# This script runs minutes after the release publishes, and PyPI's JSON API,
+# simple index and file CDN go live at different times. A first-attempt failure
+# is usually propagation, not breakage — observed for real on v0.11.1.
+# ---------------------------------------------------------------------------
+
+
+def _fake_report(tmp_path: Path) -> str:
+    return json.dumps(
+        {
+            "install": [
+                {
+                    "metadata": {"name": "huske"},
+                    "download_info": {
+                        "url": "https://example.invalid/huske-9.9.9.tar.gz",
+                        "archive_info": {"hashes": {"sha256": "abc123"}},
+                    },
+                }
+            ]
+        }
+    )
+
+
+def test_pip_report_retries_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[int] = []
+
+    def flaky_run(*args: str, **kwargs: object) -> None:
+        calls.append(1)
+        report_path = Path(args[args.index("--report") + 1])
+        if len(calls) < 3:
+            raise subprocess.CalledProcessError(1, list(args))
+        report_path.write_text(_fake_report(tmp_path))
+
+    monkeypatch.setattr(update_homebrew_tap, "run", flaky_run)
+    monkeypatch.setattr(update_homebrew_tap.time, "sleep", lambda _s: None)
+
+    pkgs = update_homebrew_tap.generate_pip_report("9.9.9")
+
+    assert len(calls) == 3, "should retry until it resolves"
+    assert pkgs["huske"] == ("https://example.invalid/huske-9.9.9.tar.gz", "abc123")
+
+
+def test_pip_report_gives_up_with_a_propagation_hint(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """It must terminate — and say why, since the usual cause is a timing race."""
+    calls: list[int] = []
+
+    def always_fails(*args: str, **kwargs: object) -> None:
+        calls.append(1)
+        raise subprocess.CalledProcessError(1, list(args))
+
+    monkeypatch.setattr(update_homebrew_tap, "run", always_fails)
+    monkeypatch.setattr(update_homebrew_tap.time, "sleep", lambda _s: None)
+
+    with pytest.raises(SystemExit):
+        update_homebrew_tap.generate_pip_report("9.9.9")
+
+    assert len(calls) == update_homebrew_tap._PIP_REPORT_ATTEMPTS
+    assert "propagating" in capsys.readouterr().out

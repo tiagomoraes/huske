@@ -77,7 +77,7 @@ def build_server(
         transport_security=security,
     )
 
-    @mcp.tool()  # type: ignore[untyped-decorator]
+    @mcp.tool()  # type: ignore[untyped-decorator, unused-ignore]
     def search(
         query: str,
         date_from: str | None = None,
@@ -116,7 +116,7 @@ def build_server(
         except ValueError as exc:
             raise ValueError(str(exc)) from exc
 
-    @mcp.tool()  # type: ignore[untyped-decorator]
+    @mcp.tool()  # type: ignore[untyped-decorator, unused-ignore]
     def fetch(id: str, context: int = 0) -> dict[str, Any]:
         """Fetch one search result by id, with citation metadata.
 
