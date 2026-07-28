@@ -451,24 +451,206 @@ def distill(
     )
 
 
-@app.command()
+mcp_app = typer.Typer(
+    name="mcp",
+    help="Serve transcript search over MCP, and manage connector access.",
+    no_args_is_help=False,
+    add_completion=False,
+    invoke_without_command=True,
+)
+app.add_typer(mcp_app)
+
+
+@mcp_app.callback(invoke_without_command=True)
 def mcp(
+    ctx: typer.Context,
     host: str | None = typer.Option(
         None, "--host", help="Bind address (default 127.0.0.1, loopback-only)."
     ),
     port: int | None = typer.Option(None, "--port", min=1, max=65535, help="Port (default 7641)."),
+    public_url: str | None = typer.Option(
+        None,
+        "--public-url",
+        help="Public HTTPS URL of this endpoint (e.g. https://huske.example.com/mcp). "
+        "Turns on connector mode so Claude and ChatGPT can attach it from any "
+        "device. Requires `huske mcp set-password`.",
+    ),
     config_path: Path | None = typer.Option(None, "--config"),
 ) -> None:
-    """Serve huske's transcript search over a local MCP (HTTP) endpoint."""
+    """Serve huske's transcript search over an MCP (HTTP) endpoint."""
+    if ctx.invoked_subcommand is not None:
+        return
+
     from huske.config import load_config
     from huske.mcp.server import run as run_mcp
+
+    overrides = _collect_overrides(mcp_public_url=public_url)
+    try:
+        cfg = load_config(config_path=config_path, cli_overrides=overrides)
+    except ValueError as exc:
+        typer.secho(f"config: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
+    raise typer.Exit(run_mcp(cfg, host=host, port=port))
+
+
+@mcp_app.command("set-password")
+def mcp_set_password() -> None:
+    """Set the passphrase that authorizes connector clients (Claude, ChatGPT).
+
+    Stored as a scrypt hash at ``~/.config/huske/mcp_password`` (mode 0600) —
+    the plaintext is never written anywhere. This is the only credential between
+    the internet and your transcript history when connector mode is on, so pick
+    accordingly; a passphrase you would use for a password manager, not one you
+    would use for a wifi network.
+    """
+    from huske.mcp.oauth import save_password_hash
+
+    password = typer.prompt("New connector passphrase", hide_input=True)
+    if len(password.strip()) < 12:
+        typer.secho(
+            "Too short — use at least 12 characters. This guards every transcript "
+            "huske has ever written.",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(2)
+    if password != typer.prompt("Confirm passphrase", hide_input=True):
+        typer.secho("Passphrases do not match.", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+
+    path = save_password_hash(password)
+    typer.secho(f"✓ Wrote {path} (mode 0600)", fg=typer.colors.GREEN)
+    typer.echo("")
+    typer.echo("Existing connector tokens keep working — run `huske mcp revoke` to")
+    typer.echo("cut them off and force every client to sign in again.")
+
+
+@mcp_app.command("revoke")
+def mcp_revoke(
+    all_clients: bool = typer.Option(
+        False, "--all", help="Revoke every issued connector token (all devices)."
+    ),
+    client_id: str | None = typer.Option(
+        None, "--client-id", help="Revoke only this client's tokens."
+    ),
+) -> None:
+    """Revoke connector access. Loopback clients using the static token are unaffected."""
+    if not all_clients and client_id is None:
+        typer.secho("Pass --all or --client-id <id>.", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+
+    from huske.mcp.oauth import OAuthStore, default_store_path
+
+    path = default_store_path()
+    if not path.exists():
+        typer.echo("No connector tokens have ever been issued.")
+        raise typer.Exit(0)
+
+    store = OAuthStore.open(path)
+    try:
+        count = (
+            store.revoke_all_tokens() if all_clients else store.revoke_client_tokens(client_id or "")
+        )
+    finally:
+        store.close()
+    typer.secho(f"✓ Revoked {count} token(s).", fg=typer.colors.GREEN)
+
+
+@mcp_app.command("status")
+def mcp_status(config_path: Path | None = typer.Option(None, "--config")) -> None:
+    """Show whether connector mode is configured and how many clients are attached."""
+    from huske.config import load_config
+    from huske.mcp.oauth import OAuthStore, default_store_path, load_password_hash
 
     try:
         cfg = load_config(config_path=config_path)
     except ValueError as exc:
         typer.secho(f"config: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(2) from exc
-    raise typer.Exit(run_mcp(cfg, host=host, port=port))
+
+    typer.echo("huske mcp")
+    typer.echo(f"  loopback   http://{cfg.mcp_host}:{cfg.mcp_port}/mcp")
+    if not cfg.mcp_public_url:
+        typer.echo("  connector  off (mcp_public_url is unset)")
+        typer.echo("")
+        typer.echo("Run `huske connect` to see what each client needs.")
+        raise typer.Exit(0)
+
+    has_password = load_password_hash() is not None
+    typer.echo(f"  connector  {cfg.mcp_public_url}")
+    typer.echo(f"  passphrase {'set' if has_password else 'NOT SET — `huske mcp set-password`'}")
+    path = default_store_path()
+    if path.exists():
+        store = OAuthStore.open(path)
+        try:
+            typer.echo(f"  clients    {store.count_clients()} registered")
+            typer.echo(f"  tokens     {store.live_token_count()} live access token(s)")
+        finally:
+            store.close()
+    else:
+        typer.echo("  clients    none yet")
+    raise typer.Exit(0 if has_password else 1)
+
+
+@app.command("export")
+def export_cmd(
+    export_root: Path | None = typer.Option(
+        None, "--export-root", help="Where to write the day files (default ~/huske/export)."
+    ),
+    statements_only: bool = typer.Option(
+        False,
+        "--statements-only",
+        help="Write only the distilled key points, omitting the verbatim transcript.",
+    ),
+    since: str | None = typer.Option(
+        None, "--since", help="Only export days on or after this YYYY-MM-DD."
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Rewrite days whose source content is unchanged."
+    ),
+    output_root: Path | None = typer.Option(None, "--output-root"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Export one Markdown file per day, for tools that can't speak MCP.
+
+    A Claude Project, NotebookLM, Obsidian, or a synced Drive/Dropbox folder
+    reads files, not MCP — and huske natively writes many small files per day,
+    which such a tool cannot rank. This collapses each day into one document,
+    distilled key points first.
+
+    The MCP connector (`huske connect`) stays the better path: it keeps semantic
+    search, statement grounding, and custody of the data. Syncing this folder to
+    a third-party cloud puts plaintext transcripts there — see
+    docs/integrations.md.
+    """
+    from huske.export import run_export
+
+    overrides = _collect_overrides(output_root=output_root)
+    raise typer.Exit(
+        run_export(
+            config_path=config_path,
+            cli_overrides=overrides,
+            export_root=export_root,
+            statements_only=statements_only,
+            force=force,
+            since=since,
+        )
+    )
+
+
+@app.command()
+def connect(
+    client: str | None = typer.Argument(
+        None,
+        help="Which client to wire up: claude-code, claude-desktop, claude-app, "
+        "chatgpt, codex, cursor, hermes. Omit for a summary of all of them.",
+    ),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Show exactly how to connect huske to each LLM client, and what works today."""
+    from huske.connect import run_connect
+
+    raise typer.Exit(run_connect(client, config_path=config_path))
 
 
 # ---------------------------------------------------------------------------

@@ -330,6 +330,54 @@ def _search_checks(cfg: RuntimeConfig) -> list[Check]:
     return checks
 
 
+def _connector_checks(cfg: RuntimeConfig) -> list[Check]:
+    """Diagnostics for opt-in connector mode (``mcp_public_url``).
+
+    Silent unless the user has opted in. When they have, a missing passphrase or
+    a non-HTTPS URL is a hard failure rather than a warning — those are the two
+    ways to end up serving a transcript archive with no credential in front of
+    it, and `huske mcp` refuses to start on either. See ADR 0008.
+    """
+    if not cfg.mcp_public_url:
+        return []
+
+    from huske.mcp.oauth import canonical_resource, load_password_hash
+
+    checks: list[Check] = []
+    try:
+        resource = canonical_resource(cfg.mcp_public_url)
+    except ValueError:
+        return [
+            Check(
+                "connector url",
+                False,
+                f"mcp_public_url is not an absolute URL: {cfg.mcp_public_url!r}",
+                'Set it to the full endpoint, e.g. "https://huske.example.com/mcp".',
+            )
+        ]
+
+    https = resource.startswith("https://") or "127.0.0.1" in resource
+    checks.append(
+        Check(
+            "connector url",
+            https,
+            resource if https else f"{resource} is not https",
+            None if https else "A connector token would cross the network in the clear.",
+        )
+    )
+
+    has_password = load_password_hash() is not None
+    checks.append(
+        Check(
+            "connector passphrase",
+            has_password,
+            "set" if has_password else "not set",
+            None if has_password else "Run `huske mcp set-password`.",
+        )
+    )
+    return checks
+
+
 def _distill_checks(cfg: RuntimeConfig) -> list[Check]:
     """Diagnostics for the optional LLM-distillation subsystem.
 
@@ -573,6 +621,9 @@ def run_doctor(
 
     # Local semantic search + MCP (optional subsystem).
     checks.extend(_search_checks(cfg))
+
+    # Connector mode (silent unless mcp_public_url is set).
+    checks.extend(_connector_checks(cfg))
 
     # LLM distillation into searchable statements (optional subsystem).
     checks.extend(_distill_checks(cfg))

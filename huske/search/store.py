@@ -333,6 +333,63 @@ class PassageStore:
         hits.sort(key=lambda h: h.start_ms)
         return hits[: max(1, limit)]
 
+    def in_day_range(
+        self,
+        *,
+        day_from: int | None = None,
+        day_to: int | None = None,
+        source: str | None = None,
+        session_id: str | None = None,
+        limit: int = 200,
+    ) -> list[SearchHit]:
+        """Every row in a day range, in chronological order — no vector involved.
+
+        The read behind ``recap``: "what happened on these days" is a *range*
+        question, and answering it with a KNN over an invented query string
+        would silently drop whatever the embedding disliked. A metadata scan
+        returns the day whole, in the order it was said.
+        """
+        where: list[str] = []
+        params: list[object] = []
+        if session_id is not None:
+            where.append("session_id = ?")
+            params.append(session_id)
+        if day_from is not None:
+            where.append("day >= ?")
+            params.append(day_from)
+        if day_to is not None:
+            where.append("day <= ?")
+            params.append(day_to)
+        if source == "mic":
+            where.append("has_mic = 1")
+        elif source == "system":
+            where.append("has_system = 1")
+
+        sql = (
+            "SELECT 0.0, uid, title, text, path, session_id, day, start_ms, end_ms, sources "
+            "FROM passages"
+        )
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        rows = self._conn.execute(sql, params).fetchall()
+        hits = [self._row_to_hit(r, distance=0.0) for r in rows]
+        hits.sort(key=lambda h: (h.start_ms, _uid_index(h)))
+        return hits[: max(1, limit)]
+
+    def day_counts(self, *, limit: int | None = None) -> list[tuple[int, int]]:
+        """``(day, row_count)`` newest-first — the corpus map behind ``overview``."""
+        sql = "SELECT day, count(*) FROM passages GROUP BY day ORDER BY day DESC"
+        if limit is not None:
+            sql += f" LIMIT {max(1, int(limit))}"
+        return [(int(day), int(count)) for day, count in self._conn.execute(sql).fetchall()]
+
+    def day_bounds(self) -> tuple[int, int] | None:
+        """``(earliest_day, latest_day)``, or ``None`` when the index is empty."""
+        row = self._conn.execute("SELECT min(day), max(day) FROM passages").fetchone()
+        if row is None or row[0] is None:
+            return None
+        return int(row[0]), int(row[1])
+
     def stats(self) -> dict[str, object]:
         passages = self._conn.execute("SELECT count(*) FROM passages").fetchone()[0]
         files = self._conn.execute("SELECT count(*) FROM indexed_files").fetchone()[0]

@@ -96,6 +96,13 @@ class RuntimeConfig(BaseModel):
     # Local semantic search index (sqlite-vec passage store). See
     # docs/adr/0002-local-search-stack.md.
     index_root: Path = Field(default=Path.home() / "huske" / "index")
+    # Where `huske export` writes its one-file-per-day Markdown digests. Nothing
+    # is written here unless you run `huske export`; it exists so a folder-reading
+    # tool (a Claude Project, NotebookLM, Obsidian, or a synced Drive folder) has
+    # a single document per day instead of one per chunk. Point a sync client at
+    # this directory only if you accept plaintext transcripts leaving the machine
+    # — see docs/integrations.md.
+    export_root: Path = Field(default=Path.home() / "huske" / "export")
 
     # Transcription backend. Parakeet by default (silence-robust, multilingual,
     # MLX-accelerated); `whisper` keeps the legacy mlx-whisper path.
@@ -222,6 +229,37 @@ class RuntimeConfig(BaseModel):
     mcp_host: str = "127.0.0.1"
     mcp_port: int = Field(default=7641, gt=0, le=65535)
 
+    # --- Connector mode: reach the MCP endpoint from any device -------------
+    # See docs/adr/0008-public-mcp-connector.md and docs/integrations.md.
+    #
+    # The public HTTPS URL of this MCP endpoint as clients see it, e.g.
+    # "https://huske.example.com/mcp". Setting it turns on connector mode: the
+    # daemon additionally serves an OAuth 2.1 authorization server (discovery
+    # metadata, dynamic client registration, PKCE authorization code), which is
+    # the only way Claude and ChatGPT can attach a remote MCP server — neither
+    # lets you paste a bearer header into a connector.
+    #
+    # This is the one setting that makes a read surface reachable from the
+    # network, so it is deliberately explicit and off by default, and the daemon
+    # refuses to start until `huske mcp set-password` has set a passphrase. Keep
+    # the process bound to loopback (`mcp_host`) behind a TLS reverse proxy that
+    # terminates this hostname. Unset = today's behavior exactly: loopback only,
+    # static token, no OAuth endpoints.
+    mcp_public_url: str | None = None
+    # How long an issued access token stays valid. Clients refresh silently, so
+    # a shorter window mostly costs nothing; the default trades a little safety
+    # for not breaking a connector whose refresh quietly failed.
+    mcp_access_token_ttl_seconds: int = Field(default=12 * 3600, ge=300, le=30 * 86400)
+    # Refresh tokens rotate on every use (a stolen one is usable at most once,
+    # and only before the real client next refreshes). This bounds how long a
+    # connector can sit unused before it needs the passphrase again.
+    mcp_refresh_token_ttl_seconds: int = Field(default=90 * 86400, ge=3600)
+    # Extra browser Origins allowed to call the MCP endpoint. The known connector
+    # vendors are already allowed (see DEFAULT_CONNECTOR_ORIGINS); add an entry
+    # only for another browser-based MCP client. Server-to-server callers send no
+    # Origin and need nothing here.
+    mcp_allowed_origins: list[str] = Field(default_factory=list)
+
     # --- Off-device huske server (opt-in replication) ----------------------
     # See docs/adr/0004-off-device-huske-server.md. The send side ships in the
     # base install and is *inert* until `sync_endpoint` is set, so the 99% local
@@ -303,6 +341,7 @@ class RuntimeConfig(BaseModel):
         "logs_root",
         "screenshots_root",
         "index_root",
+        "export_root",
         "sync_root",
         mode="before",
     )

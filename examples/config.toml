@@ -170,6 +170,41 @@ no_ui = false
 # mcp_host = "127.0.0.1"
 # mcp_port = 7641
 
+# ------------------------------------------------------------
+# Connector mode (opt-in): reach your transcripts from Claude on your phone,
+# from ChatGPT, or from any hosted agent — including while this Mac is asleep.
+# ------------------------------------------------------------
+# Neither Claude nor ChatGPT can send a custom bearer header to a remote MCP
+# server; both speak the MCP authorization spec. Setting mcp_public_url makes
+# `huske mcp` additionally serve a small single-tenant OAuth 2.1 authorization
+# server (one passphrase, one read-only scope) so those clients can attach one
+# HTTPS URL as a custom connector.
+#
+# This is the ONLY setting in this file that puts a read surface on the network.
+# Set it where your always-on index lives — normally the huske server on your
+# VPS, not this Mac. The daemon refuses to start unless you have run
+# `huske mcp set-password` and the URL is https. Keep the process bound to
+# loopback (mcp_host) behind a TLS reverse proxy, and proxy only /mcp,
+# /.well-known/oauth-*, and /oauth/* — never a catch-all.
+# See docs/integrations.md and docs/adr/0008-public-mcp-connector.md.
+# mcp_public_url = "https://huske.example.com/mcp"
+
+# Token lifetimes. Refresh tokens rotate on every use, so a stolen one is usable
+# at most once and only before the real client next refreshes.
+# mcp_access_token_ttl_seconds = 43200      # 12 h
+# mcp_refresh_token_ttl_seconds = 7776000   # 90 d
+
+# Extra browser Origins allowed to call the MCP endpoint. Claude and ChatGPT are
+# already allowed; add an entry only for another browser-based MCP client.
+# Server-to-server callers send no Origin and need nothing here.
+# mcp_allowed_origins = []
+
+# Where `huske export` writes its one-file-per-day Markdown digests, for tools
+# that read files instead of speaking MCP (a Claude Project, NotebookLM,
+# Obsidian, a synced folder). Nothing is written unless you run `huske export`.
+# Syncing this directory to a third-party cloud puts plaintext transcripts there.
+# export_root = "~/huske/export"
+
 # ============================================================
 # Off-device replication (opt-in: pip install 'huske[server]' on the server)
 # ============================================================
