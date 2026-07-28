@@ -6,6 +6,8 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.12.0 - 2026-07-28
+
 ### Changed
 
 - **Ruff and mypy are CI gates now**, not conventions. Both were already clean;
