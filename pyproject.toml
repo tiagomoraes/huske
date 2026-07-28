@@ -74,7 +74,12 @@ dev = [
 mcp = [
     "mlx-embeddings>=0.1.0; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "sqlite-vec>=0.1.6",
-    "mcp>=1.12",
+    # Capped below 2.0: the SDK's 2.0 line renamed `mcp.server.fastmcp.FastMCP`
+    # to `mcp.server.mcpserver.MCPServer`, so an unpinned install resolves to an
+    # SDK `huske mcp` cannot import. CI installs only `.[dev]`, which means no
+    # test would have caught it — the cap is what keeps a fresh
+    # `pip install 'huske[mcp]'` working. Lift it with the 2.0 port, not before.
+    "mcp>=1.12,<2",
     "uvicorn>=0.30",
 ]
 # Off-device huske server (`huske serve` + the loopback `huske mcp` read side),
@@ -85,7 +90,7 @@ mcp = [
 server = [
     "fastembed>=0.3",
     "sqlite-vec>=0.1.6",
-    "mcp>=1.12",
+    "mcp>=1.12,<2",  # same 2.0 import break as the `mcp` extra above
     "uvicorn>=0.30",
 ]
 
