@@ -572,78 +572,97 @@ section.tight { padding: 56px 0; }
 .pillar .stat strong { color: var(--fg); font-weight: 500; display: block; font-size: 13px; margin-bottom: 2px; white-space: nowrap; }
 
 /* ================================================================
-   Setup strip — quick-start bridge under the hero (autostart + MCP)
+   Get started — the tiered onboarding path (replaces the setup strip)
    ================================================================ */
-.setup-strip { padding: clamp(40px, 6vw, 64px) 0; }
-.setup-strip .strip-head {
-  display: flex; align-items: center; gap: 10px;
-  font-family: var(--font-mono); font-size: 12px; font-weight: 500;
-  letter-spacing: 0.14em; text-transform: uppercase; color: var(--fg-muted);
+#start { padding: clamp(48px, 7vw, 76px) 0; }
+.tiers {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px; margin-top: 34px;
 }
-.setup-strip .strip-head .num { color: var(--brand-amber-700); }
-[data-theme="dark"] .setup-strip .strip-head .num { color: var(--brand-amber); }
-.setup-strip .strip-sub { font-size: 15px; color: var(--fg-muted); margin: 12px 0 28px; max-width: 52ch; line-height: 1.5; }
+@media (max-width: 1000px) { .tiers { grid-template-columns: 1fr; } }
 
-.setup-strip .strip-grid {
-  display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px;
-  background: var(--border-soft);
-  border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden;
+.tier {
+  display: flex; flex-direction: column;
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  background: var(--bg-elev); padding: 22px 20px 20px;
+  box-shadow: var(--shadow-sm);
 }
-@media (max-width: 760px) { .setup-strip .strip-grid { grid-template-columns: 1fr; } }
+/* The advanced tier is visually subordinate: it is the one most readers should
+   not start, so it must not compete with the two that need no terminal. */
+.tier.adv { background: transparent; border-style: dashed; }
 
-.setup-strip .strip-card {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 14px;
-  padding: clamp(20px, 2.6vw, 28px); background: var(--bg-elev);
+.tier-head { display: flex; gap: 12px; align-items: flex-start; }
+.tier-num {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  color: var(--brand-amber); padding-top: 3px;
+}
+.tier.adv .tier-num { color: var(--fg-faint); }
+.tier-titles { min-width: 0; }
+.tier-kicker {
+  font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--fg-faint); margin-bottom: 5px;
+}
+.tier h3 {
+  margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.02em;
+  color: var(--fg); line-height: 1.25;
 }
 
-.setup-strip .sc-ph {
-  display: flex; align-items: center; gap: 8px;
-  font-family: var(--font-mono); font-size: 11px; color: var(--brand-amber-700);
-  letter-spacing: 0.12em; text-transform: uppercase;
+.tier-meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 0; }
+.tier-meta .tm {
+  font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.03em;
+  padding: 3px 8px; border-radius: var(--radius-pill);
+  border: 1px solid var(--border-soft); color: var(--fg-muted);
 }
-[data-theme="dark"] .setup-strip .sc-ph { color: var(--brand-amber); }
-.setup-strip .sc-ph::before { content: ""; width: 6px; height: 6px; background: currentColor; border-radius: 50%; }
+/* Never colour-only: the words carry the meaning, the hue reinforces it. */
+.tier-meta .tm.good { color: var(--ok); border-color: color-mix(in oklab, var(--ok) 45%, transparent); }
+.tier-meta .tm.warn { color: var(--warn); border-color: color-mix(in oklab, var(--warn) 45%, transparent); }
 
-.setup-strip .sc-cmd {
-  align-self: stretch;
-  display: flex; align-items: center; gap: 10px;
-  background: var(--ink-900); border: 1px solid var(--ink-600);
-  border-radius: var(--radius-sm); padding: 9px 9px 9px 13px;
+.tier-needs {
+  margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-soft);
 }
-.setup-strip .sc-cmd-text {
-  flex: 1 1 auto; min-width: 0; overflow-x: auto; white-space: nowrap;
-  font-family: var(--font-mono); font-size: 13px; line-height: 1.4; color: var(--paper-100);
+.tier-needs .tn-label {
+  display: block; font-family: var(--font-mono); font-size: 10.5px;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-faint);
+  margin-bottom: 7px;
 }
-.setup-strip .sc-cmd .sp { color: #5BA8C9; user-select: none; margin-right: 4px; }
+.tier-needs ul { margin: 0; padding: 0; list-style: none; }
+.tier-needs li {
+  position: relative; padding-left: 14px; font-size: 13px; line-height: 1.5;
+  color: var(--fg-muted);
+}
+.tier-needs li + li { margin-top: 3px; }
+.tier-needs li::before {
+  content: ""; position: absolute; left: 3px; top: 9px;
+  width: 4px; height: 4px; border-radius: 50%; background: var(--fg-faint);
+}
 
-/* Copy buttons are styled per-section on this site (see .recall .copy,
-   .docs-shell .copy); scope the same affordance to the setup strip. */
-.setup-strip .copy {
-  flex: 0 0 auto;
-  font-family: var(--font-mono); font-size: 10.5px;
-  padding: 4px; border-radius: var(--radius-xs);
-  background: transparent; color: var(--paper-300);
-  border: 1px solid #2A2F38; cursor: pointer;
-  display: inline-flex; align-items: center; gap: 0; white-space: nowrap;
-  transition: color var(--dur-1) var(--ease-standard), border-color var(--dur-1);
+.tier-steps {
+  margin: 16px 0 0; padding-left: 20px;
+  display: flex; flex-direction: column; gap: 9px;
 }
-.setup-strip .copy:hover { color: var(--paper-100); border-color: #444a55; }
-.setup-strip .copy.copied { color: var(--ok); border-color: var(--ok); }
-.setup-strip .copy svg { width: 12px; height: 12px; }
-
-.setup-strip .sc-desc { font-size: 14px; line-height: 1.55; color: var(--fg-muted); margin: 0; max-width: 42ch; }
-
-.setup-strip .sc-cta {
-  margin-top: auto; padding-top: 2px;
-  font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.02em;
-  color: var(--brand-amber-700); display: inline-flex; align-items: center; gap: 7px;
-  text-decoration: none; transition: color var(--dur-1) var(--ease-standard);
+.tier-steps li { font-size: 13.5px; line-height: 1.55; color: var(--fg); }
+.tier-steps li::marker { color: var(--fg-faint); font-family: var(--font-mono); font-size: 11px; }
+.tier-steps code, .tier-cli code {
+  font-family: var(--font-mono); font-size: 12px;
+  background: var(--bg-subtle); padding: 1px 5px; border-radius: var(--radius-xs);
 }
-[data-theme="dark"] .setup-strip .sc-cta { color: var(--brand-amber); }
-.setup-strip .sc-cta:hover { color: var(--brand-amber); }
-[data-theme="dark"] .setup-strip .sc-cta:hover { color: var(--paper-100); }
-.setup-strip .sc-cta .arrow { transition: transform var(--dur-1) var(--ease-standard); }
-.setup-strip .sc-cta:hover .arrow { transform: translateX(3px); }
+
+.tier-outcome {
+  margin: 16px 0 0; padding-top: 14px; border-top: 1px solid var(--border-soft);
+  font-family: var(--font-serif); font-style: italic; font-size: 14px;
+  line-height: 1.5; color: var(--fg-muted);
+}
+.tier-cli { margin: 12px 0 0; font-size: 12.5px; line-height: 1.55; color: var(--fg-muted); }
+.tier-link {
+  margin-top: auto; padding-top: 16px;
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.03em;
+  color: var(--fg-muted); text-decoration: none;
+}
+.tier-link:hover { color: var(--brand-amber); }
+.tier-link .arrow { transition: transform var(--dur-1) var(--ease-standard); }
+.tier-link:hover .arrow { transform: translateX(3px); }
+
 
 /* ================================================================
    How it works — pipeline
@@ -1014,6 +1033,33 @@ section.tight { padding: 56px 0; }
 .recall .wiring .wnote .ln { display: flex; gap: 8px; align-items: baseline; }
 .recall .wiring .wnote .ln .tick { color: var(--ok); }
 .recall .wiring .wnote .ln .warn { color: var(--warn); }
+
+/* prerequisite block (#connect) — stated before the steps, not after, because
+   discovering the server requirement two steps in is the worst version of this
+   page. */
+.prereq {
+  margin-top: 26px; padding: 18px 20px;
+  border: 1px solid var(--border-soft); border-left: 2px solid var(--warn);
+  border-radius: var(--radius-md); background: var(--bg-subtle);
+}
+.prereq .pq-label {
+  display: block; font-family: var(--font-mono); font-size: 10.5px;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--warn);
+  margin-bottom: 10px;
+}
+.prereq ul { margin: 0; padding: 0; list-style: none; }
+.prereq li {
+  position: relative; padding-left: 16px; font-size: 13.5px; line-height: 1.6;
+  color: var(--fg);
+}
+.prereq li + li { margin-top: 5px; }
+.prereq li::before {
+  content: ""; position: absolute; left: 4px; top: 10px;
+  width: 4px; height: 4px; border-radius: 50%; background: var(--fg-faint);
+}
+.prereq .pq-note {
+  margin: 12px 0 0; font-size: 12.5px; line-height: 1.6; color: var(--fg-muted);
+}
 
 /* reach map (#connect) — "where does the model run" rows and their follow-up
    prose. Lives inside .recall .connect so it inherits that panel's padding

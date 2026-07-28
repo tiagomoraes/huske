@@ -5,15 +5,23 @@ making that context reach whichever model you are actually talking to — Claude
 Code in a terminal, Claude on your phone, ChatGPT, an always-on agent on a VPS —
 including when the Mac that recorded it is asleep.
 
-Start here:
+## Start here
+
+**In Huske.app, open the Connect pane.** It lists what's left and puts a button
+on each row — build the index, start the search server, connect your client. No
+terminal, and it edits your client's config for you (merging, so any other MCP
+servers you have survive). For most people that is the whole of this document.
+
+Prefer a terminal, or on a headless box?
 
 ```bash
-huske connect
+huske setup      # what's done, what's next, and `--apply` to finish it
+huske connect    # per-client wiring, and whether that path works right now
 ```
 
-It reads your config and prints, per client, what to paste and whether that path
-works right now. The rest of this document is the reasoning behind what it tells
-you.
+Both read the same state the app does. The rest of this document is the reasoning
+behind what they tell you, and the one path neither can finish for you: reaching
+your transcripts from another device.
 
 ## Pick your path in one question
 

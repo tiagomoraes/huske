@@ -592,6 +592,32 @@ def mcp_status(config_path: Path | None = typer.Option(None, "--config")) -> Non
     raise typer.Exit(0 if has_password else 1)
 
 
+@app.command("setup")
+def setup_cmd(
+    apply: str | None = typer.Option(
+        None,
+        "--apply",
+        help="Complete a step instead of only reporting it: claude-desktop, "
+        "claude-code, index, or all.",
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Machine-readable state (used by Huske.app)."
+    ),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Check what's left to get an LLM reading your transcripts — and finish it.
+
+    Replaces the five-command dance (install the extra, index, start the server,
+    find the token, hand-edit a client config) with one command that says which
+    step you are on. `--apply` completes the steps that don't need a terminal:
+    it merges huske into Claude Desktop's config without touching your other MCP
+    servers, and registers with Claude Code through its own CLI.
+    """
+    from huske.setup import run_setup
+
+    raise typer.Exit(run_setup(config_path=config_path, json_output=json_output, apply=apply))
+
+
 @app.command("export")
 def export_cmd(
     export_root: Path | None = typer.Option(

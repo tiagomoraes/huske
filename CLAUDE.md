@@ -112,6 +112,16 @@ models. It is off by default and adds no dependencies to the base install.
   [AGENTS.md](AGENTS.md#the-authenticated-read-surface): both modules stay
   stdlib-only, the refusals (no passphrase, non-HTTPS URL) stay refusals, and
   the static loopback token keeps working unchanged.
+- `setup.py` (`huske setup`) owns the whole local "let an LLM read my
+  transcripts" path: it reports each step's state and `--apply` finishes the ones
+  that need no terminal. It is the **single source of truth for setup state** —
+  the app's Connect pane renders `--json` through `HuskeKit/SetupBridge.swift` and
+  adds no judgement of its own, and `PythonInteropTests` drives the real CLI
+  through the real bridge so a renamed key fails the build. Two rules: it never
+  installs software (a missing extra is *reported*, with the command matching how
+  huske was installed), and it never rewrites a client config it cannot parse —
+  `apply_claude_desktop` merges, backs up once, and writes atomically, because
+  that file may hold MCP servers the user depends on.
 - `connect.py` (`huske connect`) prints per-client wiring and resolves which
   paths actually work from the live config; `export.py` (`huske export`) writes
   one Markdown digest per day for file-reading destinations that cannot speak

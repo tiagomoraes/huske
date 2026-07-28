@@ -26,6 +26,7 @@ huske index [OPTIONS]        Build/refresh the local semantic index (needs huske
 huske distill [OPTIONS]      Distil transcripts into statement sidecars with a local LLM.
 huske mcp [OPTIONS]          Serve transcript search over MCP (needs huske[mcp]).
 huske mcp <verb>             Manage connector access (set-password, revoke, status).
+huske setup [OPTIONS]        Report (and optionally finish) the local LLM setup.
 huske connect [CLIENT]       Show how to wire huske into each LLM client.
 huske export [OPTIONS]       Write one Markdown digest per day for file-reading tools.
 huske serve [OPTIONS]        Off-device server: receive + index pushed transcripts.
@@ -238,6 +239,31 @@ unaffected. See `docs/integrations.md` and `docs/adr/0008-public-mcp-connector.m
 
 **Exit codes**: `0` clean shutdown, `1` missing extra / missing index / invalid
 connector configuration, `2` config error.
+
+---
+
+## `huske setup`
+
+**Purpose**: Report every step of the local "let an LLM read my transcripts"
+path — extra installed, transcripts indexed, server running, clients detected,
+connector state — and complete the ones that need no terminal. Backs the app's
+Connect pane through `--json`.
+
+**Options**:
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--apply` | str | (none) | Complete a step: `claude-desktop`, `claude-code`, `index`, or `all`. |
+| `--json` | bool | `false` | Machine-readable state (the app's contract; see `SetupBridge`). |
+| `--config` | path | `~/.config/huske/config.toml` | |
+
+**Invariants**: never installs software (a missing extra is reported with the
+command that fits how huske was installed); `--apply claude-desktop` merges into
+`claude_desktop_config.json`, backs up the pre-huske file once, writes
+atomically, and refuses to overwrite unparseable JSON.
+
+**Exit codes**: `0` ready (or the applied step succeeded), `1` steps remain,
+`2` config error or unknown `--apply` target.
 
 ---
 

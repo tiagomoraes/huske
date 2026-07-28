@@ -278,7 +278,13 @@ across months of calls — install the optional extra:
 pip install 'huske[mcp]'   # mlx-embeddings + sqlite-vec + the MCP SDK
 ```
 
-This adds two subcommands and one config flag:
+**The short version: open the Connect pane in Huske.app.** It shows what's left
+and puts a button on each step — build the index, start the search server,
+connect Claude Desktop or Claude Code. Nothing to type, and it merges into your
+client's config rather than overwriting it. From a terminal, `huske setup` does
+the same and tells you which step you're on.
+
+The long version — what those steps actually are:
 
 1. **Build the index.** `huske index` embeds every transcript under
    `output_root` into a single local vector file (`~/huske/index/passages.db`)

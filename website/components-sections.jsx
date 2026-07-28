@@ -687,8 +687,23 @@ const Connect = () => (
         num="05"
         label="connect · any device"
         lead={<>Your Mac sleeps. <span className="accent">Your context shouldn't.</span></>}
-        sub={<>Replicate to a server you control and the index stays awake — but a loopback endpoint only answers the machine it runs on. Connector mode serves a small single-tenant <strong>OAuth 2.1</strong> sign-in beside the MCP endpoint, because neither Claude nor ChatGPT will let you paste a bearer header into a connector. Add one HTTPS url on your phone, sign in once, and ask what was said in a meeting you left three weeks ago. Off by default.</>}
+        sub={<>Everything so far runs on one Mac, and answers only while it's awake. Reaching your transcripts from a phone means the index has to live somewhere that never sleeps — so this section needs <strong>a server you control</strong>, and it is the only part of huske that does. If you don't have one, <a href="#start">step 2</a> already gets your agent searching; come back when you do.</>}
       />
+
+      <div className="prereq">
+        <span className="pq-label">before you start</span>
+        <ul>
+          <li>An always-on server you control (a VPS), with root.</li>
+          <li>A domain name pointed at it, with TLS — Caddy does this for you.</li>
+          <li>Willingness to keep a reverse-proxy allowlist correct. It is the
+            security boundary; a catch-all exposes more than you intend.</li>
+        </ul>
+        <p className="pq-note">
+          Roughly half an hour the first time, plus the upkeep any server needs.
+          There is no version of this that is one click — huske would rather say so
+          than waste your evening.
+        </p>
+      </div>
 
       <div className="recall connect-grid">
         <div className="panel connect">
@@ -1243,45 +1258,119 @@ const FAQ = () => (
   </section>
 );
 
-// Bridge CTA under the hero — surfaces the two opt-in "power" commands
-// (run on login, recall over MCP) with one headline command each and a link
-// into the full docs walkthrough. Not a numbered chapter; a quick-start strip.
-const SETUP_CARDS = [
+// The onboarding IA. Setup used to be spread across the hero, a "go further"
+// strip, the search section, and the connect section — four places, none of
+// which said what a step costs or requires. So this is the single answer to
+// "what do I actually do", as three tiers ordered by effort, each stating its
+// prerequisites up front.
+//
+// The third tier deliberately leads with its requirement rather than its
+// benefit: it needs a server the reader has to own, and discovering that after
+// following two steps is the worst version of this page.
+const TIERS = [
   {
-    id: "autostart",
-    ph: "record from login",
-    cmd: "huske autostart install",
-    desc: "In the app it's two switches — Open at login + Start recording when Huske opens. This command is the app-less launchd alternative.",
-    cta: "Autostart guide",
-    href: "docs/#autostart",
-    aria: "Record from login — read the autostart guide",
+    id: "record",
+    num: "01",
+    kicker: "everyone starts here",
+    title: "Record and transcribe",
+    cost: "about 2 minutes",
+    terminal: false,
+    needs: ["macOS 14+ Apple Silicon"],
+    steps: [
+      <>Download <strong>Huske.app</strong> and open it.</>,
+      <>macOS blocks the first open because the build isn't notarized — go to <strong>System Settings → Privacy &amp; Security</strong> and click <strong>Open Anyway</strong>. Once, ever.</>,
+      <>The app installs its engine for you, then asks for <strong>Microphone</strong> and audio-capture permission.</>,
+      <>Press record. Transcripts land in <code>~/huske/transcripts/</code>.</>,
+    ],
+    outcome: "A day-organized Markdown ledger of everything said on your Mac.",
   },
   {
-    id: "mcp",
-    ph: "recall over mcp",
-    cmd: "huske mcp",
-    desc: "Serves on-device semantic search over your transcripts to Claude, Codex, Cursor, and more.",
-    cta: "MCP setup",
-    href: "docs/#search",
-    aria: "Recall over MCP — read the MCP setup guide",
+    id: "connect-local",
+    num: "02",
+    kicker: "the point of all this",
+    title: "Let an LLM read it",
+    cost: "about 2 minutes",
+    terminal: false,
+    needs: ["Claude Desktop or Claude Code on this Mac"],
+    steps: [
+      <>Open the <strong>Connect</strong> pane in Huske.app.</>,
+      <>It lists what's left and puts a button on each row — build the index, start the search server, connect your client.</>,
+      <>Press them top to bottom. huske edits the client config for you; it merges, so your other MCP servers survive.</>,
+      <>Ask your agent something only a meeting would know.</>,
+    ],
+    outcome: "Semantic search, date recaps, and verbatim quotes — from your own words.",
+    cli: "huske setup",
+  },
+  {
+    id: "connect-remote",
+    num: "03",
+    kicker: "advanced",
+    title: "Reach it from your phone",
+    cost: "half an hour, and upkeep",
+    terminal: true,
+    needs: [
+      "an always-on server you control (a VPS)",
+      "a domain name with TLS",
+      "comfort editing a reverse-proxy config",
+    ],
+    steps: [
+      <>Replicate transcripts to your server so they're there when the Mac sleeps.</>,
+      <>Set a connector passphrase and the public URL, then restart the read side.</>,
+      <>Point a reverse proxy at the documented path allowlist — <em>only</em> those paths.</>,
+      <>Add the one URL as a custom connector in Claude or ChatGPT.</>,
+    ],
+    outcome: "Claude on your iPhone answers from your transcripts while the Mac is asleep.",
+    href: "https://github.com/tiagomoraes/huske/blob/main/docs/integrations.md",
+    hrefLabel: "Full guide",
   },
 ];
 
-const SetupStrip = () => (
-  <section className="setup-strip" aria-label="Set up huske">
+const GetStarted = () => (
+  <section id="start">
     <div className="page">
-      <div className="strip-head"><span className="num">→</span><span>go further</span></div>
-      <p className="strip-sub">Two opt-in set-ups take huske further: record from every login, and search your transcripts straight from your agent.</p>
-      <div className="strip-grid">
-        {SETUP_CARDS.map((c) => (
-          <div className="strip-card" key={c.id}>
-            <div className="sc-ph">{c.ph}</div>
-            <div className="sc-cmd">
-              <span className="sc-cmd-text"><span className="sp">$</span> {c.cmd}</span>
-              <CopyButton text={c.cmd} className="copy ghost mini" withLabel={false} />
+      <SectionHead
+        num="→"
+        label="get started"
+        lead={<>Three steps. <span className="accent">Two need no terminal.</span></>}
+        sub={<>Each one below says what it costs and what it needs before you begin. Stop after step 1 and huske is still a complete transcript ledger; stop after step 2 and your agent can search it. Step 3 is the only one that needs infrastructure, and it says so.</>}
+      />
+      <div className="tiers">
+        {TIERS.map((t) => (
+          <div className={`tier ${t.terminal ? "adv" : ""}`} key={t.id}>
+            <div className="tier-head">
+              <span className="tier-num">{t.num}</span>
+              <div className="tier-titles">
+                <div className="tier-kicker">{t.kicker}</div>
+                <h3>{t.title}</h3>
+              </div>
             </div>
-            <p className="sc-desc">{c.desc}</p>
-            <a className="sc-cta" href={c.href} aria-label={c.aria}>{c.cta} <span className="arrow">→</span></a>
+            <div className="tier-meta">
+              <span className="tm">{t.cost}</span>
+              <span className={`tm ${t.terminal ? "warn" : "good"}`}>
+                {t.terminal ? "terminal required" : "no terminal"}
+              </span>
+            </div>
+            <div className="tier-needs">
+              <span className="tn-label">you need</span>
+              <ul>
+                {t.needs.map((n, i) => <li key={i}>{n}</li>)}
+              </ul>
+            </div>
+            <ol className="tier-steps">
+              {t.steps.map((step, i) => <li key={i}>{step}</li>)}
+            </ol>
+            <p className="tier-outcome">{t.outcome}</p>
+            {t.cli && (
+              <p className="tier-cli">
+                Prefer a terminal? <code>{t.cli}</code> does the same thing and tells you
+                which step you're on.
+              </p>
+            )}
+            {t.href && (
+              <a className="tier-link" href={t.href} target="_blank" rel="noopener">
+                {t.hrefLabel} <span className="arrow">→</span>
+              </a>
+            )}
           </div>
         ))}
       </div>
@@ -1290,7 +1379,7 @@ const SetupStrip = () => (
 );
 
 Object.assign(window, {
-  SectionHead, Pillars, SetupStrip, HowItWorks, OutputPreview, SearchRecall, Connect, Privacy, Releases, Community, FAQ,
+  SectionHead, Pillars, GetStarted, HowItWorks, OutputPreview, SearchRecall, Connect, Privacy, Releases, Community, FAQ,
   // Shared so the docs page (components-docs.jsx) reuses the same MCP setup
   // data and per-agent configs — single source of truth.
   MCP_ENDPOINT, MCP_TOKEN_PATH, SETUP_STEPS, AGENTS, agentPrompt, PromptText,

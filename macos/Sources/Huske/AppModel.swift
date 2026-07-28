@@ -94,6 +94,16 @@ final class AppModel {
     private(set) var doctorError: String?
     private(set) var doctorRunning = false
 
+    // MARK: connect (search + LLM clients)
+
+    let searchServer = SearchServerController()
+    private(set) var setupReport: SetupReport?
+    private(set) var setupError: String?
+    private(set) var setupRunning = false
+    /// Streamed output of the step currently being applied, if any.
+    private(set) var setupApplyLog: [String] = []
+    private(set) var applyingStep: String?
+
     // MARK: recover
 
     private(set) var recoverLog: [String] = []
@@ -200,6 +210,69 @@ final class AppModel {
     }
 
     // MARK: doctor
+
+    // MARK: - connect
+
+    /// Re-read the setup state. Cheap enough to call on every pane appearance.
+    func refreshSetup() {
+        guard let binaryURL, !setupRunning else { return }
+        setupRunning = true
+        setupError = nil
+        Task {
+            do {
+                let report = try await SetupBridge.load(binary: binaryURL)
+                self.setupReport = report
+                // A server started from a terminal or LaunchAgent is already
+                // serving; adopt it so the pane doesn't offer to start a second.
+                if report.step("server")?.state == .ok {
+                    self.searchServer.adoptExternal()
+                }
+            } catch {
+                self.setupError = Self.describe(error)
+            }
+            self.setupRunning = false
+        }
+    }
+
+    /// Complete one setup step, streaming the engine's output into the pane.
+    func applySetupStep(_ key: String) {
+        guard let binaryURL, applyingStep == nil else { return }
+        applyingStep = key
+        setupApplyLog = []
+        Task {
+            do {
+                _ = try await SetupBridge.apply(binary: binaryURL, target: key) { line in
+                    // SetupBridge streams on the main queue (EngineProcess does).
+                    MainActor.assumeIsolated {
+                        self.setupApplyLog.append(line)
+                    }
+                }
+            } catch {
+                self.setupApplyLog.append(Self.describe(error))
+            }
+            self.applyingStep = nil
+            self.refreshSetup()
+        }
+    }
+
+    func startSearchServer() {
+        guard let binaryURL else { return }
+        searchServer.start(binary: binaryURL)
+        // The banner lands a beat after the port opens; re-read once it should
+        // be up so the step flips to ✓ without the user pressing refresh.
+        Task {
+            try? await Task.sleep(for: .seconds(3))
+            self.refreshSetup()
+        }
+    }
+
+    func stopSearchServer() {
+        searchServer.stop()
+        Task {
+            try? await Task.sleep(for: .seconds(1))
+            self.refreshSetup()
+        }
+    }
 
     func runDoctor() {
         guard let binaryURL, !doctorRunning else { return }

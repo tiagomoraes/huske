@@ -92,4 +92,44 @@ final class PythonInteropTests: XCTestCase {
         XCTAssertEqual(server.terminationStatus, 0, "python server did not receive the command")
         client.close()
     }
+
+    /// The other cross-language contract: `huske setup --json` is what the
+    /// Connect pane renders, so a renamed key or state would silently blank a
+    /// row rather than fail a build. Runs the real CLI and decodes it with the
+    /// real bridge.
+    func testSetupJSONDecodesWithTheSwiftBridge() throws {
+        guard let python = ProcessInfo.processInfo.environment["HUSKE_INTEROP_PYTHON"] else {
+            throw XCTSkip("set HUSKE_INTEROP_PYTHON to run the cross-language interop test")
+        }
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("huske-setup-interop-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: python)
+        process.arguments = ["-m", "huske", "setup", "--json", "--config", "/nonexistent.toml"]
+        var env = ProcessInfo.processInfo.environment
+        env["HUSKE_NO_UPDATE_CHECK"] = "1"
+        // Isolate from the developer's real ~/.config/huske and ~/huske.
+        env["HOME"] = home.path
+        process.environment = env
+        let out = Pipe()
+        process.standardOutput = out
+        process.standardError = Pipe()
+        try process.run()
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
+        let text = String(data: data, encoding: .utf8) ?? ""
+        let report = try SetupBridge.parse(text)
+
+        // Every key the pane switches on must be present, or its row vanishes.
+        for key in ["extra", "index", "server", "connector"] {
+            XCTAssertNotNil(report.step(key), "setup --json is missing the '\(key)' step")
+        }
+        XCTAssertTrue(report.endpoint.hasSuffix("/mcp"), "unexpected endpoint: \(report.endpoint)")
+        // Nothing is set up in a throwaway HOME, so this must not claim ready.
+        XCTAssertFalse(report.ready)
+    }
 }

@@ -64,6 +64,33 @@ This project uses semantic versioning after the first public release.
 - **[docs/integrations.md](docs/integrations.md)** — the canonical guide: pick a
   path in one question, per-client setup, the security posture, and a
   troubleshooting table.
+- **A Connect pane in Huske.app — the whole local setup, with no terminal.**
+  Getting an LLM reading your transcripts used to be five commands and a
+  hand-edited `claude_desktop_config.json`, which is not a thing most people can
+  be asked to do. The pane renders `huske setup --json` as a checklist and puts a
+  button on each row: build the index, start/stop the search server, connect
+  Claude Desktop or Claude Code. Connecting Claude Desktop **merges** into its
+  config so other MCP servers survive, backs up the pre-huske file once, writes
+  atomically, and refuses to touch JSON it cannot parse.
+
+  The one row without a button is "from your phone" — that needs a server the
+  user owns, so it states the prerequisite rather than offering an action that
+  cannot work. All the judgement lives in `huske/setup.py`; the pane renders and
+  forwards, so app and CLI can never disagree (ADR 0006). A new interop test
+  drives the real CLI through the real Swift bridge, so a renamed key fails a
+  build instead of silently blanking a row.
+- **`huske setup`** — the same thing from a terminal: what's done, what's next,
+  and `--apply <step>` to finish it. Deliberately never installs software; a
+  missing extra is reported with the command that matches how huske was
+  installed, because a wrong upgrade command appears to succeed and changes
+  nothing.
+- **The website leads with a tiered "Get started"** replacing the old "go
+  further" strip. Setup had been spread across the hero, that strip, the search
+  section, and the connect section — four places, none of which said what a step
+  cost or required. Now three tiers, each stating its time, whether a terminal is
+  needed, and its prerequisites *before* the instructions. Step 3 (phone access)
+  leads with "you need a server you control" rather than burying it, since
+  finding that out two steps in is the worst version of that page.
 
 ### Fixed
 
@@ -73,6 +100,13 @@ This project uses semantic versioning after the first public release.
   fresh install got 2.0 and the MCP server failed at import. No test caught it
   because CI installs only `.[dev]`, where `import mcp` is absent entirely. Both
   extras now cap at `mcp>=1.12,<2`; the cap lifts with the 2.0 port.
+- **Homebrew users were told to run a command that would have done nothing.**
+  The tap formula pins its dependencies as wheel resources and carries none of
+  the search ones — no `sqlite-vec`, `mcp`, `mlx-embeddings`, or `uvicorn` — so
+  `brew reinstall` rebuilds the same virtualenv without them. `huske setup` now
+  points brew installs at the formula's own interpreter and states plainly that a
+  later `brew upgrade` will undo it. (Adding the extras to the tap is the real
+  fix and is not done here.)
 - **`recap` over a one-sided date range crashed.** `recap(date_from=...)` with no
   `date_to` — "everything since the 1st", a normal call — formatted the open
   bound as a date and raised. The open end is now reported as open. Caught by the
