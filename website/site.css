@@ -1266,6 +1266,16 @@ section.tight { padding: 56px 0; }
 .timeline .body li.changed .kind { color: var(--info); }
 [data-theme="dark"] .timeline .body li.changed .kind { color: #7FA0BA; }
 .timeline .body li.fixed .kind { color: var(--warn); }
+/* Breaking removals must not be the quietest badge in the list. Both tones are
+   picked per theme so these 10px labels clear AA on their own background. */
+.timeline .body li.removed .kind { color: var(--err); }
+[data-theme="dark"] .timeline .body li.removed .kind {
+  color: color-mix(in oklab, var(--err) 72%, white);
+}
+.timeline .body li.security .kind {
+  color: color-mix(in oklab, var(--brand-amber-700) 80%, var(--ink-900));
+}
+[data-theme="dark"] .timeline .body li.security .kind { color: var(--accent); }
 
 .timeline .body li code { font-size: 12.5px; }
 
