@@ -5,8 +5,8 @@
 
 > *huske* — Norwegian for "to remember"
 
-A terminal app that runs in the background, continuously records your microphone
-plus your computer's system audio, and transcribes the audio locally with
+A native macOS app backed by a headless engine that continuously records your
+microphone plus your computer's system audio, and transcribes the audio locally with
 [Parakeet](https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3) on Apple
 Silicon (MLX) — producing a day-organized, LLM-friendly knowledge base of
 everything that was said on your machine throughout the day.
@@ -41,7 +41,7 @@ it about your day.
   `--asr-engine whisper --model large-v3-turbo --language pt`.
 - **Speech-gated segmentation** — files split on real pauses in speech, not a
   fixed clock: a chunk opens when speech starts and closes after a pause
-  (`--silence-split`, default 45 s) or at the `--chunk-minutes` cap (default
+  (`--silence-split`, default 60 s) or at the `--chunk-minutes` cap (default
   30 min). Quiet stretches produce no file, and a conversation isn't cut
   mid-sentence at an arbitrary tick. `--no-speech-gated` restores fixed-interval
   rotation.
@@ -69,15 +69,17 @@ it about your day.
 - **LLM-ready output** — every transcript is a single Markdown file with full
   YAML frontmatter; the directory layout is documented in
   `~/huske/transcripts/README.md` (auto-generated).
-- **Local semantic search (opt-in MCP server)** — `huske[mcp]` adds on-device
-  embedding + a local vector index so Claude Code, Claude Desktop, or ChatGPT
-  can search your transcripts by meaning. Embeddings and the index never leave
-  your machine; see [Search your transcripts from Claude / ChatGPT](#search-your-transcripts-from-claude--chatgpt-opt-in).
-- **LLM distillation into searchable statements (opt-in)** — distil each
-  transcript into compact, self-contained claims with a **local** LLM (Ollama),
-  search those, and drill into the verbatim transcript on demand. Fully
-  on-device, no new Python dependency, off by default; see [Distil transcripts
-  into searchable statements](#distil-transcripts-into-searchable-statements-opt-in).
+- **Private GitHub sync (opt-in)** — Huske.app publishes each finished
+  transcript to a private Git repository through your existing SSH/Git
+  credentials. Git commits are the durable retry queue; Huske stores no cloud
+  token and never syncs audio, screenshots, logs, or config.
+- **Always-on MCP as a separate service** — `services/huske_mcp` runs on a
+  Linux/VPS, pulls the repository, incrementally indexes it, and serves agents
+  while the Mac sleeps. The default profile is designed for a 512 MB VPS;
+  semantic hybrid search is an explicit larger-memory option.
+- **LLM distillation into statements (opt-in)** — distil each transcript into
+  compact, self-contained claims with a local MLX model or Ollama. Derived
+  sidecars are on-device and never required by the remote retrieval index.
 - **Optional periodic screenshots** — opt in with `--screenshots` to also
   capture a JPEG of every attached display every 60 s (compressed for LLM input), stored under
   `~/huske/screenshots/YYYY-MM-DD/<session>/HHMMSS_dN.jpg` for downstream
@@ -262,162 +264,61 @@ The screenshot interval must be at least 1 second.
 > never commit it, share with care, and review the
 > [Privacy and consent](#privacy-and-consent) section before enabling.
 
-## Search your transcripts from Claude / ChatGPT (opt-in)
+## Sync transcripts and query them from agents (opt-in)
 
-The base install gives any LLM agent file access to `~/huske/transcripts/`. For
-*semantic* search — "what did we decide about the pricing model last week?"
-across months of calls — install the optional extra:
+The recording app does not host MCP. Open **Cloud sync** in Huske.app, create a
+private GitHub repository, paste its SSH URL, and press **Sync now**. After the
+first push succeeds, enable automatic sync.
 
-```bash
-pip install 'huske[mcp]'   # mlx-embeddings + sqlite-vec + the MCP SDK
-```
-
-This adds two subcommands and one config flag:
-
-1. **Build the index.** `huske index` embeds every transcript under
-   `output_root` into a single local vector file (`~/huske/index/passages.db`)
-   using a multilingual model that runs on the Apple Silicon GPU via MLX —
-   the same Metal stack `parakeet-mlx` already uses. Nothing leaves your machine.
-
-   ```bash
-   huske index                 # backfill your whole history (incremental)
-   huske index --rebuild       # after changing the embedding model
-   huske index --fast          # full speed (skip the default low-impact throttle)
-   ```
-
-   The backfill runs **low-impact by default** — it lowers its CPU priority,
-   shrinks the embed batch, and releases the MLX buffer cache between files so a
-   full-history backfill won't exhaust RAM or pin the GPU. It's a bit slower but
-   stays out of your way; pass `--fast` (or set `index_low_impact = false`) when
-   you'd rather it finish quickly. For finer control, tune `embed_batch_size` and
-   `index_memory_limit_mb` in `~/.config/huske/config.toml`.
-
-   To keep the index fresh automatically, set `indexing_enabled = true` in
-   `~/.config/huske/config.toml`; `huske run` then embeds each finalized
-   transcript in the background, in an isolated subprocess that never blocks
-   audio capture.
-
-2. **Serve it over MCP.** `huske mcp` runs a small always-on HTTP server
-   (loopback-only, guarded by an auto-generated bearer token and Origin/Host
-   validation) that exposes `search` and `fetch` tools.
-
-   ```bash
-   huske mcp
-   # prints the endpoint, token, and a ready-to-paste registration command
-   ```
-
-   **Claude Code** connects directly — no tunnel:
-
-   ```bash
-   claude mcp add --transport http huske http://127.0.0.1:7641/mcp \
-     --header "Authorization: Bearer <token from the banner>"
-   ```
-
-   **Claude Desktop and Cowork** can't attach a bearer header to a loopback URL
-   through the connectors UI, so bridge the endpoint to a local stdio server
-   with `mcp-remote` in
-   `~/Library/Application Support/Claude/claude_desktop_config.json`:
-
-   ```json
-   {
-     "mcpServers": {
-       "huske": {
-         "command": "npx",
-         "args": [
-           "-y", "mcp-remote", "http://127.0.0.1:7641/mcp",
-           "--allow-http",
-           "--header", "Authorization:${HUSKE_MCP_TOKEN}"
-         ],
-         "env": { "HUSKE_MCP_TOKEN": "Bearer <token from the banner>" }
-       }
-     }
-   }
-   ```
-
-   Write `Authorization:` with no space (Claude Desktop strips spaces in args),
-   then fully quit and reopen the app. Cowork shares this config, so huske shows
-   up there too once Desktop reloads it.
-
-   **ChatGPT** can only reach a public HTTPS endpoint, so it additionally needs
-   you to expose the local server through a tunnel (OpenAI's secure tunnel,
-   `cloudflared`, etc.). That sends transcript snippets through a public
-   endpoint to OpenAI — opt in deliberately.
-
-> **Privacy.** Embedding and indexing are fully on-device, but *answering*
-> happens in whichever chat model you connect — so transcript snippets are
-> sent to that model's provider (Anthropic for Claude, OpenAI for ChatGPT)
-> when it reads a result, exactly as if you had pasted them in. The local
-> endpoint is loopback-bound and token-guarded; only the ChatGPT-via-tunnel
-> path widens that surface. The design rationale lives in
-> [docs/adr/0001-http-only-mcp-daemon.md](docs/adr/0001-http-only-mcp-daemon.md).
-
-## Distil transcripts into searchable statements (opt-in)
-
-Semantic search over raw passages works, but conversational speech is verbose.
-huske can also distil each transcript into compact, self-contained **statements**
-— "We approved the Q3 marketing budget", "The roadmap ships Friday" — using a
-**local** LLM, then search *those* and drill into the verbatim transcript only
-when a statement looks relevant. Two-stage retrieval: find the claim, then read
-what was actually said.
-
-It runs entirely on-device through a local LLM daemon
-([Ollama](https://ollama.com)) and adds **no Python dependency** (a loopback HTTP
-call). Off by default.
+Terminal equivalent:
 
 ```bash
-# 1. Install Ollama, then pull any model — pick for your RAM:
-ollama pull gemma4:e2b      # ~2-4 GB resident, multilingual — the default
-# or: ollama pull qwen3:4b  (higher quality)  ·  llama3.2:3b  (lightest)
-
-# 2. Distil your history into <name>.statements.json sidecars (incremental):
-huske distill                       # --fast for full speed; --model to override
-
-# 3. Embed the statements for search (needs the huske[mcp] extra):
-huske index                         # also embeds any statement sidecars
+huske config set sync_remote git@github.com:you/huske-transcripts.git
+huske config set sync_enabled true
+huske sync
 ```
 
-To keep statements fresh automatically, in `~/.config/huske/config.toml`:
+Huske publishes only canonical transcript Markdown under
+`transcripts/YYYY-MM-DD/*.md`. Git uses your existing SSH agent or credential
+helper; Huske stores no GitHub token. Audio, screenshots, logs, config, and
+credentials are never copied.
+
+Run the independent `services/huske_mcp` package on an always-on Linux/VPS
+host. It pulls the private repository, incrementally indexes it into SQLite, and
+serves a permanent authenticated Streamable-HTTP MCP endpoint with `overview`,
+`recap`, `search`, `fetch`, and `sync_status`.
+
+The default `tiny` profile is designed for 1 vCPU / 512 MB: one process, one
+poll thread, FTS5, an 8 MB SQLite cache, and no resident model. The optional
+`semantic` profile adds real hybrid Model2Vec retrieval and needs more memory
+(at least 1 GB for the default multilingual model).
+
+Polling is the consistency mechanism; a signed GitHub webhook can wake it early.
+This heals missed webhooks and restarts without a second data plane. Full setup:
+**[docs/server.md](docs/server.md)**. Client wiring:
+**[docs/integrations.md](docs/integrations.md)**. Decision record:
+[ADR 0009](docs/adr/0009-git-replica-and-isolated-mcp-service.md).
+
+## Distil transcripts into statements (opt-in)
+
+Huske can distil each transcript into compact, self-contained statement sidecars
+using a local MLX model or Ollama. These are derived and optional; the VPS
+service builds retrieval from canonical transcript Markdown and never depends on
+them.
+
+```bash
+huske distill
+```
+
+To keep sidecars fresh automatically:
 
 ```toml
-distill_enabled = true        # distil each finished transcript in the background
-distill_model   = "gemma4:e2b"
-indexing_enabled = true       # also embed them so `huske mcp` searches statements first
+distill_enabled = true
+distill_model = "mlx-community/Qwen3.5-0.8B-4bit"
 ```
 
-With both on, `huske run` distils and embeds each transcript off the hot path —
-an LLM call never blocks recording, and if the daemon is down, recording and
-passage search continue while `huske distill` catches up later. `huske mcp` then
-ranks **statements** first, and `fetch` returns the matched claim **plus the
-source transcript** that grounds it. `huske doctor` validates the daemon + model
-when `distill_enabled` is set. Rationale:
-[docs/adr/0005-llm-distillation.md](docs/adr/0005-llm-distillation.md); full
-guide: [docs/distillation.md](docs/distillation.md).
-
-## Replicate to a server you control (opt-in)
-
-The local MCP only answers when your Mac is awake. If you want an always-on
-agent to query your huske context 24/7, you can run a single-tenant **huske
-server** on a box you control (e.g. a VPS). `huske run` then pushes each
-finalized transcript to it (dependency-free, out-of-band — recording never waits
-on the network); the server indexes them with a CPU embedder and serves the same
-`search`/`fetch` MCP over loopback to a co-located agent. Only a **write-only
-ingest endpoint** is exposed publicly — your transcript history is never readable
-over the network.
-
-```toml
-# ~/.config/huske/config.toml on your Mac
-sync_endpoint = "https://huske.example.com"
-```
-
-```bash
-huske sync     # one-shot backfill of your existing transcripts
-huske serve    # on the VPS: receive + index (pair with `huske mcp` for reads)
-```
-
-Full setup (server install, systemd units, Caddy, tokens) is in
-**[docs/server.md](docs/server.md)**; the rationale is in
-[docs/adr/0004-off-device-huske-server.md](docs/adr/0004-off-device-huske-server.md).
-
+Distillation runs off the recording hot path and failures never block recording
+or cloud sync. See [docs/distillation.md](docs/distillation.md).
 ## Privacy and consent
 
 huske is local-first: audio capture and transcription run on your machine, and
@@ -428,14 +329,19 @@ metadata can contain private or legally sensitive information.
 - Get consent before recording other people or regulated conversations.
 - Do not commit generated audio, transcripts, logs, local configs, model caches,
   or screenshots containing private content.
-- If you enable replication (`sync_endpoint`), your transcripts are copied to the
-  huske server you configure. Run it only on infrastructure you control, over
-  HTTPS, and treat that box as holding your full transcript history. See
-  [docs/server.md](docs/server.md).
+- If you enable cloud sync (`sync_enabled`), plaintext transcripts are copied
+  to the private Git repository you configured. Restrict repository access,
+  enable strong GitHub account security, and treat its history as sensitive.
+- The VPS replica also holds plaintext transcript history. Keep `huske-mcp` on
+  loopback or a private overlay, terminate TLS at the proxy, require its bearer
+  token, and enable disk encryption on the host.
+- If you run `huske export` and sync that folder to a third-party cloud (Drive,
+  Dropbox, iCloud), plaintext transcripts are stored there under that provider's
+  retention and scanning policy. Prefer `--statements-only` if you do.
 - If you enable distillation (`distill_enabled`), transcript text is sent to the
-  local LLM daemon you run. By default that is Ollama on loopback — on-device, so
-  it stays on your machine; only pointing `distill_endpoint` at a remote daemon
-  would change that.
+  configured local model backend. The default MLX backend runs as a child process
+  on your Mac; Ollama is an optional loopback backend. Pointing an endpoint at a
+  remote daemon changes that privacy boundary.
 - The `--screenshots` flag captures everything visible on every attached
   display every 60 s — including any password manager popovers, banking
   tabs, or private DMs that happen to be open. Leave it off unless you've
@@ -456,13 +362,15 @@ metadata can contain private or legally sensitive information.
 - [Transcript format contract](specs/001-huske-recorder/contracts/transcript-format.md) — the LLM-consumer interface.
 - [Quickstart](specs/001-huske-recorder/quickstart.md) — end-to-end setup.
 - [Glossary](CONTEXT.md) — domain language (Chunk, Segment, Passage, …).
+- [LLM integrations](docs/integrations.md) — get huske context into Claude,
+  ChatGPT, Claude Code, and hosted agents, from any device.
 - [macOS app](docs/macos-app.md) — the native SwiftUI app over the same engine.
-- [Off-device server](docs/server.md) — replicate transcripts to a VPS and serve
-  them to a co-located agent (opt-in).
+- [Always-on service](docs/server.md) — GitHub sync plus the isolated VPS MCP
+  service (opt-in).
 - [Transcript distillation](docs/distillation.md) — distil transcripts into
-  searchable statements with a local LLM (opt-in).
-- [Architecture decisions](docs/adr/) — why the MCP daemon, search stack,
-  embed-worker isolation, and off-device server are built the way they are.
+  compact statements with a local LLM (opt-in).
+- [Architecture decisions](docs/adr/) — including the Git replica and isolated
+  MCP service boundary in ADR 0009.
 
 ## Community
 

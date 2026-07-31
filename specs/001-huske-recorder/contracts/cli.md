@@ -19,7 +19,12 @@ Installed as `huske` via `pyproject.toml` `[project.scripts]`. Also accessible a
 huske run [OPTIONS]          Start a recording session (default if no subcommand).
 huske recover [OPTIONS]      Process orphaned audio from prior runs without recording.
 huske doctor [OPTIONS]       Diagnose audio device + model setup; exit non-zero on failure.
+huske devices [OPTIONS]      List microphone input devices.
+huske config <verb>          Inspect and edit ~/.config/huske/config.toml.
 huske autostart <verb>       Manage the macOS LaunchAgent that runs huske on login.
+huske distill [OPTIONS]      Distil transcripts into statement sidecars with a local LLM.
+huske export [OPTIONS]       Write one Markdown digest per day for file-reading tools.
+huske sync [OPTIONS]         Publish transcripts to the configured Git repository.
 huske --version              Print version and exit.
 huske --help                 Print help.
 ```
@@ -196,6 +201,58 @@ session is attached.
 
 ---
 
+## `huske sync`
+
+**Purpose**: Incrementally publish canonical transcript Markdown to the private
+Git repository configured by `sync_remote`. The managed checkout lives at
+`sync_root`; Git commits are the durable retry queue.
+
+**Options**:
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--config` | path | `~/.config/huske/config.toml` | Config file. |
+| `--force` | bool | `false` | Re-scan all canonical transcripts before publishing. |
+
+**Behavior**:
+
+1. Clone or fetch `sync_remote` using the user's existing SSH agent or Git
+   credential helper.
+2. Copy only `output_root/YYYY-MM-DD/*.md` into
+   `transcripts/YYYY-MM-DD/*.md`.
+3. Refuse to overwrite a remote path with different transcript bytes.
+4. Commit new files, rebase on the remote branch, and push.
+
+Audio, screenshots, statement sidecars, logs, config, and credentials never
+enter the repository.
+
+**Exit codes**: `0` synchronized or already current, `1` Git/publish failure,
+`2` invalid config.
+
+---
+
+## `huske export`
+
+**Purpose**: Write one Markdown file per day under `export_root`, for tools that
+read files rather than speaking MCP. Incremental (a day is skipped when its
+transcripts and statement sidecars are both unchanged) and atomic.
+
+**Options**:
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--export-root` | path | `~/huske/export` | Where day files are written. |
+| `--statements-only` | bool | `false` | Emit only distilled key points, omitting verbatim text. |
+| `--since` | str | (all) | Only export days on or after this `YYYY-MM-DD`. |
+| `--force` | bool | `false` | Rewrite days whose source content is unchanged. |
+| `--output-root` | path | `~/huske/transcripts` | Transcript source. |
+| `--config` | path | `~/.config/huske/config.toml` | |
+
+**Exit codes**: `0` success, `1` no transcripts or a day failed to write, `2`
+config error.
+
+---
+
 ## Config file format
 
 Path: `~/.config/huske/config.toml` (override with `--config`). Optional. Same field names as CLI flags but underscore-separated, with `chunk_minutes` instead of `--chunk-minutes`.
@@ -212,6 +269,9 @@ keep_audio_format = "opus"
 input_device = "MacBook Pro Microphone"
 system_audio_backend = "auto"
 log_level = "INFO"
+sync_enabled = true
+sync_remote = "git@github.com:you/huske-transcripts.git"
+sync_branch = "main"
 ```
 
 CLI flags always win over config file values.
@@ -220,7 +280,8 @@ CLI flags always win over config file values.
 
 ## Stability guarantees for v1
 
-- Command names (`run`, `recover`, `doctor`, `autostart`) and exit codes are stable.
+- Command names (`run`, `recover`, `doctor`, `autostart`, `distill`, `export`,
+  `sync`) and exit codes are stable.
 - Flag names will not be renamed in v1.x; new flags may be added.
 - Config TOML key names are stable; unknown keys are rejected as config errors.
 - The transcript file format is governed by `transcript-format.md` and is the primary interface for downstream LLM consumers.

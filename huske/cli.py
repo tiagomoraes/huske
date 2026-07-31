@@ -10,7 +10,7 @@ from huske import __version__
 
 app = typer.Typer(
     name="huske",
-    help="Always-on terminal audio recorder + local transcription (Whisper).",
+    help="Headless audio capture, local transcription, and private transcript sync.",
     no_args_is_help=False,
     add_completion=False,
 )
@@ -156,7 +156,7 @@ def run(
     distill: bool | None = typer.Option(
         None,
         "--distill/--no-distill",
-        help="Distill each finished transcript into searchable statements with "
+        help="Distill each finished transcript into compact statements with "
         "huske's built-in local LLM (downloads on first use). Off by default.",
     ),
     distill_model: str | None = typer.Option(
@@ -376,43 +376,8 @@ def config_unset(
 
 
 # ---------------------------------------------------------------------------
-# Local semantic search + MCP server (huske[mcp] extra)
+# Optional local transcript derivations
 # ---------------------------------------------------------------------------
-
-
-@app.command()
-def index(
-    output_root: Path | None = typer.Option(None, "--output-root"),
-    rebuild: bool = typer.Option(
-        False, "--rebuild", help="Drop and rebuild the entire index (e.g. after a model change)."
-    ),
-    force: bool = typer.Option(
-        False, "--force", help="Re-embed even transcripts whose content is unchanged."
-    ),
-    low_impact: bool | None = typer.Option(
-        None,
-        "--low-impact/--fast",
-        help=(
-            "Throttle the backfill (lower CPU priority, smaller batches, capped "
-            "MLX memory) so it can't hog the machine. On by default; use --fast "
-            "to run at full speed."
-        ),
-    ),
-    config_path: Path | None = typer.Option(None, "--config"),
-) -> None:
-    """Build or refresh the local semantic search index from transcripts."""
-    from huske.search.runner import run_index
-
-    cli_overrides = _collect_overrides(output_root=output_root)
-    raise typer.Exit(
-        run_index(
-            config_path=config_path,
-            cli_overrides=cli_overrides,
-            rebuild=rebuild,
-            force=force,
-            low_impact=low_impact,
-        )
-    )
 
 
 @app.command()
@@ -431,10 +396,9 @@ def distill(
     ),
     config_path: Path | None = typer.Option(None, "--config"),
 ) -> None:
-    """Distill transcripts into searchable statement sidecars with a local LLM.
+    """Distill transcripts into compact statement sidecars with a local LLM.
 
-    Writes a ``<name>.statements.json`` next to each transcript. Run ``huske
-    index`` afterwards to embed the statements for two-stage search. Uses the
+    Writes a ``<name>.statements.json`` next to each transcript. Uses the
     built-in MLX model by default (downloads on first use); set
     ``distill_backend = "ollama"`` to delegate to an Ollama daemon instead.
     """
@@ -451,62 +415,49 @@ def distill(
     )
 
 
-@app.command()
-def mcp(
-    host: str | None = typer.Option(
-        None, "--host", help="Bind address (default 127.0.0.1, loopback-only)."
+@app.command("export")
+def export_cmd(
+    export_root: Path | None = typer.Option(
+        None, "--export-root", help="Where to write the day files (default ~/huske/export)."
     ),
-    port: int | None = typer.Option(None, "--port", min=1, max=65535, help="Port (default 7641)."),
+    statements_only: bool = typer.Option(
+        False,
+        "--statements-only",
+        help="Write only the distilled key points, omitting the verbatim transcript.",
+    ),
+    since: str | None = typer.Option(
+        None, "--since", help="Only export days on or after this YYYY-MM-DD."
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Rewrite days whose source content is unchanged."
+    ),
+    output_root: Path | None = typer.Option(None, "--output-root"),
     config_path: Path | None = typer.Option(None, "--config"),
 ) -> None:
-    """Serve huske's transcript search over a local MCP (HTTP) endpoint."""
-    from huske.config import load_config
-    from huske.mcp.server import run as run_mcp
+    """Export one Markdown file per day, for tools that can't speak MCP.
 
-    try:
-        cfg = load_config(config_path=config_path)
-    except ValueError as exc:
-        typer.secho(f"config: {exc}", fg=typer.colors.RED, err=True)
-        raise typer.Exit(2) from exc
-    raise typer.Exit(run_mcp(cfg, host=host, port=port))
+    A Claude Project, NotebookLM, Obsidian, or a synced Drive/Dropbox folder
+    reads files, not MCP — and huske natively writes many small files per day,
+    which such a tool cannot rank. This collapses each day into one document,
+    distilled key points first.
 
-
-# ---------------------------------------------------------------------------
-# Off-device huske server: replication client + serve side (huske[server])
-# ---------------------------------------------------------------------------
-
-
-@app.command()
-def serve(
-    ingest_host: str | None = typer.Option(
-        None, "--ingest-host", help="Bind address (default 127.0.0.1, behind a TLS reverse proxy)."
-    ),
-    ingest_port: int | None = typer.Option(
-        None, "--ingest-port", min=1, max=65535, help="Port (default 7642)."
-    ),
-    public_host: str | None = typer.Option(
-        None, "--public-host", help="Public hostname the reverse proxy serves (validates Host)."
-    ),
-    config_path: Path | None = typer.Option(None, "--config"),
-) -> None:
-    """Run the off-device huske server: receive pushed transcripts and index them.
-
-    Single-tenant. Pair with `huske mcp` (the loopback read side) on the same
-    host for your co-located agent. See docs/server.md and
-    docs/adr/0004-off-device-huske-server.md.
+    Syncing this folder to a third-party cloud puts plaintext transcripts there.
+    Huske's managed cloud-sync path publishes the canonical transcript tree to
+    the private Git repository configured in the app.
     """
-    from huske.config import load_config
-    from huske.server.serve import run as run_serve
+    from huske.export import run_export
 
-    overrides = _collect_overrides(
-        ingest_host=ingest_host, ingest_port=ingest_port, public_host=public_host
+    overrides = _collect_overrides(output_root=output_root)
+    raise typer.Exit(
+        run_export(
+            config_path=config_path,
+            cli_overrides=overrides,
+            export_root=export_root,
+            statements_only=statements_only,
+            force=force,
+            since=since,
+        )
     )
-    try:
-        cfg = load_config(config_path=config_path, cli_overrides=overrides)
-    except ValueError as exc:
-        typer.secho(f"config: {exc}", fg=typer.colors.RED, err=True)
-        raise typer.Exit(2) from exc
-    raise typer.Exit(run_serve(cfg))
 
 
 @app.command()
@@ -514,7 +465,7 @@ def sync(
     output_root: Path | None = typer.Option(None, "--output-root"),
     config_path: Path | None = typer.Option(None, "--config"),
 ) -> None:
-    """Push every not-yet-replicated transcript to your huske server, then exit."""
+    """Publish every transcript not yet present in the configured Git repository."""
     from huske.sync.runner import run_sync
 
     overrides = _collect_overrides(output_root=output_root)

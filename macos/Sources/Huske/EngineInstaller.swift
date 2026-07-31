@@ -37,7 +37,7 @@ final class EngineInstaller {
 
         func arguments(for kind: Kind) -> [String] {
             switch (self, kind) {
-            case (.uv, .install): return ["tool", "install", "huske[mcp]"]
+            case (.uv, .install): return ["tool", "install", "huske"]
             case (.uv, .upgrade): return ["tool", "upgrade", "huske"]
             case (.brew, .install): return ["install", "tiagomoraes/huske/huske"]
             case (.brew, .upgrade): return ["upgrade", "huske"]
@@ -46,7 +46,7 @@ final class EngineInstaller {
 
         func commandLine(for kind: Kind) -> String {
             switch (self, kind) {
-            case (.uv, .install): return "uv tool install \"huske[mcp]\""
+            case (.uv, .install): return "uv tool install huske"
             case (.uv, .upgrade): return "uv tool upgrade huske"
             case (.brew, .install): return "brew install tiagomoraes/huske/huske"
             case (.brew, .upgrade): return "brew upgrade huske"

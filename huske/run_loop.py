@@ -189,77 +189,29 @@ def run_session(
     # mutable holder because closures below rebind it on live device swaps.
     active_mic = {"name": report.device.name}
 
-    # Optional: background embedding worker for local semantic search. Started
-    # non-blocking — capture never waits on the embedding model to load, and an
-    # init failure degrades to "recording continues, no indexing". See
-    # docs/adr/0003-embed-worker-isolation.md.
-    embed_worker = None
-    if cfg.indexing_enabled:
-        from huske.search.worker import EmbedWorker
-
-        try:
-            cfg.index_root.mkdir(parents=True, exist_ok=True)
-            embed_worker = EmbedWorker(
-                str(paths.index_db_path(cfg)),
-                cfg.embedding_model,
-                batch_size=cfg.embed_batch_size,
-                # The same embedder embeds each transcript's distilled statements
-                # into a second store. Provision it whenever indexing is on — not
-                # only when distillation starts enabled — so toggling distillation
-                # on mid-session (via the `?` panel / menu bar) still routes its
-                # statements into the searchable statement store.
-                statements_db_path=str(paths.statements_db_path(cfg)),
-            )
-            embed_worker.start()
-            _print("[huske] indexing enabled — transcripts will be embedded in background")
-        except Exception as exc:
-            log.warning("embed_worker_start_failed", error=str(exc))
-            embed_worker = None
-
-    # Optional: off-device replication to a huske server. Dependency-free,
-    # started non-blocking, and inert unless `sync_endpoint` is set — recording
-    # never waits on the network. See docs/adr/0004-off-device-huske-server.md.
+    # Optional: publish immutable transcripts to a private Git repository.
+    # Dependency-free, started non-blocking, and inert unless explicitly
+    # enabled. Recording never waits on Git or the network.
     sync_worker = None
-    sync_outbox = None
-    if cfg.sync_endpoint:
-        from huske.mcp.token import load_token, sync_token_path
-        from huske.paths import outbox_db_path
-        from huske.sync.client import IngestClient
-        from huske.sync.outbox import Outbox
+    if cfg.sync_enabled and cfg.sync_remote:
+        from huske.sync.client import build_publisher, redact_remote
         from huske.sync.worker import SyncWorker
 
-        sync_token = load_token(sync_token_path())
-        if not sync_token:
-            _print(
-                f"[warn] sync_endpoint set but no token at {sync_token_path()} — replication off"
+        try:
+            sync_worker = SyncWorker(
+                build_publisher(cfg),
+                reconcile_on_start=True,
             )
-            log.warning("sync_token_missing", path=str(sync_token_path()))
-        else:
-            try:
-                cfg.sync_root.mkdir(parents=True, exist_ok=True)
-                sync_outbox = Outbox(outbox_db_path(cfg))
-                sync_worker = SyncWorker(
-                    cfg.output_root,
-                    sync_outbox,
-                    IngestClient(cfg.sync_endpoint, sync_token, verify_tls=cfg.sync_verify_tls),
-                    reconcile_on_start=True,
-                )
-                sync_worker.start()
-                _print(f"[huske] replication enabled → {cfg.sync_endpoint}")
-            except Exception as exc:
-                log.warning("sync_worker_start_failed", error=str(exc))
-                sync_worker = None
-                sync_outbox = None
+            sync_worker.start()
+            _print(f"[huske] cloud sync enabled → {redact_remote(cfg.sync_remote)}")
+        except Exception as exc:
+            log.warning("sync_worker_start_failed", error=str(exc))
+            sync_worker = None
 
-    # Optional: background LLM distillation into searchable Statements. A daemon
-    # *thread* — the LLM runs in its own process (Ollama), so from here it is
-    # loopback HTTP, GIL-releasing, like sync. Off unless `distill_enabled` (but
-    # it can be toggled on live from the `?` panel / menu bar — see
-    # `_toggle_distill`). Each finished sidecar is handed to the embed worker so
-    # its statements get embedded too. It does NOT reconcile history here (that's
-    # `huske distill`): it only distills this session's transcripts, so enabling
-    # it never kicks off a surprise whole-corpus backfill. See
-    # docs/adr/0005-llm-distillation.md.
+    # Optional background LLM distillation into Statement sidecars. It can be
+    # toggled live and only handles this session; `huske distill` is the explicit
+    # historical backfill. The isolated VPS service builds its own index from
+    # canonical Markdown and does not depend on these derived files.
     def _build_distill_worker() -> Any:
         from huske.distill.distiller import build_distiller
         from huske.distill.worker import DistillWorker
@@ -276,7 +228,6 @@ def run_session(
             cfg.output_root,
             distiller,
             max_statements_per_passage=cfg.distill_max_statements_per_passage,
-            on_sidecar=(embed_worker.submit if embed_worker is not None else None),
         )
 
     distill_worker = None
@@ -313,31 +264,10 @@ def run_session(
         ).start()
 
     def _on_written(path: Path) -> None:
-        if embed_worker is not None:
-            embed_worker.submit(str(path))
         if sync_worker is not None:
             sync_worker.submit(str(path))
         if distill_worker is not None:
             distill_worker.submit(str(path))
-
-    def _drain_embed() -> None:
-        if embed_worker is None:
-            return
-        while True:
-            msg = embed_worker.poll_result(timeout=0.0)
-            if msg is None:
-                break
-            if "ready" in msg:
-                if msg.get("ready"):
-                    on_event("info", "indexing ready — transcripts will be embedded")
-                else:
-                    detail = str(msg.get("error", "")).splitlines()[0]
-                    on_event("warn", f"indexing unavailable: {detail}")
-            elif not msg.get("ok"):
-                detail = str(msg.get("error", "")).splitlines()[0]
-                on_event("warn", f"indexing failed: {detail}")
-            else:
-                log.info("indexed", path=msg.get("path"), passages=msg.get("passages"))
 
     def _drain_sync() -> None:
         if sync_worker is None:
@@ -346,14 +276,18 @@ def run_session(
             evt = sync_worker.poll_event(timeout=0.0)
             if evt is None:
                 break
-            if "reconcile" in evt:
-                pending = int(evt.get("reconcile", 0))
-                if pending:
-                    on_event("info", f"replication: catching up {pending} transcript(s)")
-            elif not evt.get("ok"):
-                on_event("warn", f"replication: {evt.get('error', 'push failed')}")
+            if not evt.get("ok"):
+                on_event("warn", f"cloud sync: {evt.get('error', 'push failed')}")
             else:
-                log.info("replicated", rel_path=evt.get("rel_path"), status=evt.get("status"))
+                changed = int(evt.get("changed", 0))
+                if changed:
+                    on_event("info", f"cloud sync: published {changed} transcript(s)")
+                log.info(
+                    "cloud_sync",
+                    changed=changed,
+                    commit=evt.get("commit"),
+                    pushed=evt.get("pushed"),
+                )
 
     def _drain_distill() -> None:
         if distill_worker is None:
@@ -384,7 +318,6 @@ def run_session(
                 on_event("warn", f"distillation failed: {detail}")
 
     def _on_tick() -> None:
-        _drain_embed()
         _drain_sync()
         _drain_distill()
 
@@ -871,19 +804,11 @@ def run_session(
         if screenshotter is not None and screenshotter.alive:
             screenshotter.stop(timeout=1.0)
         if distill_worker is not None:
-            # Stop distillation first: draining it hands each remaining sidecar to
-            # the embed worker (via on_sidecar) before we drain that worker below,
-            # so this session's last statements still get embedded. The LLM is
-            # slow, so allow a little longer; daemon-thread leftovers die on exit.
+            # Drain pending sidecars. The LLM may be slow, so allow a little
+            # longer; daemon-thread leftovers die on exit.
             distill_worker.stop(drain_timeout=15.0)
-        if embed_worker is not None:
-            # SENTINEL is FIFO after queued paths, so any transcripts written
-            # during drain still get indexed before the worker exits.
-            embed_worker.stop(drain_timeout=10.0)
         if sync_worker is not None:
             sync_worker.stop(drain_timeout=10.0)
-        if sync_outbox is not None:
-            sync_outbox.close()
         worker.stop(drain_timeout=5.0)
         session.release_lock()
         cleanup_session_dir(session.audio_root)

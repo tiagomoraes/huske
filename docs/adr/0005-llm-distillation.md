@@ -1,8 +1,16 @@
 ---
-status: accepted
+status: amended-by-0009
 ---
 
 # LLM distillation of transcripts into searchable Statements
+
+## Amendment — ADR 0009
+
+The sidecar-producing distillation subsystem remains available for local
+summaries and exports. ADR 0009 retired the in-app passage/statement indexes,
+embed worker, and `huske mcp` server described below. The isolated VPS service
+builds its retrieval index independently from canonical transcript Markdown;
+statement sidecars are not part of the Git sync contract.
 
 ## Context
 

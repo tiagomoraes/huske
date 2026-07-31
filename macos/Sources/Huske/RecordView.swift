@@ -620,7 +620,7 @@ struct ExtrasCard: View {
                 .toggleStyle(.switch)
                 .controlSize(.small)
                 .help(
-                    "Distill finished transcripts into searchable statements with "
+                    "Distill finished transcripts into compact statements with "
                         + "huske's built-in local model (downloads on first use).")
 
                 Rectangle().fill(Theme.divider).frame(height: 1)

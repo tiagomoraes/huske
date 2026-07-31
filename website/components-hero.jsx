@@ -220,7 +220,8 @@ const Hero = () => (
             <p className="lede">
               A native Mac app that quietly captures your microphone and your computer's system audio,
               transcribes it on your machine with Parakeet, and writes a day-organized
-              Markdown ledger of everything that was said. Then point your agent at it.
+              Markdown ledger of everything that was said. Keep it local — or publish it to your own
+              private Git, and let your agents search it while the Mac sleeps.
             </p>
           </div>
           <div className="hero-install-col">

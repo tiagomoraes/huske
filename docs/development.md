@@ -44,9 +44,14 @@ ruff check .
 mypy huske
 ```
 
-Ruff and Mypy are useful while changing Python code, but they are not required
-CI gates yet. Report any baseline failure instead of doing broad cleanup unless
-the task is specifically about lint or typing.
+Ruff and Mypy are CI gates. Run mypy from an environment with the project
+dependencies installed; `.venv/bin/mypy huske` is preferred.
+
+The isolated VPS service has its own tests and dependency boundary:
+
+```bash
+PYTHONPATH=services/huske_mcp pytest services/huske_mcp/tests
+```
 
 Optional integration checks:
 
@@ -67,6 +72,9 @@ huske/
   chunker/       WAV chunk rotation
   recovery/      orphaned audio recovery
   transcribe/    worker process and transcript writing
+  sync/          Git transcript publisher
+services/
+  huske_mcp/     independent Linux/VPS MCP service
 docs/            maintainer and contributor documentation
 website/         static public website served by GitHub Pages
 specs/           feature specs, contracts, and planning notes

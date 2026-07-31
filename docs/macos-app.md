@@ -19,6 +19,11 @@ it never re-implements recording or transcription logic (see
 - **Transcripts** — a day-grouped browser over `~/huske/transcripts` with
   per-run rendering (mic / system / echo badges and timestamps), full-text
   search, raw-Markdown view, Reveal in Finder, and open-in-editor.
+- **Cloud sync** — configures a private Git repository, branch, and automatic
+  transcript publishing without requiring a terminal. “Sync now” invokes the
+  same `huske sync` path used by the recording engine. The pane also links to
+  the separate `huske-mcp` VPS deployment guide; the app never starts an MCP
+  server itself.
 - **Doctor** — runs `huske doctor --json` and renders every check with its
   fix-it hint, plus the input-device inventory.
 - **Configuration** — edits `~/.config/huske/config.toml` through
@@ -36,7 +41,7 @@ transcriptions drain before the process exits.
 ## Requirements
 
 - macOS 14+ (Apple Silicon, same as the engine).
-- The `huske` CLI installed — `uv tool install "huske[mcp]"` or
+- The `huske` CLI installed — `uv tool install huske` or
   `brew install tiagomoraes/huske/huske`. The app auto-detects it in
   `~/.local/bin`, Homebrew paths, and `PATH`; you can point it at a specific
   binary in the app's Settings (⌘,).

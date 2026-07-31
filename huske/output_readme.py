@@ -56,8 +56,9 @@ speakers (no headphones), the system audio that leaks into the microphone is
 suppressed and de-duplicated, so it is **not** double-counted on the `mic`
 side. Timestamps are local wall-clock (`start_time` + offset within the chunk).
 
-For semantic search across all transcripts, the optional `huske mcp` server
-lets an agent query by meaning; otherwise just read the files by date/time.
+For indexed agent access, publish these transcripts to a private Git repository
+and run the separate `huske-mcp` service described in the project documentation.
+Otherwise, read the files directly by date and time.
 """
 
 

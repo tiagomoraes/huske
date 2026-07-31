@@ -80,9 +80,10 @@ struct ConfigView: View {
                         .foregroundStyle(Theme.warn)
                 }
                 Text(
-                    "huske \(model.binaryVersion ?? "?") has no `config` command. Upgrade the engine "
-                        + "(uv tool upgrade huske / brew upgrade huske), or edit "
-                        + "~/.config/huske/config.toml directly."
+                    .init(
+                        "huske \(model.binaryVersion ?? "?") has no `config` command. Upgrade the "
+                            + "engine (uv tool upgrade huske / brew upgrade huske), or edit "
+                            + "`~/.config/huske/config.toml` directly.")
                 )
                 .font(.brandSans(12.5))
                 .foregroundStyle(Theme.fgMuted)
@@ -422,7 +423,7 @@ struct ConfigView: View {
                 SectionLabel("Distillation")
                 Toggle(isOn: config.boolBinding("distill_enabled")) {
                     settingLabel(
-                        "Distill transcripts into searchable statements",
+                        "Distill transcripts into compact statements",
                         "A small local LLM extracts atomic claims for two-stage semantic search.")
                 }
                 .toggleStyle(.switch)
@@ -499,13 +500,6 @@ struct ConfigView: View {
                         format: { "\(Int($0))s" }
                     ) { config.set("screenshots_interval_seconds", to: .number($0)) }
                 }
-                Toggle(isOn: config.boolBinding("indexing_enabled")) {
-                    settingLabel(
-                        "Semantic search index",
-                        "Embed finished transcripts for `huske mcp` search (needs the mcp extra).")
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
                 Toggle(isOn: config.boolBinding("menu_bar_enabled", default: true)) {
                     settingLabel(
                         "Menu bar icon for terminal sessions",
@@ -522,7 +516,8 @@ struct ConfigView: View {
             Text(title)
                 .font(.brandSans(12.5))
                 .foregroundStyle(Theme.fg)
-            Text(subtitle)
+            // Subtitles are authored literals and may carry Markdown code spans.
+            Text(.init(subtitle))
                 .font(.brandSans(11))
                 .foregroundStyle(Theme.fgMuted)
         }

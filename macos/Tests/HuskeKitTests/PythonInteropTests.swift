@@ -92,4 +92,38 @@ final class PythonInteropTests: XCTestCase {
         XCTAssertEqual(server.terminationStatus, 0, "python server did not receive the command")
         client.close()
     }
+
+    /// Cloud sync is configured through the engine-owned config contract. Drive
+    /// the real CLI and decode it through the same bridge as the app.
+    func testSyncConfigJSONDecodesWithTheSwiftBridge() throws {
+        guard let python = ProcessInfo.processInfo.environment["HUSKE_INTEROP_PYTHON"] else {
+            throw XCTSkip("set HUSKE_INTEROP_PYTHON to run the cross-language interop test")
+        }
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("huske-sync-interop-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: python)
+        process.arguments = ["-m", "huske", "config", "show", "--json", "--config", "/nonexistent.toml"]
+        var env = ProcessInfo.processInfo.environment
+        env["HUSKE_NO_UPDATE_CHECK"] = "1"
+        // Isolate from the developer's real ~/.config/huske and ~/huske.
+        env["HOME"] = home.path
+        process.environment = env
+        let out = Pipe()
+        process.standardOutput = out
+        process.standardError = Pipe()
+        try process.run()
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
+        let text = String(data: data, encoding: .utf8) ?? ""
+        let snapshot = try ConfigBridge.parseShowJSON(text)
+        XCTAssertEqual(snapshot.bool("sync_enabled"), false)
+        XCTAssertEqual(snapshot.string("sync_provider"), "git")
+        XCTAssertEqual(snapshot.string("sync_branch"), "main")
+        XCTAssertNil(snapshot.string("sync_remote"))
+    }
 }

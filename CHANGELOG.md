@@ -6,6 +6,49 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+### Added
+
+- **Private Git transcript sync in Huske.app.** The new Cloud sync pane accepts
+  a repository and branch, runs the initial reconciliation, and can publish
+  every finalized transcript automatically. The base engine gains `huske sync`
+  and a provider boundary whose first implementation is Git. It copies only
+  canonical `YYYY-MM-DD/*.md` transcripts into a managed checkout, pulls/rebases
+  before committing, uses the user's SSH agent or Git credential helper, and
+  treats Git commits as the durable offline retry queue.
+- **`services/huske_mcp`: a separate always-on Linux/VPS distribution.** It
+  pulls the private repository read-only, incrementally indexes transcripts by
+  SHA-256 into SQLite WAL, and serves authenticated stateless Streamable HTTP
+  MCP with `overview`, `recap`, `search`, `fetch`, and `sync_status`. Polling is
+  the reconciliation path; an optional HMAC-verified GitHub webhook only wakes
+  the poller.
+- **A 512 MB service profile.** The default `tiny` profile uses FTS5, one
+  process, one poll thread, an 8 MB SQLite cache, and a 32 MB mmap ceiling with
+  no resident model. The optional `semantic` extra adds Model2Vec hybrid
+  retrieval for larger VPSes. Docker, systemd resource limits, health checks,
+  deploy-key guidance, and a complete VPS guide ship with the service.
+
+### Changed
+
+- The recording app is now only a writer/publisher. Its MCP, OAuth, local
+  vector-index, custom HTTP ingest, and off-device server responsibilities move
+  behind the independent service boundary in ADR 0009.
+- Local distillation remains an opt-in Statement-sidecar/export feature. The
+  remote service deliberately derives its own index from canonical Markdown;
+  sidecars are not part of the Git sync contract.
+
+### Removed
+
+- `huske index`, `huske mcp`, `huske setup`, `huske connect`, and `huske serve`,
+  along with the `mcp`/`server` extras, embed worker, OAuth connector, local
+  sqlite-vec stores, ingest endpoint, and their app supervision UI.
+
+### Security
+
+- `huske-mcp` refuses to start without a bearer token even on loopback,
+  validates MCP Host/Origin values, bounds request and transcript sizes, keeps
+  the Git checkout read-only, and never exposes repository credentials through
+  MCP status or its public health response.
+
 ## 0.12.0 - 2026-07-28
 
 ### Changed

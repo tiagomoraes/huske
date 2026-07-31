@@ -166,10 +166,12 @@ const Nav = ({ theme, setTheme, base = "", docsHref = "docs/" }) => {
         <span className="ver">v{HUSKE_VERSION}</span>
       </a>
       <div className="links">
+        <a href={at("start")}>start</a>
         <a href={at("why")}>why</a>
         <a href={at("how")}>how</a>
         <a href={at("output")}>output</a>
-        <a href={at("search")}>search</a>
+        <a href={at("search")}>cloud sync</a>
+        <a href={at("connect")}>mcp service</a>
         <a href={at("privacy")}>privacy</a>
         <a href={at("releases")}>releases</a>
         <a href={at("faq")}>faq</a>
@@ -204,10 +206,12 @@ const Footer = ({ base = "", docsHref = "docs/" }) => (
         <div className="col">
           <h5>product</h5>
           <ul>
+            <li><a href={`${base}#start`}>get started</a></li>
             <li><a href={`${base}#why`}>why huske</a></li>
             <li><a href={`${base}#how`}>how it works</a></li>
             <li><a href={`${base}#output`}>output format</a></li>
-            <li><a href={`${base}#search`}>search &amp; mcp</a></li>
+            <li><a href={`${base}#search`}>cloud sync</a></li>
+            <li><a href={`${base}#connect`}>VPS &amp; MCP</a></li>
             <li><a href={`${base}#privacy`}>privacy</a></li>
             <li><a href={`${base}#faq`}>faq</a></li>
             <li><a href={docsHref}>docs</a></li>

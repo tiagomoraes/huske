@@ -50,14 +50,16 @@ jobs:
       - name: Fast integration tests
         run: pytest tests/integration/test_pipeline_no_whisper.py tests/integration/test_smoke.py
 
+      - name: Isolated MCP service tests
+        run: |
+          python -m pip install -e ./services/huske_mcp
+          PYTHONPATH=services/huske_mcp pytest services/huske_mcp/tests
+
   # Ruff and mypy were configured but only ever run by hand, which meant "clean"
   # depended on whoever remembered. Both are clean as of 0.11.1, so they gate now.
   #
-  # Note mypy sees a *different* codebase than a dev with the optional extras
-  # installed: `dev` does not include `mcp`, so `import mcp` resolves to Any here
-  # and `@mcp.tool()` reads as an untyped decorator. That is why those ignores
-  # carry `unused-ignore` as well — the ignore is needed here and redundant on a
-  # machine with `.[mcp]`, and the pair is stable in both.
+  # The VPS service is a separate distribution and does not widen the engine's
+  # dependency surface.
   quality:
     name: Lint & types
     runs-on: macos-14
@@ -78,12 +80,19 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
+          python -m pip install -e "./services/huske_mcp[dev]"
 
       - name: Ruff
         run: ruff check .
 
       - name: Mypy
         run: mypy huske
+
+      - name: Isolated service quality
+        working-directory: services/huske_mcp
+        run: |
+          ruff check .
+          mypy huske_mcp
 
   swift:
     name: macOS app (Swift)
@@ -108,14 +117,18 @@ jobs:
       # ControlProtocol.swift only surfaces at runtime, on a user's machine.
       # PythonInteropTests drives the real ControlServer with the Swift client
       # and is skipped unless HUSKE_INTEROP_PYTHON is set — which nothing set,
-      # so the one test that catches drift never ran. The control plane is
-      # stdlib-only (socket/threading/json/dataclasses), so this needs a Python
-      # and PYTHONPATH, not an install: no MLX, no dependency resolution.
+      # so the one test that catches drift never ran.
       - name: Set up Python for the interop contract
         id: interop-python
         uses: actions/setup-python@v7
         with:
           python-version: "3.13"
+
+      # The test also checks the CLI's cloud-sync config shape. Deliberately do
+      # not install `.[dev]`: the Swift runner needs no MLX stack for this
+      # contract.
+      - name: Minimal deps for the interop contract
+        run: python -m pip install --quiet pydantic typer pyyaml
 
       # The test spawns this via Foundation's Process, which does not search
       # PATH — it must be an absolute interpreter path.

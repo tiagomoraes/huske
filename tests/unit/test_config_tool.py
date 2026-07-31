@@ -125,6 +125,18 @@ def test_unset_key_not_in_file_is_a_noop(
     assert not config_path.exists()
 
 
+def test_unset_rejects_invalid_result(
+    config_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path.write_text(
+        'sync_enabled = true\nsync_remote = "git@example.invalid:private/repo.git"\n',
+        encoding="utf-8",
+    )
+    assert unset_config_value("sync_remote", config_path=config_path) == 2
+    assert "requires sync_remote" in capsys.readouterr().out
+    assert "sync_remote" in config_path.read_text(encoding="utf-8")
+
+
 # ---------------------------------------------------------------------------
 # devices
 # ---------------------------------------------------------------------------

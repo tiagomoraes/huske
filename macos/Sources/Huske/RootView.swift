@@ -4,6 +4,7 @@ import SwiftUI
 enum Pane: String, CaseIterable, Identifiable {
     case record
     case transcripts
+    case connect
     case doctor
     case configuration
 
@@ -13,6 +14,7 @@ enum Pane: String, CaseIterable, Identifiable {
         switch self {
         case .record: return "Record"
         case .transcripts: return "Transcripts"
+        case .connect: return "Cloud sync"
         case .doctor: return "Doctor"
         case .configuration: return "Configuration"
         }
@@ -22,6 +24,7 @@ enum Pane: String, CaseIterable, Identifiable {
         switch self {
         case .record: return "waveform"
         case .transcripts: return "text.document"
+        case .connect: return "icloud.and.arrow.up"
         case .doctor: return "stethoscope"
         case .configuration: return "slider.horizontal.3"
         }
@@ -31,8 +34,9 @@ enum Pane: String, CaseIterable, Identifiable {
         switch self {
         case .record: return "1"
         case .transcripts: return "2"
-        case .doctor: return "3"
-        case .configuration: return "4"
+        case .connect: return "3"
+        case .doctor: return "4"
+        case .configuration: return "5"
         }
     }
 }
@@ -81,6 +85,7 @@ struct RootView: View {
         switch model.pane {
         case .record: RecordView()
         case .transcripts: TranscriptsView()
+        case .connect: ConnectView()
         case .doctor: DoctorView()
         case .configuration: ConfigView()
         }

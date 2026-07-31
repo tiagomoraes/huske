@@ -1,0 +1,25 @@
+[Unit]
+Description=Huske transcript MCP service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=huske
+Group=huske
+EnvironmentFile=/etc/huske-mcp/huske-mcp.env
+ExecStart=/opt/huske-mcp/venv/bin/huske-mcp serve
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/huske-mcp
+MemoryHigh=192M
+MemoryMax=320M
+TasksMax=32
+
+[Install]
+WantedBy=multi-user.target

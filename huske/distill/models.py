@@ -6,8 +6,8 @@ ground it back in the transcript by time, independent of how the Passage index
 happens to be windowed). A ``StatementSidecar`` is the whole ``.statements.json``
 file: provenance for the source transcript plus the ordered Statements.
 
-Kept dependency-free (stdlib only) — both the base-install distiller and the
-``huske[mcp]`` embedder read/write this same shape.
+Kept dependency-free (stdlib only) so the base-install distiller and export
+pipeline can read and write the same shape.
 """
 
 from __future__ import annotations

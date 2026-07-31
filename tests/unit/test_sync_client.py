@@ -1,118 +1,120 @@
-"""IngestClient: request shape, response parsing, error classification.
-
-Network is stubbed by monkeypatching ``urllib.request.urlopen`` — no socket.
-"""
+"""GitPublisher: immutable copy, commit/push, idempotence, and conflicts."""
 
 from __future__ import annotations
 
-import io
-import json
-import urllib.error
-import urllib.request
-from typing import Any
+import subprocess
+from pathlib import Path
 
 import pytest
 
-from huske.sync.client import IngestClient, SyncError, sha256_hex
+from huske.sync.client import GitPublisher, SyncError, iter_transcripts, redact_remote
 
 
-class _FakeResponse:
-    def __init__(self, payload: dict[str, Any]) -> None:
-        self._data = json.dumps(payload).encode("utf-8")
-
-    def read(self) -> bytes:
-        return self._data
-
-    def __enter__(self) -> _FakeResponse:
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        return None
+def _git(cwd: Path, *args: str) -> str:
+    return subprocess.run(
+        ("git", *args), cwd=cwd, text=True, capture_output=True, check=True
+    ).stdout.strip()
 
 
-def test_sha256_hex_is_stable() -> None:
-    assert sha256_hex("hello") == sha256_hex("hello")
-    assert sha256_hex("hello") != sha256_hex("world")
+def _write(root: Path, name: str, text: str) -> Path:
+    path = root / "2026-07-30" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
 
 
-def test_push_sends_bearer_and_json(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, Any] = {}
+def test_publish_to_empty_remote_and_repeat_is_idempotent(tmp_path: Path) -> None:
+    remote = tmp_path / "remote.git"
+    output = tmp_path / "transcripts"
+    checkout = tmp_path / "sync"
+    _git(tmp_path, "init", "--bare", str(remote))
+    _write(output, "090000_abcd1234_001.md", "hello")
+    (output / "README.md").write_text("not synced")
 
-    def fake_urlopen(req: urllib.request.Request, **kwargs: Any) -> _FakeResponse:
-        captured["url"] = req.full_url
-        captured["method"] = req.get_method()
-        captured["auth"] = req.headers.get("Authorization")
-        captured["body"] = json.loads(req.data.decode("utf-8"))  # type: ignore[union-attr]
-        return _FakeResponse({"status": "stored", "rel_path": "2026-06-02/a.md"})
+    publisher = GitPublisher(
+        output_root=output,
+        checkout_root=checkout,
+        remote=str(remote),
+    )
+    first = publisher.sync()
+    assert first.changed == 1
+    assert first.pushed
+    assert (checkout / "transcripts/2026-07-30/090000_abcd1234_001.md").read_text() == "hello"
+    assert not (checkout / "transcripts/README.md").exists()
 
-    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    second = publisher.sync()
+    assert second.changed == 0
+    assert second.pushed is False
 
-    client = IngestClient("https://huske.example.com/", "tok123")
-    result = client.push("2026-06-02/a.md", "content", sha256_hex("content"))
-
-    assert result.status == "stored"
-    assert captured["url"] == "https://huske.example.com/ingest"
-    assert captured["method"] == "POST"
-    assert captured["auth"] == "Bearer tok123"
-    assert captured["body"]["rel_path"] == "2026-06-02/a.md"
-    assert captured["body"]["content"] == "content"
+    verify = tmp_path / "verify"
+    _git(tmp_path, "clone", "--branch", "main", str(remote), str(verify))
+    assert (verify / "transcripts/2026-07-30/090000_abcd1234_001.md").read_text() == "hello"
 
 
-def test_http_error_is_non_retryable_for_4xx(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_urlopen(req: urllib.request.Request, **kwargs: Any) -> _FakeResponse:
-        raise urllib.error.HTTPError(
-            req.full_url, 401, "Unauthorized", {}, io.BytesIO(b'{"error":"unauthorized"}')  # type: ignore[arg-type]
+def test_remote_conflict_never_overwrites(tmp_path: Path) -> None:
+    remote = tmp_path / "remote.git"
+    output = tmp_path / "transcripts"
+    checkout = tmp_path / "sync"
+    _git(tmp_path, "init", "--bare", str(remote))
+    path = _write(output, "090000_abcd1234_001.md", "original")
+    publisher = GitPublisher(
+        output_root=output,
+        checkout_root=checkout,
+        remote=str(remote),
+    )
+    publisher.sync()
+    path.write_text("changed locally", encoding="utf-8")
+
+    with pytest.raises(SyncError, match="immutable transcript conflict"):
+        publisher.sync()
+    assert (checkout / "transcripts/2026-07-30/090000_abcd1234_001.md").read_text() == "original"
+
+
+def test_iter_transcripts_accepts_only_contract_paths(tmp_path: Path) -> None:
+    _write(tmp_path, "090000_abcd1234_001.md", "yes")
+    (tmp_path / "misc").mkdir()
+    (tmp_path / "misc/note.md").write_text("no")
+    assert len(iter_transcripts(tmp_path)) == 1
+
+
+def test_publisher_never_writes_through_remote_symlink(tmp_path: Path) -> None:
+    output = tmp_path / "transcripts"
+    checkout = tmp_path / "sync"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    _write(output, "090000_abcd1234_001.md", "private")
+    checkout.mkdir()
+    (checkout / "transcripts").symlink_to(outside, target_is_directory=True)
+    publisher = GitPublisher(
+        output_root=output,
+        checkout_root=checkout,
+        remote="git@example.invalid:private/transcripts.git",
+    )
+
+    with pytest.raises(SyncError, match="symlink"):
+        publisher._copy_new_transcripts()
+    assert not list(outside.rglob("*"))
+
+
+def test_source_and_managed_checkout_must_not_overlap(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="must not overlap"):
+        GitPublisher(
+            output_root=tmp_path,
+            checkout_root=tmp_path / "sync",
+            remote="git@example.invalid:private/transcripts.git",
         )
 
-    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
-    client = IngestClient("https://huske.example.com", "tok")
-    with pytest.raises(SyncError) as exc:
-        client.push("2026-06-02/a.md", "c", sha256_hex("c"))
-    assert exc.value.status == 401
-    assert exc.value.retryable is False
 
-
-def test_http_error_is_retryable_for_5xx(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_urlopen(req: urllib.request.Request, **kwargs: Any) -> _FakeResponse:
-        raise urllib.error.HTTPError(req.full_url, 503, "Unavailable", {}, io.BytesIO(b""))  # type: ignore[arg-type]
-
-    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
-    client = IngestClient("https://huske.example.com", "tok")
-    with pytest.raises(SyncError) as exc:
-        client.push("2026-06-02/a.md", "c", sha256_hex("c"))
-    assert exc.value.status == 503
-    assert exc.value.retryable is True
-
-
-def test_non_json_200_is_retryable(monkeypatch: pytest.MonkeyPatch) -> None:
-    class _HTMLResp:
-        def read(self) -> bytes:
-            return b"<html><body>Bad Gateway</body></html>"
-
-        def __enter__(self) -> _HTMLResp:
-            return self
-
-        def __exit__(self, *args: object) -> None:
-            return None
-
-    def fake_urlopen(req: urllib.request.Request, **kwargs: Any) -> _HTMLResp:
-        return _HTMLResp()
-
-    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
-    client = IngestClient("https://huske.example.com", "tok")
-    with pytest.raises(SyncError) as exc:
-        client.push("2026-06-02/a.md", "c", sha256_hex("c"))
-    assert exc.value.status is None  # no HTTP status code (decode error)
-    assert exc.value.retryable is True  # retryable, not a 4xx logic error
-
-
-def test_network_error_is_retryable(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_urlopen(req: urllib.request.Request, **kwargs: Any) -> _FakeResponse:
-        raise urllib.error.URLError("no route to host")
-
-    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
-    client = IngestClient("https://huske.example.com", "tok")
-    with pytest.raises(SyncError) as exc:
-        client.push("2026-06-02/a.md", "c", sha256_hex("c"))
-    assert exc.value.status is None
-    assert exc.value.retryable is True
+def test_remote_rejects_option_injection_and_redacts_http_credentials(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match="safe Git repository"):
+        GitPublisher(
+            output_root=tmp_path / "transcripts",
+            checkout_root=tmp_path / "sync",
+            remote="--upload-pack=malicious",
+        )
+    assert (
+        redact_remote("https://secret-token@github.com/example/private.git")
+        == "https://***@github.com/example/private.git"
+    )

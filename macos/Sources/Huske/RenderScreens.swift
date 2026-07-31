@@ -58,6 +58,11 @@ enum ScreenRenderer {
         let configModel = makeConfigModel()
         configModel.pane = .configuration
         screens.append(("root-config", AnyView(RootView().environment(configModel))))
+        // Cloud sync owns the whole ADR 0009 publish story, so it stays under
+        // the same headless design review as every other pane.
+        let syncModel = makeConfigModel()
+        syncModel.pane = .connect
+        screens.append(("root-cloud-sync", AnyView(RootView().environment(syncModel))))
         let paletteModel = makeActiveModel()
         paletteModel.paletteVisible = true
         screens.append(("root-palette", AnyView(RootView().environment(paletteModel))))
@@ -207,9 +212,9 @@ enum ScreenRenderer {
                     DoctorCheck(name: "mic sample", ok: true, detail: "peak -36.4 dB (audible)", hint: nil),
                     DoctorCheck(name: "system audio", ok: true, detail: "Core Audio process tap usable", hint: nil),
                     DoctorCheck(
-                        name: "search index", ok: false,
-                        detail: "index unreadable: model mismatch",
-                        hint: "Run `huske index --rebuild`."),
+                        name: "sync repository", ok: true,
+                        detail: "configured; credentials are managed by Git",
+                        hint: nil),
                 ],
                 inputDevices: [
                     InputDeviceEntry(index: 1, name: "MacBook Pro Microphone", channels: 1, sampleRate: 48000),
@@ -223,7 +228,10 @@ enum ScreenRenderer {
         let model = makeIdleModel()
         let json = """
             {"path": "\(NSHomeDirectory())/.config/huske/config.toml", "exists": true,
-             "file": {"input_device": "MacBook Pro Microphone", "chunk_minutes": 30.0},
+             "file": {"input_device": "MacBook Pro Microphone", "chunk_minutes": 30.0,
+                      "sync_enabled": true,
+                      "sync_remote": "git@github.com:you/huske-transcripts.git",
+                      "sync_branch": "main"},
              "effective": {"asr_engine": "parakeet",
                            "parakeet_model": "mlx-community/parakeet-tdt-0.6b-v3",
                            "language": "", "whisper_idle_unload": true,
@@ -237,7 +245,9 @@ enum ScreenRenderer {
                            "keep_audio": false, "keep_audio_format": "opus",
                            "screenshots_enabled": false,
                            "screenshots_interval_seconds": 60.0,
-                           "indexing_enabled": true, "distill_enabled": false,
+                           "sync_enabled": true, "sync_provider": "git",
+                           "sync_remote": "git@github.com:you/huske-transcripts.git",
+                           "sync_branch": "main", "distill_enabled": false,
                            "distill_model": "qwen3.5:0.8b", "menu_bar_enabled": true}}
             """
         if let snapshot = try? ConfigBridge.parseShowJSON(json) {
