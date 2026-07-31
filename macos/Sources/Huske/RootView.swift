@@ -14,7 +14,7 @@ enum Pane: String, CaseIterable, Identifiable {
         switch self {
         case .record: return "Record"
         case .transcripts: return "Transcripts"
-        case .connect: return "Connect"
+        case .connect: return "Cloud sync"
         case .doctor: return "Doctor"
         case .configuration: return "Configuration"
         }
@@ -24,7 +24,7 @@ enum Pane: String, CaseIterable, Identifiable {
         switch self {
         case .record: return "waveform"
         case .transcripts: return "text.document"
-        case .connect: return "sparkles"
+        case .connect: return "icloud.and.arrow.up"
         case .doctor: return "stethoscope"
         case .configuration: return "slider.horizontal.3"
         }

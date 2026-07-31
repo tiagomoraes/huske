@@ -44,28 +44,25 @@ ruff check .
 mypy huske
 ```
 
-Ruff and Mypy are useful while changing Python code, but they are not required
-CI gates yet. Report any baseline failure instead of doing broad cleanup unless
-the task is specifically about lint or typing.
+Ruff and Mypy are CI gates. Run mypy from an environment with the project
+dependencies installed; `.venv/bin/mypy huske` is preferred.
+
+The isolated VPS service has its own tests and dependency boundary:
+
+```bash
+PYTHONPATH=services/huske_mcp pytest services/huske_mcp/tests
+```
 
 Optional integration checks:
 
 ```bash
 pytest tests/integration/test_system_audio.py
 pytest tests/integration/test_real_whisper.py
-pytest tests/integration/test_connector_e2e.py
 ```
 
 `test_system_audio.py` requires macOS Screen Recording permission.
 `test_real_whisper.py` downloads and runs the `tiny` mlx-whisper model
 (Apple Silicon only — skipped on other platforms).
-`test_connector_e2e.py` starts the real `huske mcp` in connector mode on a free
-port and drives the whole OAuth flow over HTTP — registration, PKCE, sign-in,
-token exchange, refresh rotation — then calls a tool with the issued token. Run
-it whenever you touch `huske/mcp/`: it is the only check that catches the
-discovery or `/oauth/*` paths colliding with the routes FastMCP mounts, which no
-unit test can see. Needs the `mcp` extra installed (`pip install -e ".[dev,mcp]"`),
-so it skips on the CI baseline.
 
 ## Project layout
 
@@ -75,6 +72,9 @@ huske/
   chunker/       WAV chunk rotation
   recovery/      orphaned audio recovery
   transcribe/    worker process and transcript writing
+  sync/          Git transcript publisher
+services/
+  huske_mcp/     independent Linux/VPS MCP service
 docs/            maintainer and contributor documentation
 website/         static public website served by GitHub Pages
 specs/           feature specs, contracts, and planning notes

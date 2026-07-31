@@ -2,11 +2,10 @@
 
 This consumes the published transcript contract
 (``specs/001-huske-recorder/contracts/transcript-format.md``) rather than the
-in-memory ``Transcript`` object, so the live indexing path and the
-``huske index`` backfill share exactly one code path (see
-docs/adr/0003-embed-worker-isolation.md). The cost is run-start timestamp
-granularity (we only have the ``[HH:MM:SS · source]`` prefix per run), which is
-sufficient for citations.
+in-memory ``Transcript`` object. Distillation and export therefore operate on
+the same durable artifact users and the isolated service receive. Run
+timestamps have second granularity because that is what the Markdown contract
+publishes.
 """
 
 from __future__ import annotations

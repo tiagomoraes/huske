@@ -1,7 +1,7 @@
 """Read/write the ``<name>.statements.json`` sidecar — the distillation artifact.
 
-Atomic write (temp + ``os.replace``) so a reader (the embedder, the off-device
-sync, a human) never sees a half-written file. ``read_sidecar`` returns ``None``
+Atomic write (temp + ``os.replace``) so a reader (export or a human) never sees
+a half-written file. ``read_sidecar`` returns ``None``
 on a missing or unparseable file — a corrupt sidecar is treated as "not yet
 distilled" so the backfill simply regenerates it.
 """

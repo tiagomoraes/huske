@@ -93,22 +93,20 @@ final class PythonInteropTests: XCTestCase {
         client.close()
     }
 
-    /// The other cross-language contract: `huske setup --json` is what the
-    /// Connect pane renders, so a renamed key or state would silently blank a
-    /// row rather than fail a build. Runs the real CLI and decodes it with the
-    /// real bridge.
-    func testSetupJSONDecodesWithTheSwiftBridge() throws {
+    /// Cloud sync is configured through the engine-owned config contract. Drive
+    /// the real CLI and decode it through the same bridge as the app.
+    func testSyncConfigJSONDecodesWithTheSwiftBridge() throws {
         guard let python = ProcessInfo.processInfo.environment["HUSKE_INTEROP_PYTHON"] else {
             throw XCTSkip("set HUSKE_INTEROP_PYTHON to run the cross-language interop test")
         }
         let home = FileManager.default.temporaryDirectory
-            .appendingPathComponent("huske-setup-interop-\(UUID().uuidString)")
+            .appendingPathComponent("huske-sync-interop-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: home) }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: python)
-        process.arguments = ["-m", "huske", "setup", "--json", "--config", "/nonexistent.toml"]
+        process.arguments = ["-m", "huske", "config", "show", "--json", "--config", "/nonexistent.toml"]
         var env = ProcessInfo.processInfo.environment
         env["HUSKE_NO_UPDATE_CHECK"] = "1"
         // Isolate from the developer's real ~/.config/huske and ~/huske.
@@ -122,14 +120,10 @@ final class PythonInteropTests: XCTestCase {
         process.waitUntilExit()
 
         let text = String(data: data, encoding: .utf8) ?? ""
-        let report = try SetupBridge.parse(text)
-
-        // Every key the pane switches on must be present, or its row vanishes.
-        for key in ["extra", "index", "server", "connector"] {
-            XCTAssertNotNil(report.step(key), "setup --json is missing the '\(key)' step")
-        }
-        XCTAssertTrue(report.endpoint.hasSuffix("/mcp"), "unexpected endpoint: \(report.endpoint)")
-        // Nothing is set up in a throwaway HOME, so this must not claim ready.
-        XCTAssertFalse(report.ready)
+        let snapshot = try ConfigBridge.parseShowJSON(text)
+        XCTAssertEqual(snapshot.bool("sync_enabled"), false)
+        XCTAssertEqual(snapshot.string("sync_provider"), "git")
+        XCTAssertEqual(snapshot.string("sync_branch"), "main")
+        XCTAssertNil(snapshot.string("sync_remote"))
     }
 }

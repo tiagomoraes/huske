@@ -1039,14 +1039,19 @@ section.tight { padding: 56px 0; }
    page. */
 .prereq {
   margin-top: 26px; padding: 18px 20px;
-  border: 1px solid var(--border-soft); border-left: 2px solid var(--warn);
-  border-radius: var(--radius-md); background: var(--bg-subtle);
+  /* Caution reads from the warm border + tint + amber label, not a side stripe. */
+  border: 1px solid color-mix(in oklab, var(--warn) 40%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--warn) 6%, var(--bg-subtle));
 }
 .prereq .pq-label {
   display: block; font-family: var(--font-mono); font-size: 10.5px;
-  letter-spacing: 0.08em; text-transform: uppercase; color: var(--warn);
+  letter-spacing: 0.08em; text-transform: uppercase;
+  /* Deepened for AA on the warm panel: bare --warn is only 2.2:1 on paper. */
+  color: color-mix(in oklab, var(--brand-amber-700) 80%, var(--ink-900));
   margin-bottom: 10px;
 }
+[data-theme="dark"] .prereq .pq-label { color: var(--warn); }
 .prereq ul { margin: 0; padding: 0; list-style: none; }
 .prereq li {
   position: relative; padding-left: 16px; font-size: 13.5px; line-height: 1.6;

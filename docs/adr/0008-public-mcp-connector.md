@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded-by-0009
 ---
 
 # Opt-in public MCP connector (OAuth 2.1) for off-device agents

@@ -1,10 +1,8 @@
-"""``huske export``: one Markdown file per day, for tools that will never speak MCP.
+"""``huske export``: one Markdown file per day for document-oriented tools.
 
-The MCP connector is the good path — semantic search, statement grounding,
-time-scoped recall, and custody of the data staying with you. But it is not the
-*only* place transcripts are useful, and some destinations have no MCP at all:
-a Claude Project, NotebookLM, an Obsidian vault, a shared folder, a Drive that a
-phone already reads.
+The isolated huske-mcp service is the searchable agent integration, but some
+destinations only accept documents: a Claude Project, NotebookLM, an Obsidian
+vault, a shared folder, or a Drive that a phone already reads.
 
 Those destinations all want the same shape, and it is not huske's native one.
 huske writes many small files per day (one per Chunk); a folder-reading tool has
@@ -12,11 +10,9 @@ to guess which of thousands is relevant, with no date filter and no ranking. So
 export inverts it: **one file per day**, statements first, full text below, so a
 single document answers "what happened on the 27th" by being opened.
 
-What this deliberately does *not* do is replace the index. Keyword search over
-concatenated speech is a real downgrade from embedding search over Passages, and
-a synced folder puts plaintext wherever the sync provider keeps it — see the
-privacy note in docs/integrations.md before pointing this at someone else's
-cloud.
+Export is intentionally separate from cloud sync and the VPS index. A synced
+folder puts plaintext wherever its provider keeps it, so read the privacy note
+in docs/integrations.md first.
 
 Stdlib + PyYAML (already a base dependency, via the transcript parser). No
 search extra, no network.
@@ -115,7 +111,7 @@ def existing_digest(path: Path) -> str | None:
 
 def group_by_day(output_root: Path) -> dict[str, list[Path]]:
     """Transcript paths grouped by their ``YYYY-MM-DD`` day folder."""
-    from huske.search.indexer import iter_transcripts
+    from huske.sync.client import iter_transcripts
 
     days: dict[str, list[Path]] = defaultdict(list)
     for path in iter_transcripts(output_root):

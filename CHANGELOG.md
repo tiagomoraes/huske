@@ -8,120 +8,46 @@ This project uses semantic versioning after the first public release.
 
 ### Added
 
-- **Connector mode: reach your transcripts from Claude on your phone, from
-  ChatGPT, or from any hosted agent — while the Mac is asleep.** Replication
-  (0.10) already put an always-on, indexed copy on a VPS, but the read endpoint
-  stayed loopback-only, so exactly one agent could query it: one running on that
-  box. Claude on an iPhone and ChatGPT are not co-located with anything and
-  cannot be made so. Setting `mcp_public_url` now makes `huske mcp` additionally
-  serve a small **single-tenant OAuth 2.1 authorization server** — the only thing
-  either client can attach to, since neither lets you paste a bearer header into
-  a connector. One passphrase, one read-only scope, no accounts, no external
-  identity provider, ~600 stdlib lines. Add one HTTPS URL as a custom connector
-  and sign in once.
+- **Private Git transcript sync in Huske.app.** The new Cloud sync pane accepts
+  a repository and branch, runs the initial reconciliation, and can publish
+  every finalized transcript automatically. The base engine gains `huske sync`
+  and a provider boundary whose first implementation is Git. It copies only
+  canonical `YYYY-MM-DD/*.md` transcripts into a managed checkout, pulls/rebases
+  before committing, uses the user's SSH agent or Git credential helper, and
+  treats Git commits as the durable offline retry queue.
+- **`services/huske_mcp`: a separate always-on Linux/VPS distribution.** It
+  pulls the private repository read-only, incrementally indexes transcripts by
+  SHA-256 into SQLite WAL, and serves authenticated stateless Streamable HTTP
+  MCP with `overview`, `recap`, `search`, `fetch`, and `sync_status`. Polling is
+  the reconciliation path; an optional HMAC-verified GitHub webhook only wakes
+  the poller.
+- **A 512 MB service profile.** The default `tiny` profile uses FTS5, one
+  process, one poll thread, an 8 MB SQLite cache, and a 32 MB mmap ceiling with
+  no resident model. The optional `semantic` extra adds Model2Vec hybrid
+  retrieval for larger VPSes. Docker, systemd resource limits, health checks,
+  deploy-key guidance, and a complete VPS guide ship with the service.
 
-  Off by default: unset, behavior is byte-identical to before — loopback bind,
-  static token, no OAuth routes served at all. Loopback clients (Claude Code, a
-  co-located agent) keep using the static token on the same endpoint and need no
-  migration. The daemon refuses to start in connector mode without a passphrase
-  or over plain HTTP, because the failure being guarded against is publishing a
-  transcript archive with no credential in front of it. Specs implemented: PKCE
-  S256 (mandatory), RFC 7591 dynamic client registration, RFC 8414 + RFC 9728
-  discovery, RFC 8707 audience-bound tokens, RFC 9207 `iss`, RFC 7009
-  revocation; rotating refresh tokens, single-use codes, exact redirect-URI
-  matching, and global (not per-IP) backoff on failed passphrases. This amends
-  ADR 0004's deliberate "exposing the read/MCP endpoint publicly: rejected" —
-  see [ADR 0008](docs/adr/0008-public-mcp-connector.md) for which premise broke.
-- **`recap` and `overview` MCP tools.** `search` could not answer "what happened
-  yesterday": a date range is not a semantic neighborhood, so embedding the word
-  "yesterday" returns whatever sounds like it. `recap` returns a date range
-  whole and in chronological order, grouped by day and session, with no embedding
-  computed; `overview` reports what the corpus covers and how dense each recent
-  day is, so a model can tell an empty index from an unlucky query instead of
-  guessing queries into the dark. Both are plain metadata scans over the existing
-  store. Two MCP **prompts** ship too — `catch_me_up` and
-  `what_was_said_about` — so clients that surface server prompts get one-tap
-  actions, and the server instructions now tell the model when to reach for
-  huske at all.
-- **`huske connect [client]`** — prints the exact wiring for Claude Code, Claude
-  Desktop/Cowork, Claude on iPhone/web, ChatGPT, Codex, Cursor, and a co-located
-  agent, and says which paths work *right now* by reading the live config and
-  token files. Every integration failure this replaces was a setup failure, not
-  a capability one. Side-effect free: it never writes config and never mints a
-  token.
-- **`huske mcp set-password` / `revoke` / `status`** for managing connector
-  access. `huske mcp` itself is unchanged as a bare command.
-- **`huske export`** — one Markdown file per day (distilled key points first,
-  verbatim conversation below) for destinations that read files and will never
-  speak MCP: a Claude Project, NotebookLM, an Obsidian vault, a synced folder.
-  huske natively writes many small files per day, which such a tool cannot rank.
-  Incremental (a day whose transcripts *and* statements are unchanged is skipped)
-  and atomic, so a sync client never uploads a partial file. Explicitly a
-  complement to the connector, not a substitute — it trades embedding search,
-  statement grounding, and date/source filters for whatever full-text search the
-  destination has, and syncing it to a third-party cloud puts plaintext
-  transcripts there.
-- **[docs/integrations.md](docs/integrations.md)** — the canonical guide: pick a
-  path in one question, per-client setup, the security posture, and a
-  troubleshooting table.
-- **A Connect pane in Huske.app — the whole local setup, with no terminal.**
-  Getting an LLM reading your transcripts used to be five commands and a
-  hand-edited `claude_desktop_config.json`, which is not a thing most people can
-  be asked to do. The pane renders `huske setup --json` as a checklist and puts a
-  button on each row: build the index, start/stop the search server, connect
-  Claude Desktop or Claude Code. Connecting Claude Desktop **merges** into its
-  config so other MCP servers survive, backs up the pre-huske file once, writes
-  atomically, and refuses to touch JSON it cannot parse.
+### Changed
 
-  The one row without a button is "from your phone" — that needs a server the
-  user owns, so it states the prerequisite rather than offering an action that
-  cannot work. All the judgement lives in `huske/setup.py`; the pane renders and
-  forwards, so app and CLI can never disagree (ADR 0006). A new interop test
-  drives the real CLI through the real Swift bridge, so a renamed key fails a
-  build instead of silently blanking a row.
-- **`huske setup`** — the same thing from a terminal: what's done, what's next,
-  and `--apply <step>` to finish it. Deliberately never installs software; a
-  missing extra is reported with the command that matches how huske was
-  installed, because a wrong upgrade command appears to succeed and changes
-  nothing.
-- **The website leads with a tiered "Get started"** replacing the old "go
-  further" strip. Setup had been spread across the hero, that strip, the search
-  section, and the connect section — four places, none of which said what a step
-  cost or required. Now three tiers, each stating its time, whether a terminal is
-  needed, and its prerequisites *before* the instructions. Step 3 (phone access)
-  leads with "you need a server you control" rather than burying it, since
-  finding that out two steps in is the worst version of that page.
+- The recording app is now only a writer/publisher. Its MCP, OAuth, local
+  vector-index, custom HTTP ingest, and off-device server responsibilities move
+  behind the independent service boundary in ADR 0009.
+- Local distillation remains an opt-in Statement-sidecar/export feature. The
+  remote service deliberately derives its own index from canonical Markdown;
+  sidecars are not part of the Git sync contract.
 
-### Fixed
+### Removed
 
-- **`pip install 'huske[mcp]'` resolved to an SDK `huske mcp` could not import.**
-  The `mcp` and `server` extras asked for `mcp>=1.12`, and the SDK's 2.0 line
-  renamed `mcp.server.fastmcp.FastMCP` to `mcp.server.mcpserver.MCPServer` — so a
-  fresh install got 2.0 and the MCP server failed at import. No test caught it
-  because CI installs only `.[dev]`, where `import mcp` is absent entirely. Both
-  extras now cap at `mcp>=1.12,<2`; the cap lifts with the 2.0 port.
-- **Homebrew users were told to run a command that would have done nothing.**
-  The tap formula pins its dependencies as wheel resources and carries none of
-  the search ones — no `sqlite-vec`, `mcp`, `mlx-embeddings`, or `uvicorn` — so
-  `brew reinstall` rebuilds the same virtualenv without them. `huske setup` now
-  points brew installs at the formula's own interpreter and states plainly that a
-  later `brew upgrade` will undo it. (Adding the extras to the tap is the real
-  fix and is not done here.)
-- **`recap` over a one-sided date range crashed.** `recap(date_from=...)` with no
-  `date_to` — "everything since the 1st", a normal call — formatted the open
-  bound as a date and raised. The open end is now reported as open. Caught by the
-  new mypy gate before it shipped.
-- **Timestamps were rendered in the *reader's* timezone, not the speaker's.** The
-  index stores epoch milliseconds — deliberately timezone-free, so range filters
-  stay integer comparisons — and both `fetch`'s `time_range` and the new `recap`
-  turned that back into a clock with `.astimezone()`. On the recording Mac those
-  agree and the bug is invisible; the moment a server in another zone answers,
-  every meeting is reported at the wrong hour (a 09:30 call as 04:30), which is
-  worse than no timestamp. Both now take the offset from the transcript's own
-  frontmatter — the `.md` is the published contract every consumer already reads
-  (ADR 0004) — cached per path, falling back to local only when the file is
-  unreadable. No reindex needed. Found by running the connector end to end with
-  the recording side deleted.
+- `huske index`, `huske mcp`, `huske setup`, `huske connect`, and `huske serve`,
+  along with the `mcp`/`server` extras, embed worker, OAuth connector, local
+  sqlite-vec stores, ingest endpoint, and their app supervision UI.
+
+### Security
+
+- `huske-mcp` refuses to start without a bearer token even on loopback,
+  validates MCP Host/Origin values, bounds request and transcript sizes, keeps
+  the Git checkout read-only, and never exposes repository credentials through
+  MCP status or its public health response.
 
 ## 0.12.0 - 2026-07-28
 

@@ -11,6 +11,8 @@ add local workflow notes, but this file is the shared baseline.
 - `macos/`: native macOS app (SwiftPM; SwiftUI shell over the engine's
   control socket — see `docs/adr/0006-native-macos-app.md`). Check with
   `cd macos && swift build && swift test`.
+- `services/huske_mcp/`: independent Linux/VPS distribution that pulls the
+  private transcript Git repository, indexes its replica, and serves MCP.
 - `tests/`: unit and integration tests (Python; Swift tests live in
   `macos/Tests/`).
 - `examples/`: example user configuration.
@@ -26,25 +28,28 @@ add local workflow notes, but this file is the shared baseline.
 - Use synthetic audio and redacted paths in tests and examples.
 - Treat `huske doctor` output as potentially sensitive.
 
-## The Authenticated Read Surface
+## Transcript Sync and Read Surfaces
 
-`huske/mcp/oauth.py` + `huske/mcp/connector.py` are the only code in this repo
-that can expose transcripts to the network (opt-in, via `mcp_public_url`; see
-`docs/adr/0008-public-mcp-connector.md`). Rules when touching them:
+The recording package has no MCP or public read endpoint. Its only cloud write
+surface is `huske/sync/`, which publishes immutable Markdown through Git.
 
-- **Never loosen a refusal into a warning.** Connector mode must keep failing to
-  start without a passphrase and over plain HTTP. Both are what stand between a
-  misconfiguration and a published transcript archive.
-- **Never redirect on an authorization error.** `/oauth/authorize` renders errors
-  on huske's own origin because a `redirect_uri` that has not been validated
-  against a registered client is an open redirect.
-- Keep both modules **stdlib-only** — they must import without `huske[mcp]`, which
-  is what makes them unit-testable by driving ASGI scope/receive/send directly
-  (see `tests/unit/test_mcp_connector.py`). Same rule as `huske/sync/`.
-- Persist **hashes, never credentials**: passphrase via scrypt, tokens via
-  sha256. There is a test asserting a token string never reaches `oauth.db`.
-- The static loopback token must keep working on the same endpoint. Breaking it
-  silently migrates every local client.
+- Never add audio, screenshots, logs, config, credentials, model caches, or
+  derived indexes to the sync checkout.
+- Never overwrite a different file at an established transcript path.
+- Keep the recording callback non-blocking; Git work belongs in the sync thread.
+- Do not persist GitHub credentials. Reuse Git/SSH credential infrastructure.
+
+The permanent read surface lives in the independent
+`services/huske_mcp/` distribution (ADR 0009).
+
+- The service must keep refusing to start without a bearer token, even on
+  loopback (a reverse proxy can publish a loopback listener).
+- Webhook signatures must be verified before scheduling work.
+- Webhooks only wake sync; polling remains the reconciliation path.
+- Keep the default `tiny` profile within the documented 512 MB budget. Do not
+  load an embedding or LLM model in that profile.
+- The service checkout is read-only. Its derived database stays outside Git.
+- MCP results must identify lexical versus semantic retrieval honestly.
 
 ## Gitflow and Branch Names
 
@@ -104,6 +109,7 @@ pytest tests/unit
 pytest tests/integration/test_pipeline_no_whisper.py tests/integration/test_smoke.py
 ruff check .
 mypy huske
+PYTHONPATH=services/huske_mcp pytest services/huske_mcp/tests
 ```
 
 When touching `macos/` (or `huske/ipc/` — the app consumes its wire format),
@@ -138,12 +144,6 @@ Run mypy from an environment that has the dependencies installed. With
 involving it disappears — an interpreter missing `mlx-lm` hid a real
 `Too many values to unpack` that CI caught on this gate's first run. Prefer
 `.venv/bin/mypy huske` over a bare `mypy`.
-
-CI installs only `.[dev]`, which excludes `mcp`, so `import mcp` is `Any` there
-and `@mcp.tool()` reads as untyped — while a machine with `.[mcp]` sees it typed.
-Those lines carry `# type: ignore[untyped-decorator, unused-ignore]` so both
-agree. A mypy result that only reproduces in one place is usually a dependency
-difference, not a code bug.
 
 Optional integration checks:
 

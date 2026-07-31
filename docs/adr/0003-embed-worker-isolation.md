@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded-by-0009
 ---
 
 # Embedding runs in an isolated subprocess, not the recording loop

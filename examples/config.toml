@@ -144,81 +144,21 @@ no_ui = false
 # screenshots_root = "~/huske/screenshots"
 
 # ============================================================
-# Local semantic search + MCP server (opt-in: pip install 'huske[mcp]')
+# Cloud transcript sync (opt-in)
 # ============================================================
-# When enabled, `huske run` embeds each finalized transcript (in an isolated
-# subprocess, off the audio hot path) into a local vector index so chat models
-# can search your history via `huske mcp`. Off by default — recording pays no
-# embedding cost unless you opt in. Backfill existing transcripts with
-# `huske index`. See README.md → "Search your transcripts from Claude / ChatGPT".
-# indexing_enabled = false
+# Publish finalized Markdown transcripts to a private Git repository. GitHub is
+# the documented first provider. SSH is recommended so credentials remain in
+# your ssh-agent / macOS Keychain; Huske stores no GitHub token.
+# sync_remote = "git@github.com:you/huske-transcripts.git"
+# sync_branch = "main"
+# sync_root = "~/huske/sync"        # dedicated managed checkout
+# sync_push_timeout_seconds = 60
+# sync_enabled = false
 
-# Where the passage index (a single sqlite-vec file) lives.
-# index_root = "~/huske/index"
+# Only transcripts/YYYY-MM-DD/*.md is published. Audio, screenshots, logs,
+# config, credentials, and local generated state never enter the repository.
+# The separate services/huske_mcp package pulls and serves the replica on a VPS.
+# See docs/server.md and ADR 0009.
 
-# Local embedding model id (multilingual). Changing this invalidates the index
-# — run `huske index --rebuild` afterwards.
-# embedding_model = "mlx-community/multilingual-e5-base"
-
-# Throttle the index backfill (lower CPU priority, smaller batches, capped MLX
-# memory). On by default; pass `huske index --fast` for full speed.
-# index_low_impact = true
-# embed_batch_size = 16            # passages per embedding forward pass (1–256)
-# index_memory_limit_mb = 2048     # hard MB ceiling on the MLX working set
-
-# `huske mcp` daemon bind address. Loopback-only + bearer token by default.
-# mcp_host = "127.0.0.1"
-# mcp_port = 7641
-
-# ------------------------------------------------------------
-# Connector mode (opt-in): reach your transcripts from Claude on your phone,
-# from ChatGPT, or from any hosted agent — including while this Mac is asleep.
-# ------------------------------------------------------------
-# Neither Claude nor ChatGPT can send a custom bearer header to a remote MCP
-# server; both speak the MCP authorization spec. Setting mcp_public_url makes
-# `huske mcp` additionally serve a small single-tenant OAuth 2.1 authorization
-# server (one passphrase, one read-only scope) so those clients can attach one
-# HTTPS URL as a custom connector.
-#
-# This is the ONLY setting in this file that puts a read surface on the network.
-# Set it where your always-on index lives — normally the huske server on your
-# VPS, not this Mac. The daemon refuses to start unless you have run
-# `huske mcp set-password` and the URL is https. Keep the process bound to
-# loopback (mcp_host) behind a TLS reverse proxy, and proxy only /mcp,
-# /.well-known/oauth-*, and /oauth/* — never a catch-all.
-# See docs/integrations.md and docs/adr/0008-public-mcp-connector.md.
-# mcp_public_url = "https://huske.example.com/mcp"
-
-# Token lifetimes. Refresh tokens rotate on every use, so a stolen one is usable
-# at most once and only before the real client next refreshes.
-# mcp_access_token_ttl_seconds = 43200      # 12 h
-# mcp_refresh_token_ttl_seconds = 7776000   # 90 d
-
-# Extra browser Origins allowed to call the MCP endpoint. Claude and ChatGPT are
-# already allowed; add an entry only for another browser-based MCP client.
-# Server-to-server callers send no Origin and need nothing here.
-# mcp_allowed_origins = []
-
-# Where `huske export` writes its one-file-per-day Markdown digests, for tools
-# that read files instead of speaking MCP (a Claude Project, NotebookLM,
-# Obsidian, a synced folder). Nothing is written unless you run `huske export`.
-# Syncing this directory to a third-party cloud puts plaintext transcripts there.
+# Where `huske export` writes one Markdown digest per day for file-only tools.
 # export_root = "~/huske/export"
-
-# ============================================================
-# Off-device replication (opt-in: pip install 'huske[server]' on the server)
-# ============================================================
-# Replicate finalized transcripts to a huske server you control so an
-# always-on agent can query them while this Mac is offline. The send side ships
-# in the base install; set sync_endpoint to turn it on. See docs/server.md.
-
-# Client (recording Mac): push finalized transcripts here. The write token is
-# read from ~/.config/huske/sync_token (not a config key).
-# sync_endpoint = "https://huske.example.com"
-# sync_verify_tls = true           # disable only for local self-signed testing
-# sync_root = "~/huske/sync"       # durable send-outbox directory
-
-# Server (the VPS, `huske serve`): ingest endpoint behind a TLS reverse proxy.
-# ingest_host = "127.0.0.1"
-# ingest_port = 7642
-# public_host = "huske.example.com"   # validates the Host header on ingest

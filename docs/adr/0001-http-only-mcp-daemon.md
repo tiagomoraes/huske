@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded-by-0009
 ---
 
 # HTTP-only persistent daemon for the MCP server

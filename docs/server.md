@@ -1,253 +1,135 @@
-# Off-device huske server
+# Always-on transcript service
 
-By default huske is local-first: capture, transcription, and (optionally) search
-all run on your Mac. If you want an always-on agent — say a personal "hermes"
-agent — to query your huske context **even while your Mac is asleep**, you can
-run a single-tenant **huske server** on a box you control (a VPS), push your
-finalized transcripts to it, and serve search from there.
+Huske's recording app and its MCP service are deliberately separate:
 
-This is an opt-in power feature. 99% of users never need it; the local
-`huske mcp` daemon already covers querying your own machine. The design and its
-trade-offs are recorded in
-[docs/adr/0004-off-device-huske-server.md](adr/0004-off-device-huske-server.md).
-
-## How it fits together
-
-```
-  Mac (ephemeral)                       VPS (always-on, single user)
-  ──────────────                        ────────────────────────────
-  huske run                             Caddy (TLS, public :443)
-    └─ finalize .md ─┐                     │  /ingest /healthz  → write, always
-       sync outbox   │  POST https         │  /mcp /oauth/* …   → read, only in
-                     └────────────►        │                      connector mode
-                                           ▼
-                                      huske serve  (write token, :7642 loopback)
-                                            │  stores .md, indexes with CPU e5
-                                            ▼
-                                      sqlite-vec  (one file, WAL)
-                                            ▲
-                                      huske mcp   (:7641 loopback)
-                                        ▲                    ▲
-                                   hermes                Claude / ChatGPT / phone
-                              (co-located agent,         (HTTPS + OAuth, only in
-                               static token)              connector mode)
+```text
+Mac                                  GitHub                 VPS
+Huske.app
+  record → transcribe → .md
+  background Git publisher ──push──> private repo <──pull── huske-mcp
+                                                             │
+                                              SQLite index ←─┘
+                                                             │
+                                                   /mcp ─────┴─ agent
 ```
 
-- The Mac **pushes the finalized transcript `.md`** (not audio, not vectors) to
-  the server's authenticated ingest endpoint, out-of-band from recording. If the
-  Mac is offline the send is retried and reconciled on reconnect.
-- The server **re-derives its own index** from the `.md` using a CPU embedder
-  (`fastembed`), since a Linux VPS has no Metal.
-- The **read MCP is loopback-only by default** — a co-located agent on the VPS
-  queries it directly, and only the **write-only ingest endpoint** is public. A
-  stolen write token lets someone push junk (bounded — transcripts are immutable
-  and ingest is idempotent) but cannot read your history.
-- **If you also want to reach it from your phone**, turn on opt-in
-  [connector mode](#5-connector-mode-reach-it-from-your-phone-opt-in): the same
-  read daemon additionally serves an OAuth 2.1 sign-in, so Claude and ChatGPT can
-  attach it as a custom connector from any device. That is the one thing here
-  that puts a read surface on the network — see
-  [ADR 0008](adr/0008-public-mcp-connector.md).
+The Mac is authoritative. GitHub is a durable transport/history layer. The VPS
+holds a read replica and can answer while the Mac sleeps. There is no custom
+ingest endpoint and no MCP server in the recording process.
 
-## 1. Server setup (the VPS)
+## 1. Create the private repository
 
-Install the server extra (pulls `fastembed` + `sqlite-vec` + the MCP SDK +
-`uvicorn`; no `mlx`):
+Create an empty **private** GitHub repository dedicated to transcript data. Do
+not reuse the Huske source repository. On the Mac, use an SSH remote when
+possible:
+
+```text
+git@github.com:you/huske-transcripts.git
+```
+
+SSH keeps credentials in the normal macOS ssh-agent/Keychain. Huske does not
+store a GitHub token.
+
+## 2. Configure Huske.app
+
+Open **Cloud sync**, paste the repository URL, leave the branch as `main`, and
+press **Sync now**. Once the initial push works, enable automatic sync.
+
+Terminal equivalent:
 
 ```bash
-pip install 'huske[server]'
+huske config set sync_remote git@github.com:you/huske-transcripts.git
+huske config set sync_branch main
+huske config set sync_enabled true
+huske sync
 ```
 
-Configure `~/.config/huske/config.toml` on the server:
+The managed checkout is `~/huske/sync` by default. Only canonical transcript
+Markdown is copied to `transcripts/YYYY-MM-DD/*.md`. Existing remote content is
+preserved. If the same path contains different bytes, sync stops with an
+immutable-file conflict instead of overwriting either copy.
 
-```toml
-# CPU embedder — no Metal on a Linux VPS. Must be an e5 model.
-embedding_model = "fastembed:intfloat/multilingual-e5-large"
+## 3. Install the VPS service
 
-output_root = "/var/lib/huske/transcripts"
-index_root  = "/var/lib/huske/index"
-
-ingest_host = "127.0.0.1"   # behind the reverse proxy
-ingest_port = 7642
-public_host = "huske.example.com"   # validates the Host header
-```
-
-Run the two processes (single responsibility each; they share one `sqlite-vec`
-file via WAL):
+The independent package is in
+[`services/huske_mcp`](../services/huske_mcp/README.md):
 
 ```bash
-huske serve   # ingest + indexing (the write side; behind Caddy)
-huske mcp     # search/fetch over loopback (the read side; for hermes)
+python3 -m venv /opt/huske-mcp/venv
+/opt/huske-mcp/venv/bin/pip install ./services/huske_mcp
 ```
 
-`huske serve` prints — and persists to `~/.config/huske/ingest_token` — the
-**write token**. You'll copy that to each recording Mac.
-
-### systemd units
+Give the VPS service account a **read-only deploy key** for the private
+repository. Configure its environment:
 
 ```ini
-# /etc/systemd/system/huske-serve.service
-[Unit]
-Description=huske ingest server
-After=network.target
-
-[Service]
-User=huske
-ExecStart=/usr/local/bin/huske serve
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
+HUSKE_MCP_REPOSITORY=git@github.com:you/huske-transcripts.git
+HUSKE_MCP_BRANCH=main
+HUSKE_MCP_DATA_DIR=/var/lib/huske-mcp
+HUSKE_MCP_HOST=127.0.0.1
+HUSKE_MCP_PORT=7641
+HUSKE_MCP_POLL_SECONDS=60
+HUSKE_MCP_TOKEN_FILE=/etc/huske-mcp/token
+HUSKE_MCP_ALLOWED_HOSTS=huske.example.com
 ```
 
-```ini
-# /etc/systemd/system/huske-mcp.service
-[Unit]
-Description=huske MCP (loopback read)
-After=huske-serve.service
-
-[Service]
-User=huske
-ExecStart=/usr/local/bin/huske mcp
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-```
+Generate the read token:
 
 ```bash
-sudo systemctl enable --now huske-serve huske-mcp
+openssl rand -hex 32 | sudo tee /etc/huske-mcp/token >/dev/null
+sudo chown root:huske /etc/huske-mcp/token
+sudo chmod 640 /etc/huske-mcp/token
 ```
 
-### Reverse proxy (Caddy) — only the ingest path is public
-
-This is the load-bearing security boundary: proxy **only** `/ingest` and
-`/healthz`. Leave the MCP read port off the proxy entirely unless you are
-deliberately turning on connector mode (next section), which adds a specific,
-short allowlist of read paths — never a catch-all.
-
-```caddyfile
-huske.example.com {
-    @ingest path /ingest /healthz
-    handle @ingest {
-        reverse_proxy 127.0.0.1:7642
-    }
-    handle {
-        respond "not found" 404
-    }
-}
-```
-
-Caddy obtains and renews the TLS certificate automatically. Also recommended:
-enable **full-disk encryption** on the VPS — the server holds your full
-plaintext transcript history (huske does not add app-level encryption at rest,
-because the server must read plaintext to embed and serve; see ADR 0004).
-
-## 2. Client setup (each recording Mac)
-
-No extra to install — the send side ships in base huske. In
-`~/.config/huske/config.toml`:
-
-```toml
-sync_endpoint = "https://huske.example.com"
-# sync_verify_tls = false   # ONLY for local testing against a self-signed cert
-```
-
-Write the server's token into `~/.config/huske/sync_token` (mode `600`):
+Then validate, perform the initial pull/index, and start:
 
 ```bash
-umask 077 && printf '%s\n' '<token from huske serve>' > ~/.config/huske/sync_token
+huske-mcp doctor
+huske-mcp sync
+huske-mcp serve
 ```
 
-Now:
+Use the provided `services/huske_mcp/deploy/huske-mcp.service` under systemd.
 
-- `huske run` replicates each finalized transcript live, in the background. It
-  never blocks recording; if the network drops it retries and catches up.
-- `huske sync` pushes everything not yet acknowledged and exits — use it to
-  backfill an existing corpus, or to flush after a long offline stretch.
+## 4. Polling and webhook
 
-## 3. The co-located agent (hermes)
+Polling is always the reconciliation path. It heals missed GitHub deliveries,
+VPS restarts, and temporary network failures.
 
-hermes runs **on the VPS** and connects to the loopback MCP — exactly like
-Claude connects to a local huske on your Mac:
+For lower latency, also set `HUSKE_MCP_WEBHOOK_SECRET_FILE` and create a GitHub
+push webhook targeting:
 
-```bash
-claude mcp add --transport http huske http://127.0.0.1:7641/mcp \
-  --header "Authorization: Bearer $(cat ~/.config/huske/mcp_token)"
+```text
+https://huske.example.com/webhooks/github
 ```
 
-With connector mode off, nothing but a process on the VPS can query your
-transcripts.
+The handler verifies `X-Hub-Signature-256`, checks the configured branch, and
+wakes the poller. It does no Git or index work in the HTTP request.
 
-## 5. Connector mode: reach it from your phone (opt-in)
+## 5. Expose MCP safely
 
-A co-located agent covers hermes and nothing else. Claude on your iPhone and
-ChatGPT are not co-located with anything, and cannot be — you do not control
-where they run. Reaching them means the read endpoint has to answer over the
-network, authenticated.
+Keep the process on loopback and terminate TLS with Caddy, Tailscale, or another
+reverse proxy. Agents connect to:
 
-Neither client can send a custom bearer header to a remote MCP server, so a
-widened static token would not work; both drive the MCP authorization spec
-(OAuth 2.1 + PKCE + discovery metadata + dynamic client registration). `huske mcp`
-therefore embeds a small single-tenant authorization server: one passphrase, one
-read-only scope, no accounts.
-
-```bash
-huske mcp set-password                                            # scrypt hash, 0600
-huske config set mcp_public_url https://huske.example.com/mcp     # as clients see it
-sudo systemctl restart huske-mcp
+```text
+https://huske.example.com/mcp
+Authorization: Bearer <contents of /etc/huske-mcp/token>
 ```
 
-The daemon refuses to start if the URL is set without a passphrase, or if it is
-not HTTPS.
+The service refuses to start without a bearer token, including on loopback:
+loopback is commonly published by a reverse proxy. It also validates the HTTP
+`Host`; list the public proxy hostname in `HUSKE_MCP_ALLOWED_HOSTS`. Prefer a
+private overlay network. Clients that require OAuth and cannot attach a bearer
+header need an external identity-aware proxy; OAuth is not embedded in the
+512 MB service.
 
-Then extend the Caddy allowlist with the read paths — and *only* these:
+## Resource budget
 
-```caddyfile
-huske.example.com {
-    @ingest path /ingest /healthz
-    handle @ingest {
-        reverse_proxy 127.0.0.1:7642
-    }
+The default `tiny` profile uses one process, one poll thread, SQLite FTS5, an
+8 MB SQLite page cache, and a 32 MB mmap ceiling. It has no resident embedding
+model and is the supported profile for 1 vCPU / 512 MB.
 
-    @mcp path /mcp /mcp/* /.well-known/oauth-* /.well-known/oauth-*/* /oauth/*
-    handle @mcp {
-        reverse_proxy 127.0.0.1:7641
-    }
-
-    handle {
-        respond "not found" 404
-    }
-}
-```
-
-Verify discovery before touching a client — if these two do not return JSON, no
-client will get as far as a sign-in page:
-
-```bash
-curl -s https://huske.example.com/.well-known/oauth-protected-resource/mcp | jq
-curl -s https://huske.example.com/.well-known/oauth-authorization-server | jq
-```
-
-Now add `https://huske.example.com/mcp` as a custom connector in Claude
-(Settings → Connectors) or ChatGPT (Settings → Connectors → Advanced →
-Developer mode) and sign in with your passphrase. hermes keeps using loopback
-with the static token, unchanged.
-
-Manage it with `huske mcp status`, `huske mcp revoke --all`, and
-`huske connect claude-app`. Full client-by-client guide:
-**[docs/integrations.md](integrations.md)**.
-
-## Tokens at a glance
-
-| Credential | File | Guards | Who holds it |
-| --- | --- | --- | --- |
-| write token | `~/.config/huske/ingest_token` (server) → `~/.config/huske/sync_token` (Mac) | ingest (push) | server + every recording Mac |
-| read token | `~/.config/huske/mcp_token` (server) | MCP search/fetch over loopback | the co-located agent |
-| connector passphrase | `~/.config/huske/mcp_password` (server, scrypt hash) | OAuth sign-in, connector mode only | you, in a browser |
-| issued OAuth tokens | `~/.config/huske/oauth.db` (server, hashed) | one per connected device | huske, on your behalf |
-
-All are mode `0600`. To rotate the write token, delete `ingest_token` on the
-server, restart `huske serve`, and copy the newly printed value to each Mac's
-`sync_token`. To rotate connector access, `huske mcp set-password` then
-`huske mcp revoke --all`.
+Set `HUSKE_MCP_SEARCH_PROFILE=semantic` only after installing
+`huske-mcp[semantic]`. Hybrid Model2Vec search gives real semantic retrieval but
+the default multilingual model needs more memory; provision at least 1 GB or
+select a smaller model.

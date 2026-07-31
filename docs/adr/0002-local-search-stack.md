@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded-by-0009
 ---
 
 # Local search stack: MLX-embeddings + multilingual-e5-base + sqlite-vec

@@ -10,7 +10,7 @@ from huske import __version__
 
 app = typer.Typer(
     name="huske",
-    help="Always-on terminal audio recorder + local transcription (Whisper).",
+    help="Headless audio capture, local transcription, and private transcript sync.",
     no_args_is_help=False,
     add_completion=False,
 )
@@ -156,7 +156,7 @@ def run(
     distill: bool | None = typer.Option(
         None,
         "--distill/--no-distill",
-        help="Distill each finished transcript into searchable statements with "
+        help="Distill each finished transcript into compact statements with "
         "huske's built-in local LLM (downloads on first use). Off by default.",
     ),
     distill_model: str | None = typer.Option(
@@ -376,43 +376,8 @@ def config_unset(
 
 
 # ---------------------------------------------------------------------------
-# Local semantic search + MCP server (huske[mcp] extra)
+# Optional local transcript derivations
 # ---------------------------------------------------------------------------
-
-
-@app.command()
-def index(
-    output_root: Path | None = typer.Option(None, "--output-root"),
-    rebuild: bool = typer.Option(
-        False, "--rebuild", help="Drop and rebuild the entire index (e.g. after a model change)."
-    ),
-    force: bool = typer.Option(
-        False, "--force", help="Re-embed even transcripts whose content is unchanged."
-    ),
-    low_impact: bool | None = typer.Option(
-        None,
-        "--low-impact/--fast",
-        help=(
-            "Throttle the backfill (lower CPU priority, smaller batches, capped "
-            "MLX memory) so it can't hog the machine. On by default; use --fast "
-            "to run at full speed."
-        ),
-    ),
-    config_path: Path | None = typer.Option(None, "--config"),
-) -> None:
-    """Build or refresh the local semantic search index from transcripts."""
-    from huske.search.runner import run_index
-
-    cli_overrides = _collect_overrides(output_root=output_root)
-    raise typer.Exit(
-        run_index(
-            config_path=config_path,
-            cli_overrides=cli_overrides,
-            rebuild=rebuild,
-            force=force,
-            low_impact=low_impact,
-        )
-    )
 
 
 @app.command()
@@ -431,10 +396,9 @@ def distill(
     ),
     config_path: Path | None = typer.Option(None, "--config"),
 ) -> None:
-    """Distill transcripts into searchable statement sidecars with a local LLM.
+    """Distill transcripts into compact statement sidecars with a local LLM.
 
-    Writes a ``<name>.statements.json`` next to each transcript. Run ``huske
-    index`` afterwards to embed the statements for two-stage search. Uses the
+    Writes a ``<name>.statements.json`` next to each transcript. Uses the
     built-in MLX model by default (downloads on first use); set
     ``distill_backend = "ollama"`` to delegate to an Ollama daemon instead.
     """
@@ -449,173 +413,6 @@ def distill(
             low_impact=low_impact,
         )
     )
-
-
-mcp_app = typer.Typer(
-    name="mcp",
-    help="Serve transcript search over MCP, and manage connector access.",
-    no_args_is_help=False,
-    add_completion=False,
-    invoke_without_command=True,
-)
-app.add_typer(mcp_app)
-
-
-@mcp_app.callback(invoke_without_command=True)
-def mcp(
-    ctx: typer.Context,
-    host: str | None = typer.Option(
-        None, "--host", help="Bind address (default 127.0.0.1, loopback-only)."
-    ),
-    port: int | None = typer.Option(None, "--port", min=1, max=65535, help="Port (default 7641)."),
-    public_url: str | None = typer.Option(
-        None,
-        "--public-url",
-        help="Public HTTPS URL of this endpoint (e.g. https://huske.example.com/mcp). "
-        "Turns on connector mode so Claude and ChatGPT can attach it from any "
-        "device. Requires `huske mcp set-password`.",
-    ),
-    config_path: Path | None = typer.Option(None, "--config"),
-) -> None:
-    """Serve huske's transcript search over an MCP (HTTP) endpoint."""
-    if ctx.invoked_subcommand is not None:
-        return
-
-    from huske.config import load_config
-    from huske.mcp.server import run as run_mcp
-
-    overrides = _collect_overrides(mcp_public_url=public_url)
-    try:
-        cfg = load_config(config_path=config_path, cli_overrides=overrides)
-    except ValueError as exc:
-        typer.secho(f"config: {exc}", fg=typer.colors.RED, err=True)
-        raise typer.Exit(2) from exc
-    raise typer.Exit(run_mcp(cfg, host=host, port=port))
-
-
-@mcp_app.command("set-password")
-def mcp_set_password() -> None:
-    """Set the passphrase that authorizes connector clients (Claude, ChatGPT).
-
-    Stored as a scrypt hash at ``~/.config/huske/mcp_password`` (mode 0600) —
-    the plaintext is never written anywhere. This is the only credential between
-    the internet and your transcript history when connector mode is on, so pick
-    accordingly; a passphrase you would use for a password manager, not one you
-    would use for a wifi network.
-    """
-    from huske.mcp.oauth import save_password_hash
-
-    password = typer.prompt("New connector passphrase", hide_input=True)
-    if len(password.strip()) < 12:
-        typer.secho(
-            "Too short — use at least 12 characters. This guards every transcript "
-            "huske has ever written.",
-            fg=typer.colors.RED,
-            err=True,
-        )
-        raise typer.Exit(2)
-    if password != typer.prompt("Confirm passphrase", hide_input=True):
-        typer.secho("Passphrases do not match.", fg=typer.colors.RED, err=True)
-        raise typer.Exit(2)
-
-    path = save_password_hash(password)
-    typer.secho(f"✓ Wrote {path} (mode 0600)", fg=typer.colors.GREEN)
-    typer.echo("")
-    typer.echo("Existing connector tokens keep working — run `huske mcp revoke` to")
-    typer.echo("cut them off and force every client to sign in again.")
-
-
-@mcp_app.command("revoke")
-def mcp_revoke(
-    all_clients: bool = typer.Option(
-        False, "--all", help="Revoke every issued connector token (all devices)."
-    ),
-    client_id: str | None = typer.Option(
-        None, "--client-id", help="Revoke only this client's tokens."
-    ),
-) -> None:
-    """Revoke connector access. Loopback clients using the static token are unaffected."""
-    if not all_clients and client_id is None:
-        typer.secho("Pass --all or --client-id <id>.", fg=typer.colors.RED, err=True)
-        raise typer.Exit(2)
-
-    from huske.mcp.oauth import OAuthStore, default_store_path
-
-    path = default_store_path()
-    if not path.exists():
-        typer.echo("No connector tokens have ever been issued.")
-        raise typer.Exit(0)
-
-    store = OAuthStore.open(path)
-    try:
-        count = (
-            store.revoke_all_tokens() if all_clients else store.revoke_client_tokens(client_id or "")
-        )
-    finally:
-        store.close()
-    typer.secho(f"✓ Revoked {count} token(s).", fg=typer.colors.GREEN)
-
-
-@mcp_app.command("status")
-def mcp_status(config_path: Path | None = typer.Option(None, "--config")) -> None:
-    """Show whether connector mode is configured and how many clients are attached."""
-    from huske.config import load_config
-    from huske.mcp.oauth import OAuthStore, default_store_path, load_password_hash
-
-    try:
-        cfg = load_config(config_path=config_path)
-    except ValueError as exc:
-        typer.secho(f"config: {exc}", fg=typer.colors.RED, err=True)
-        raise typer.Exit(2) from exc
-
-    typer.echo("huske mcp")
-    typer.echo(f"  loopback   http://{cfg.mcp_host}:{cfg.mcp_port}/mcp")
-    if not cfg.mcp_public_url:
-        typer.echo("  connector  off (mcp_public_url is unset)")
-        typer.echo("")
-        typer.echo("Run `huske connect` to see what each client needs.")
-        raise typer.Exit(0)
-
-    has_password = load_password_hash() is not None
-    typer.echo(f"  connector  {cfg.mcp_public_url}")
-    typer.echo(f"  passphrase {'set' if has_password else 'NOT SET — `huske mcp set-password`'}")
-    path = default_store_path()
-    if path.exists():
-        store = OAuthStore.open(path)
-        try:
-            typer.echo(f"  clients    {store.count_clients()} registered")
-            typer.echo(f"  tokens     {store.live_token_count()} live access token(s)")
-        finally:
-            store.close()
-    else:
-        typer.echo("  clients    none yet")
-    raise typer.Exit(0 if has_password else 1)
-
-
-@app.command("setup")
-def setup_cmd(
-    apply: str | None = typer.Option(
-        None,
-        "--apply",
-        help="Complete a step instead of only reporting it: claude-desktop, "
-        "claude-code, index, or all.",
-    ),
-    json_output: bool = typer.Option(
-        False, "--json", help="Machine-readable state (used by Huske.app)."
-    ),
-    config_path: Path | None = typer.Option(None, "--config"),
-) -> None:
-    """Check what's left to get an LLM reading your transcripts — and finish it.
-
-    Replaces the five-command dance (install the extra, index, start the server,
-    find the token, hand-edit a client config) with one command that says which
-    step you are on. `--apply` completes the steps that don't need a terminal:
-    it merges huske into Claude Desktop's config without touching your other MCP
-    servers, and registers with Claude Code through its own CLI.
-    """
-    from huske.setup import run_setup
-
-    raise typer.Exit(run_setup(config_path=config_path, json_output=json_output, apply=apply))
 
 
 @app.command("export")
@@ -644,10 +441,9 @@ def export_cmd(
     which such a tool cannot rank. This collapses each day into one document,
     distilled key points first.
 
-    The MCP connector (`huske connect`) stays the better path: it keeps semantic
-    search, statement grounding, and custody of the data. Syncing this folder to
-    a third-party cloud puts plaintext transcripts there — see
-    docs/integrations.md.
+    Syncing this folder to a third-party cloud puts plaintext transcripts there.
+    Huske's managed cloud-sync path publishes the canonical transcript tree to
+    the private Git repository configured in the app.
     """
     from huske.export import run_export
 
@@ -665,64 +461,11 @@ def export_cmd(
 
 
 @app.command()
-def connect(
-    client: str | None = typer.Argument(
-        None,
-        help="Which client to wire up: claude-code, claude-desktop, claude-app, "
-        "chatgpt, codex, cursor, hermes. Omit for a summary of all of them.",
-    ),
-    config_path: Path | None = typer.Option(None, "--config"),
-) -> None:
-    """Show exactly how to connect huske to each LLM client, and what works today."""
-    from huske.connect import run_connect
-
-    raise typer.Exit(run_connect(client, config_path=config_path))
-
-
-# ---------------------------------------------------------------------------
-# Off-device huske server: replication client + serve side (huske[server])
-# ---------------------------------------------------------------------------
-
-
-@app.command()
-def serve(
-    ingest_host: str | None = typer.Option(
-        None, "--ingest-host", help="Bind address (default 127.0.0.1, behind a TLS reverse proxy)."
-    ),
-    ingest_port: int | None = typer.Option(
-        None, "--ingest-port", min=1, max=65535, help="Port (default 7642)."
-    ),
-    public_host: str | None = typer.Option(
-        None, "--public-host", help="Public hostname the reverse proxy serves (validates Host)."
-    ),
-    config_path: Path | None = typer.Option(None, "--config"),
-) -> None:
-    """Run the off-device huske server: receive pushed transcripts and index them.
-
-    Single-tenant. Pair with `huske mcp` (the loopback read side) on the same
-    host for your co-located agent. See docs/server.md and
-    docs/adr/0004-off-device-huske-server.md.
-    """
-    from huske.config import load_config
-    from huske.server.serve import run as run_serve
-
-    overrides = _collect_overrides(
-        ingest_host=ingest_host, ingest_port=ingest_port, public_host=public_host
-    )
-    try:
-        cfg = load_config(config_path=config_path, cli_overrides=overrides)
-    except ValueError as exc:
-        typer.secho(f"config: {exc}", fg=typer.colors.RED, err=True)
-        raise typer.Exit(2) from exc
-    raise typer.Exit(run_serve(cfg))
-
-
-@app.command()
 def sync(
     output_root: Path | None = typer.Option(None, "--output-root"),
     config_path: Path | None = typer.Option(None, "--config"),
 ) -> None:
-    """Push every not-yet-replicated transcript to your huske server, then exit."""
+    """Publish every transcript not yet present in the configured Git repository."""
     from huske.sync.runner import run_sync
 
     overrides = _collect_overrides(output_root=output_root)

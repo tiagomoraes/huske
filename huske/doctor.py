@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 import sys
 import threading
 from collections.abc import Iterator
@@ -238,145 +237,6 @@ def _system_audio_checks(cfg: RuntimeConfig) -> list[Check]:
         ),
         _screen_capturekit_check(),
     ]
-
-
-def _search_checks(cfg: RuntimeConfig) -> list[Check]:
-    """Diagnostics for the optional local-search / MCP subsystem.
-
-    Missing optional deps are reported as OK (informational) unless indexing is
-    enabled in config — then the user has opted in and a missing/broken
-    dependency is a real failure.
-    """
-    import importlib.metadata as md
-
-    checks: list[Check] = []
-    want = cfg.indexing_enabled
-    install_hint = "Install the search extra: pip install 'huske[mcp]'."
-
-    # Vector store: sqlite-vec + SQLite extension loading + version.
-    try:
-        import sqlite_vec
-    except ImportError:
-        checks.append(
-            Check("search store", not want, "sqlite-vec not installed (optional)", install_hint)
-        )
-    else:
-        sv = sqlite3.sqlite_version
-        ok = True
-        hint: str | None = None
-        try:
-            conn = sqlite3.connect(":memory:")
-            conn.enable_load_extension(True)
-            sqlite_vec.load(conn)
-            (vec_ver,) = conn.execute("select vec_version()").fetchone()
-            conn.close()
-            detail = f"sqlite-vec {vec_ver}, SQLite {sv}"
-        except (AttributeError, sqlite3.OperationalError) as exc:
-            ok = False
-            detail = f"sqlite-vec present but unusable: {exc}"
-            hint = "This Python build may have SQLite extension loading disabled."
-        if tuple(int(x) for x in sv.split(".")[:2]) < (3, 41):
-            ok = False
-            detail = f"SQLite {sv} too old"
-            hint = "SQLite >= 3.41 required for metadata filtering."
-        checks.append(Check("search store", ok, detail, hint))
-
-    # Embedding model runtime (Apple Silicon only).
-    try:
-        import mlx_embeddings  # noqa: F401
-
-        checks.append(Check("embeddings", True, f"mlx-embeddings {md.version('mlx-embeddings')}"))
-    except Exception:
-        checks.append(
-            Check("embeddings", not want, "mlx-embeddings not installed (optional)", install_hint)
-        )
-
-    # MCP SDK (needed only to *serve*, not to index).
-    try:
-        import mcp  # noqa: F401
-
-        checks.append(Check("mcp sdk", True, f"mcp {md.version('mcp')}"))
-    except Exception:
-        checks.append(
-            Check("mcp sdk", True, "mcp not installed (optional; needed for `huske mcp`)", install_hint)
-        )
-
-    # Index status.
-    from huske.paths import index_db_path
-
-    db_path = index_db_path(cfg)
-    if db_path.exists():
-        try:
-            from huske.search.store import PassageStore
-
-            store = PassageStore.open(db_path, create=False)
-            stats = store.stats()
-            store.close()
-            checks.append(
-                Check(
-                    "search index",
-                    True,
-                    f"{stats['passages']} passages from {stats['files']} transcripts "
-                    f"({stats['embedding_model']})",
-                )
-            )
-        except Exception as exc:
-            checks.append(
-                Check("search index", not want, f"index unreadable: {exc}", "Run `huske index --rebuild`.")
-            )
-    else:
-        checks.append(Check("search index", True, f"no index yet (run `huske index`) → {db_path}"))
-
-    return checks
-
-
-def _connector_checks(cfg: RuntimeConfig) -> list[Check]:
-    """Diagnostics for opt-in connector mode (``mcp_public_url``).
-
-    Silent unless the user has opted in. When they have, a missing passphrase or
-    a non-HTTPS URL is a hard failure rather than a warning — those are the two
-    ways to end up serving a transcript archive with no credential in front of
-    it, and `huske mcp` refuses to start on either. See ADR 0008.
-    """
-    if not cfg.mcp_public_url:
-        return []
-
-    from huske.mcp.oauth import canonical_resource, load_password_hash
-
-    checks: list[Check] = []
-    try:
-        resource = canonical_resource(cfg.mcp_public_url)
-    except ValueError:
-        return [
-            Check(
-                "connector url",
-                False,
-                f"mcp_public_url is not an absolute URL: {cfg.mcp_public_url!r}",
-                'Set it to the full endpoint, e.g. "https://huske.example.com/mcp".',
-            )
-        ]
-
-    https = resource.startswith("https://") or "127.0.0.1" in resource
-    checks.append(
-        Check(
-            "connector url",
-            https,
-            resource if https else f"{resource} is not https",
-            None if https else "A connector token would cross the network in the clear.",
-        )
-    )
-
-    has_password = load_password_hash() is not None
-    checks.append(
-        Check(
-            "connector passphrase",
-            has_password,
-            "set" if has_password else "not set",
-            None if has_password else "Run `huske mcp set-password`.",
-        )
-    )
-    return checks
-
 
 def _distill_checks(cfg: RuntimeConfig) -> list[Check]:
     """Diagnostics for the optional LLM-distillation subsystem.
@@ -618,12 +478,6 @@ def run_doctor(
     autostart_check = _autostart_check()
     if autostart_check is not None:
         checks.append(autostart_check)
-
-    # Local semantic search + MCP (optional subsystem).
-    checks.extend(_search_checks(cfg))
-
-    # Connector mode (silent unless mcp_public_url is set).
-    checks.extend(_connector_checks(cfg))
 
     # LLM distillation into searchable statements (optional subsystem).
     checks.extend(_distill_checks(cfg))
