@@ -56,13 +56,11 @@ def _wait(worker: DistillWorker, predicate: Callable[[dict[str, Any]], bool], ti
     raise AssertionError("timed out waiting for distill event")
 
 
-def test_worker_distills_and_hands_off(tmp_path: Path) -> None:
+def test_worker_distills_transcript(tmp_path: Path) -> None:
     transcript = _write_transcript(tmp_path / "transcripts" / "2026-05-07")
-    handed: list[str] = []
     worker = DistillWorker(
         tmp_path / "transcripts",
         HeuristicDistiller(),
-        on_sidecar=handed.append,
     )
     worker.start()
     try:
@@ -75,7 +73,6 @@ def test_worker_distills_and_hands_off(tmp_path: Path) -> None:
 
     sidecar = read_sidecar(transcript)
     assert sidecar is not None and sidecar.statements
-    assert handed == [str(transcript)]  # handed to the embed worker exactly once
 
 
 def test_worker_skips_when_sidecar_current(tmp_path: Path) -> None:

@@ -1,110 +1,99 @@
 # Huske
 
 Huske is a local-first macOS recorder that captures microphone + system audio,
-transcribes it on-device with Whisper, and writes structured Markdown
-transcripts. Recording and transcription always happen on-device; an optional,
-always-on off-device **huske server** can hold a **Replica** of the transcripts
-and serve search to a remote MCP client when the recording Mac is offline. This
-glossary defines the project's domain language. It is a glossary only — not a
-spec, not a design doc.
+transcribes on-device, and writes structured Markdown. An optional Git publisher
+copies finalized transcripts to a private repository. The separate, always-on
+**huske-mcp service** pulls a **Replica**, indexes it, and serves agents while the
+recording Mac is offline.
 
-## Language
-
-### Recording & transcription
+## Recording and transcription
 
 **RecordingSession**:
 One uninterrupted run of `huske run`, identified by a `session_id`.
-_Avoid_: recording, capture session.
 
 **Chunk** (a.k.a. **AudioChunk**):
-A fixed-duration (~15 min) slice of one session's audio, producing exactly one
-Transcript.
-_Avoid_: using "chunk" for any text/retrieval unit — see **Passage**.
+A bounded slice of one RecordingSession's audio, producing exactly one
+Transcript. Do not use "chunk" for text retrieval.
 
 **Segment**:
-One Whisper-emitted utterance within a Chunk, carrying `{start, end, text,
-source}`; rendered into the transcript body but not persisted as structured
-data.
-_Avoid_: using "segment" for the retrieval unit — see **Passage**.
+One ASR-emitted utterance within a Chunk, carrying `{start, end, text, source}`.
+Do not use "segment" for the retrieval unit.
 
 **Transcript**:
-The Markdown-plus-YAML-frontmatter file written for one Chunk, stored under
-`output_root/YYYY-MM-DD/`.
+The canonical Markdown-plus-YAML-frontmatter file written for one Chunk under
+`output_root/YYYY-MM-DD/`. A finalized Transcript is immutable.
 
 **Source**:
-The origin of audio for a Segment: `mic` (microphone) or `system` (system
-audio). There is no speaker diarization — source is the only speaker-like axis.
+The audio origin: `mic` or `system`. Huske does not perform speaker diarization.
 
-### Search & retrieval (this initiative)
+## Publication and replication
 
-**Passage**:
-A retrieval-sized window of transcript text (target ~256–512 tokens, slight
-overlap, broken at large time gaps), built by grouping consecutive Segments by
-time **regardless of Source**, embedded into exactly one vector. Carries a
-single time range and the **set** of Sources it spans. The unit a search
-returns to an LLM.
-_Avoid_: chunk, segment, snippet, excerpt.
+**GitPublisher**:
+The recording-app component that reconciles canonical Transcripts into a
+dedicated Git checkout and pushes them. Git is the first cloud provider; GitHub
+is the documented host. It never publishes audio, screenshots, logs, config, or
+credentials.
 
-**Statement**:
-A self-contained, decontextualized factual claim distilled from a Transcript by
-a **local LLM** (e.g. Ollama), carrying the time range of its source Passage as
-provenance. Statements are the compact, more-searchable "memory" of a
-Transcript: search ranks Statements, then **fetch** drills into the source
-Transcript for depth. Each is embedded into one vector and held in a separate
-statement index, and the set for a Transcript is written to a
-`<name>.statements.json` sidecar. Opt-in (see docs/adr/0005).
-_Avoid_: "summary" (a Statement is one atomic claim, not a paragraph); "memory"
-as a type name (it is the role Statements play, not the unit).
-
-### Replication & serving (this initiative)
-
-**huske server**:
-An optional, always-on remote deployment of huske (e.g. on a VPS) that holds a
-**Replica** of one user's transcripts and serves search to a **co-located
-agent** when the recording Mac is offline. It runs the same indexing and MCP
-code as the local install.
-_Avoid_: "backend", "cloud service" (both imply multi-tenant; the huske server
-is single-tenant — one deployment holds exactly one user's Replica).
+**ReplicaRepository**:
+The private Git repository used as the durable handoff and history. It is not
+the Huske source-code repository.
 
 **Replica**:
-The off-device copy of the transcript corpus held by the **huske server**. The
-on-device transcripts remain authoritative; the Replica is kept in sync **from**
-them, never the reverse.
+The off-device read copy pulled from the ReplicaRepository. On-device
+Transcripts remain authoritative; sync never flows from the VPS back into the
+recording tree.
 
-**Co-located agent**:
-An agent (the user's "hermes" agent) that runs on the **same host** as the
-**huske server** and queries its search locally — the same way Claude on the
-recording Mac reaches that Mac's loopback daemon. In the chosen design the
-**huske server**'s search is never queried across the network; only **Ingest**
-crosses the network.
-_Avoid_: "remote client" — the consuming agent is co-located, not remote.
+**huske-mcp service**:
+The independent Linux/VPS package under `services/huske_mcp`. It owns Git pull,
+the derived SQLite index, and the permanent MCP endpoint. It is not a mode or
+subprocess of the recording application.
 
-**Ingest**:
-The act — and the authenticated endpoint — by which a **huske server** receives
-a finalized **Transcript** pushed from a recording Mac and feeds it into the
-server's index. Because a finalized Transcript is immutable, Ingest is
-idempotent: re-pushing the same Transcript is a no-op.
+## Search and retrieval
+
+**Passage**:
+A retrieval-sized window built from consecutive transcript runs regardless of
+Source. It carries one time range and the set of Sources it spans. It is the
+unit returned by search and recap.
+
+**Statement**:
+A self-contained claim distilled locally from a Transcript and written to a
+`<name>.statements.json` sidecar. Statements are derived and optional; the
+remote index does not require them.
+
+**Tiny profile**:
+The 512 MB service profile. It uses Unicode SQLite FTS5 and metadata filters
+without a resident model. Results identify their mode as `fts5`.
+
+**Semantic profile**:
+The larger-memory service profile. It combines Model2Vec dense retrieval with
+FTS5 using reciprocal-rank fusion. Results identify their mode as `hybrid`.
+
+**Recap**:
+A chronological retrieval over a date range rather than a topic query. A date
+is not a semantic neighborhood, so recap never depends on embeddings.
+
+**Overview**:
+The map of corpus coverage and density plus Replica health.
+
+**Export**:
+One derived Markdown file per day for destinations that read files rather than
+MCP. Exports are regenerable and never authoritative.
 
 ## Relationships
 
-- A **RecordingSession** contains one or more **Chunks**.
-- A **Chunk** produces exactly one **Transcript** and contains many **Segments**.
-- A **Transcript** is windowed into one or more **Passages** for retrieval, and
-  (optionally) distilled into one or more **Statements**.
-- A **Passage** spans one or more **Segments** and carries a single time range
-  and Source set.
-- A **Statement** is distilled from a **Passage** and grounded back to its
-  Transcript by time range; search ranks Statements, fetch returns the Passage.
-- The optional **huske server** holds a **Replica** of the **Transcripts** and
-  serves **Passages** to a **co-located agent** when the recording Mac is
-  offline.
+- A RecordingSession contains one or more Chunks.
+- A Chunk produces exactly one Transcript and contains many Segments.
+- GitPublisher appends Transcripts to ReplicaRepository.
+- huske-mcp pulls ReplicaRepository into Replica.
+- A Transcript is windowed into Passages in the service's derived index.
+- Search ranks Passages; fetch returns a Passage with neighboring context.
+- Recap returns Passages chronologically; Overview describes their coverage.
+- Statements and Exports are optional derivations of Transcripts.
 
-## Flagged ambiguities
+## Retired terms
 
-- "chunk" was about to be reused for the embedding unit. Resolved: a **Chunk**
-  is always the ~15-min audio slice; the embedding/retrieval unit is a
-  **Passage**. A whole Chunk's transcript is far too coarse to embed as one
-  vector.
-- "segment" already names Whisper's per-utterance output, so it cannot also
-  name the retrieval unit. Resolved: retrieval unit is **Passage**; a Passage
-  is built by windowing across Segments.
+**huske server**, **Ingest**, and **Connector** described the pre-ADR-0009
+architecture: a custom HTTP ingest endpoint plus an MCP/OAuth server inside the
+main Huske distribution. Those components and commands were removed. Use
+**GitPublisher**, **ReplicaRepository**, and **huske-mcp service** for the new
+architecture.

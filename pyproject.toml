@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "huske"
-version = "0.12.0"
-description = "Always-on terminal audio recorder + local transcription (Parakeet / Whisper on Apple Silicon)"
+version = "0.13.0"
+description = "Headless audio capture, local transcription, and private transcript sync for macOS"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 license = "MIT"
@@ -67,28 +67,6 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.10",
 ]
-# Local semantic search + MCP server (`huske index` / `huske mcp`). Opt-in:
-# embedding rides the MLX/Metal stack mlx-whisper already ships, the vector
-# store is a zero-dependency SQLite extension, and `mcp` is the official SDK.
-# See docs/adr/0001-0003 and CONTEXT.md (Passage).
-mcp = [
-    "mlx-embeddings>=0.1.0; sys_platform == 'darwin' and platform_machine == 'arm64'",
-    "sqlite-vec>=0.1.6",
-    "mcp>=1.12",
-    "uvicorn>=0.30",
-]
-# Off-device huske server (`huske serve` + the loopback `huske mcp` read side),
-# installed on the VPS. No Metal there, so embeddings run on `fastembed`
-# (onnxruntime, CPU) — the documented non-Metal fallback from
-# docs/adr/0002-local-search-stack.md, made load-bearing in 0004. The send side
-# (`huske run` / `huske sync`) ships in the base install and needs no extra.
-server = [
-    "fastembed>=0.3",
-    "sqlite-vec>=0.1.6",
-    "mcp>=1.12",
-    "uvicorn>=0.30",
-]
-
 [project.scripts]
 huske = "huske.cli:app"
 

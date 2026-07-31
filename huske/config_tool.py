@@ -20,6 +20,7 @@ from huske.config import (
     default_user_config_path,
     load_config,
     update_user_config,
+    without_retired_config,
 )
 
 
@@ -40,7 +41,7 @@ def show_config(config_path: Path | None = None, json_output: bool = False) -> i
     full validated ``RuntimeConfig``.
     """
     target = _config_file(config_path)
-    file_data = _read_toml(target)
+    file_data = without_retired_config(_read_toml(target))
     try:
         cfg = load_config(config_path=config_path)
     except ValueError as exc:
@@ -92,7 +93,7 @@ def set_config_value(
     """Validate then persist ``key = value`` into the user TOML."""
     value = _parse_value(raw_value)
     target = _config_file(config_path)
-    merged = {**_read_toml(target), key: value}
+    merged = {**without_retired_config(_read_toml(target)), key: value}
     try:
         RuntimeConfig(**merged)
     except ValidationError as exc:
@@ -111,9 +112,19 @@ def unset_config_value(key: str, config_path: Path | None = None) -> int:
         _print(f"[error] unknown config key: {key}")
         return 2
     target = _config_file(config_path)
-    if key not in _read_toml(target):
+    current = without_retired_config(_read_toml(target))
+    if key not in current:
         _print(f"{key} was not set  ({target})")
         return 0
+    candidate = dict(current)
+    candidate.pop(key)
+    try:
+        RuntimeConfig(**candidate)
+    except ValidationError as exc:
+        first = exc.errors()[0]
+        loc = ".".join(str(p) for p in first.get("loc", ())) or key
+        _print(f"[error] {loc}: {first.get('msg', 'invalid value')}")
+        return 2
     written = update_user_config({key: None}, config_path=config_path)
     default = RuntimeConfig.model_fields[key].get_default(call_default_factory=True)
     _print(f"{key} unset (default: {default!r})  → {written}")

@@ -1,7 +1,4 @@
-// huske website — Docs page. Reuses the shared shell (Nav/Footer/CopyButton),
-// the hero's InstallTabs, and the MCP setup data published by
-// components-sections.jsx (MCP_ENDPOINT / MCP_TOKEN_PATH / AGENTS) so the
-// per-agent configs stay a single source of truth with the landing page.
+// huske website — Docs page. Reuses the shared shell and the hero's InstallTabs.
 //
 // Version strings are intentionally absent: scripts/release.py only rewrites
 // components-shell.jsx + components-sections.jsx, so a hardcoded vX.Y.Z here
@@ -91,7 +88,8 @@ const DOCS_SECTIONS = [
   { id: "first-run", label: "First run" },
   { id: "autostart", label: "Autostart on login" },
   { id: "config", label: "Configuration" },
-  { id: "search", label: "Search & MCP" },
+  { id: "search", label: "Cloud sync" },
+  { id: "connect", label: "VPS & MCP" },
 ];
 
 const DocsToc = ({ active }) => (
@@ -121,8 +119,8 @@ const DocsHero = () => (
       <h1>Set up huske.</h1>
       <p className="docs-hero-lede">
         Install it, grant the macOS capture permission, run it on login, tune it
-        to your machine, and point any MCP agent at your transcripts. Everything
-        runs on-device.
+        to your machine, and optionally publish transcripts to your own private
+        repository and always-on agent service.
       </p>
     </div>
   </section>
@@ -152,18 +150,16 @@ const InstallDoc = () => (
       source with <code>macos/scripts/build-app.sh</code>.
     </p>
 
-    <h3>Optional extras</h3>
-    <p>The base install records and transcribes. Two opt-in extras add separate, lazily-loaded subsystems:</p>
+    <h3>Separate service boundary</h3>
+    <p>The macOS engine stays a single install. The always-on MCP read service is an independent Linux package:</p>
     <dl className="docs-defs">
       <dt><code>huske</code></dt>
-      <dd>Base install. Record, transcribe, recover, autostart, and the dependency-free replication send side.</dd>
-      <dt><code>huske[mcp]</code></dt>
-      <dd>On-device semantic search and the <code>huske mcp</code> server (<code>huske index</code> + <code>huske mcp</code>). Adds mlx-embeddings, sqlite-vec, and the MCP SDK.</dd>
-      <dt><code>huske[server]</code></dt>
-      <dd>The off-device server (<code>huske serve</code>) for a box you control. Adds a CPU embedder (fastembed). See <a href="https://github.com/tiagomoraes/huske/blob/main/docs/server.md" target="_blank" rel="noopener">the server guide</a>.</dd>
+      <dd>Huske.app's engine: record, transcribe, recover, autostart, export, and publish canonical Markdown through Git.</dd>
+      <dt><code>huske-mcp</code></dt>
+      <dd>A separate package under <code>services/huske_mcp</code> for Linux/VPS. It pulls a read-only Git replica, builds a bounded SQLite index, and serves authenticated MCP. See <a href="https://github.com/tiagomoraes/huske/blob/main/docs/server.md" target="_blank" rel="noopener">the server guide</a>.</dd>
     </dl>
     <DocsTerminal>
-      <DocsCmd cmd="uv tool install 'huske[mcp]'" note="install with the search + MCP extra" />
+      <DocsCmd cmd="uv tool install huske" note="the macOS recording engine" />
     </DocsTerminal>
 
     <h3>Prereleases and upgrades</h3>
@@ -322,20 +318,12 @@ const ADVANCED_CONFIG = [
   { key: "screenshots_max_displays", def: "4", desc: "Max displays captured per tick (1–16).", flag: "" },
   { key: "screenshots_max_dimension", def: "1568", desc: "Downscale each screenshot's long edge to ≤ N px via sips (0 disables; never upscales).", flag: "--screenshot-max-dimension" },
   { key: "screenshots_jpeg_quality", def: "60", desc: "JPEG quality for screenshots, 1–100 (re-encoded via sips).", flag: "--screenshot-quality" },
-  { key: "indexing_enabled", def: "false", desc: "Index each finalized transcript live during huske run.", flag: "" },
-  { key: "embedding_model", def: "multilingual-e5-base", desc: "Local embedding model; changing it needs huske index --rebuild.", flag: "" },
-  { key: "index_root", def: "~/huske/index", desc: "sqlite-vec passage store (passages.db).", flag: "" },
-  { key: "index_low_impact", def: "true", desc: "Throttle the index backfill (CPU priority, batch, memory).", flag: "--low-impact / --fast" },
-  { key: "embed_batch_size", def: "16", desc: "Passages per embedding forward pass (1–256).", flag: "" },
-  { key: "index_memory_limit_mb", def: "unset", desc: "Hard MB ceiling on the MLX working set during indexing.", flag: "" },
-  { key: "mcp_host", def: "127.0.0.1", desc: "huske mcp bind address (loopback only).", flag: "--host" },
-  { key: "mcp_port", def: "7641", desc: "huske mcp port.", flag: "--port" },
-  { key: "sync_endpoint", def: "unset", desc: "Replicate finalized transcripts to this huske server.", flag: "" },
-  { key: "sync_verify_tls", def: "true", desc: "Verify the server's TLS certificate.", flag: "" },
-  { key: "sync_root", def: "~/huske/sync", desc: "Durable replication send-outbox.", flag: "" },
-  { key: "ingest_host", def: "127.0.0.1", desc: "Server ingest bind address (huske serve).", flag: "--ingest-host" },
-  { key: "ingest_port", def: "7642", desc: "Server ingest port.", flag: "--ingest-port" },
-  { key: "public_host", def: "unset", desc: "Public hostname validated on ingest.", flag: "--public-host" },
+  { key: "sync_enabled", def: "false", desc: "Publish new canonical transcripts after each finalized chunk.", flag: "" },
+  { key: "sync_provider", def: "git", desc: "Storage provider boundary; Git is the first implementation.", flag: "" },
+  { key: "sync_remote", def: "unset", desc: "Private Git repository SSH or HTTPS remote.", flag: "" },
+  { key: "sync_branch", def: "main", desc: "Branch used for the transcript replica.", flag: "" },
+  { key: "sync_root", def: "~/huske/sync", desc: "Managed Git checkout; commits are the durable retry queue.", flag: "" },
+  { key: "sync_push_timeout_seconds", def: "60", desc: "Deadline for each Git operation.", flag: "" },
 ];
 
 const ConfigDoc = () => (
@@ -363,7 +351,7 @@ const ConfigDoc = () => (
     <details className="docs-details">
       <summary>All other keys <span className="chev">›</span></summary>
       <p className="docs-aside" style={{ marginTop: 14 }}>
-        Advanced capture, UI, search-index, and off-device-server keys. Most users never touch these.
+        Advanced capture, UI, distillation, and cloud-sync keys. Most users never touch these.
       </p>
       <ConfigTable rows={ADVANCED_CONFIG} />
     </details>
@@ -374,199 +362,99 @@ const ConfigDoc = () => (
 
 // Extra clients beyond the landing page's AGENTS set. ${MCP_ENDPOINT} is real
 // interpolation; \${...} is a literal placeholder the client resolves itself.
-const DOCS_EXTRA_CLIENTS = [
-  {
-    id: "claude-desktop",
-    label: "Claude Desktop / Cowork",
-    selfWire: false,
-    lang: "json",
-    path: "~/Library/Application Support/Claude/claude_desktop_config.json",
-    code:
-`{
-  "mcpServers": {
-    "huske": {
-      "command": "npx",
-      "args": [
-        "-y", "mcp-remote", "${MCP_ENDPOINT}",
-        "--allow-http",
-        "--header", "Authorization:\${HUSKE_MCP_TOKEN}"
-      ],
-      "env": { "HUSKE_MCP_TOKEN": "Bearer <token>" }
-    }
-  }
-}`,
-  },
-  {
-    id: "gemini",
-    label: "Gemini CLI",
-    lang: "json",
-    path: "~/.gemini/settings.json",
-    code:
-`{
-  "mcpServers": {
-    "huske": {
-      "httpUrl": "${MCP_ENDPOINT}",
-      "headers": { "Authorization": "Bearer \${HUSKE_MCP_TOKEN}" }
-    }
-  }
-}`,
-  },
-  {
-    id: "generic",
-    label: "Any MCP client",
-    selfWire: false,
-    lang: "json",
-    path: "your client's MCP config",
-    code:
-`{
-  "mcpServers": {
-    "huske": {
-      "url": "${MCP_ENDPOINT}",
-      "headers": { "Authorization": "Bearer \${HUSKE_MCP_TOKEN}" }
-    }
-  }
-}`,
-  },
-];
-
-const DOCS_CLIENT_NOTES = {
-  "claude-code": <>Loopback and a bearer header are fully supported, no tunnel. <code>$(cat …)</code> is expanded by your shell at add-time, so the resolved token lands in <code>~/.claude.json</code> — fine on a personal machine.</>,
-  codex: <>Recent Codex builds use the streamable-HTTP client automatically; on older ones add <code>experimental_use_rmcp_client = true</code> if the tools don't load. Export <code>HUSKE_MCP_TOKEN</code> in your shell first.</>,
-  cursor: <>No <code>type</code> key needed — Cursor infers the transport from <code>url</code>. <code>{"${env:HUSKE_MCP_TOKEN}"}</code> reads your shell environment, so export the token before launching Cursor.</>,
-  vscode: <>VS Code uses <code>servers</code> (not <code>mcpServers</code>) and needs <code>"type": "http"</code>. The <code>{"${input:…}"}</code> form prompts once and keeps the token in encrypted secret storage.</>,
-  opencode: <><code>{"{file:~/.config/huske/mcp_token}"}</code> reads the token from disk at load time, so nothing is committed. Put the literal <code>Bearer </code> prefix in the file if your build doesn't interpolate inside a string.</>,
-  "claude-desktop": <>Claude Desktop's native connectors need a public URL and OAuth, so they can't reach a loopback bearer endpoint. The <code>mcp-remote</code> bridge (needs Node / <code>npx</code>) wraps it as a local stdio server. Write <code>Authorization:</code> with no space — Claude Desktop strips spaces in args — and keep <code>Bearer &lt;token&gt;</code> in the env value. Quit and reopen the app after editing. <strong>Cowork</strong> shares this same config: once Desktop reloads it, huske shows up in Cowork sessions too, no separate setup.</>,
-  gemini: <>Gemini CLI uses <code>httpUrl</code> for streamable HTTP (<code>url</code> selects the SSE transport, which huske doesn't expose). <code>{"${HUSKE_MCP_TOKEN}"}</code> is resolved from your environment.</>,
-  generic: <>Any client that speaks MCP <strong>Streamable HTTP</strong> (POST <code>/mcp</code>) with a custom <code>Authorization</code> header. huske exposes no SSE endpoint, so pick the streamable-HTTP transport.</>,
-};
-
-const ClientPanel = ({ client }) => {
-  const [manual, setManual] = React.useState(false);
-  const note = DOCS_CLIENT_NOTES[client.id];
-  const manualBlock = (
-    <React.Fragment>
-      <DocsCode path={client.path} lang={client.lang} code={client.code} />
-      {note && <p className="docs-client-note">{note}</p>}
-    </React.Fragment>
-  );
-
-  // Chat apps and the generic "any client" can't self-wire from a pasted
-  // prompt, so the manual config is the primary (and only) path for them.
-  if (client.selfWire === false) {
-    return <div className="docs-manual-only">{manualBlock}</div>;
-  }
-
-  return (
-    <React.Fragment>
-      <div className="docs-prompt">
-        <div className="dp-head">
-          <span className="dp-label">paste into {client.label}</span>
-          <CopyButton text={agentPrompt(client.label)} className="copy ghost" />
-        </div>
-        <div className="dp-code"><PromptText label={client.label} /></div>
-        <div className="dp-foot">The agent reads your token and registers the server itself. No secret is shown on this page.</div>
-      </div>
-      <div className={`docs-native ${manual ? "open" : ""}`}>
-        <button
-          type="button"
-          className="docs-native-toggle"
-          aria-expanded={manual}
-          onClick={() => setManual((v) => !v)}
-        >
-          <span className="chev" aria-hidden="true">›</span>
-          rather wire it up yourself? {client.label} config
-        </button>
-        <div className="docs-native-wrap">
-          <div className="docs-native-inner">
-            <div className="docs-native-pad">{manualBlock}</div>
-          </div>
-        </div>
-      </div>
-    </React.Fragment>
-  );
-};
-
-const ClientTabs = () => {
-  const clients = [...AGENTS, ...DOCS_EXTRA_CLIENTS];
-  const [id, setId] = React.useState(clients[0].id);
-  const client = clients.find((c) => c.id === id) || clients[0];
-  return (
-    <div className="docs-clients">
-      <div className="docs-client-tabs" role="tablist" aria-label="Select your agent">
-        {clients.map((c) => (
-          <button
-            key={c.id}
-            role="tab"
-            aria-selected={c.id === id}
-            className={`dtab ${c.id === id ? "active" : ""}`}
-            onClick={() => setId(c.id)}
-          >
-            {c.label}
-          </button>
-        ))}
-      </div>
-      <ClientPanel key={client.id} client={client} />
-    </div>
-  );
-};
-
 const SearchDoc = () => (
-  <DocsSection id="search" num="05" title="Search & MCP">
+  <DocsSection id="search" num="05" title="Cloud sync">
     <p className="docs-lead">
-      Opt into the <code>huske[mcp]</code> extra and every transcript becomes
-      searchable by meaning: on-device embeddings, a local vector index, and an
-      MCP server your agent queries directly.
+      Huske.app can publish each finalized transcript to a private Git
+      repository. GitHub is the first supported storage provider; Huske uses
+      your existing SSH agent or Git credential helper and never stores a token.
     </p>
+    <ol className="docs-steps">
+      <li>Create an empty <strong>private</strong> repository dedicated to transcript data.</li>
+      <li>Open <strong>Cloud sync</strong> in Huske.app and paste its SSH URL.</li>
+      <li>Press <strong>Sync now</strong>, then enable automatic sync.</li>
+    </ol>
     <DocsTerminal>
-      <DocsCmd cmd="uv tool install 'huske[mcp]'" note="add the search + MCP extra" />
-      <DocsCmd cmd="huske index" note="embed your transcripts locally · one-time backfill" />
-      <DocsCmd cmd="huske mcp" note="serve search + fetch · prints your endpoint + token" />
+      <DocsCmd cmd="huske config set sync_remote git@github.com:you/huske-transcripts.git" />
+      <DocsCmd cmd="huske config set sync_enabled true" />
+      <DocsCmd cmd="huske sync" note="initial publish or manual reconciliation" />
     </DocsTerminal>
     <p>
-      Search returns nothing until the index is built, so run <code>huske index</code>
-      {" "}first (<code>--rebuild</code> after changing the embedding model). The
-      server binds loopback at <code>{MCP_ENDPOINT}</code>, speaks Streamable HTTP,
-      and exposes two tools: <code>search</code> and <code>fetch</code>.
+      Only <code>transcripts/YYYY-MM-DD/*.md</code> enters the repository.
+      Audio, screenshots, statement sidecars, logs, configuration, and
+      credentials remain on the Mac. Huske pulls and rebases before each push;
+      if an established transcript path contains different bytes, it stops
+      instead of overwriting either copy.
     </p>
-
-    <h3>The bearer token</h3>
-    <p>
-      huske generates a token on first run, prints it in the <code>huske mcp</code>
-      {" "}banner, and stores it at <code>{MCP_TOKEN_PATH}</code> (mode <code>0600</code>).
-      Every request must carry <code>Authorization: Bearer &lt;token&gt;</code>.
-      Export it once so the configs below can reference it without writing the
-      secret into a file:
+    <p className="docs-aside">
+      The managed checkout is <code>~/huske/sync</code>. A local commit that
+      could not be pushed remains there as the durable retry queue and is retried
+      at the next session.
     </p>
-    <DocsTerminal>
-      <DocsCmd cmd="export HUSKE_MCP_TOKEN=$(cat ~/.config/huske/mcp_token)" />
-    </DocsTerminal>
+  </DocsSection>
+);
 
-    <h3>Connect your agent</h3>
-    <p>
-      Pick your agent and paste the setup prompt — it reads your token and wires
-      the server itself, no tunnel, and the secret never appears here. Prefer to
-      edit a config file? Open <em>rather wire it up yourself?</em> for the exact
-      config. (Claude Desktop and a generic client are manual-only.)
-    </p>
-    <ClientTabs />
-
-    <h3>ChatGPT &amp; always-on agents</h3>
-    <p>
-      ChatGPT can't reach a loopback server and its connector UI has no field for
-      a bearer header. To use it, expose huske over a public HTTPS tunnel fronted
-      by a proxy that injects the token, then add a custom connector set to
-      <em> No authentication</em>:
+const ConnectDoc = () => (
+  <DocsSection id="connect" num="06" title="VPS & MCP">
+    <p className="docs-lead">
+      MCP no longer runs inside Huske.app. Install the independent
+      <code> huske-mcp</code> service on an always-on Linux host; it pulls the
+      private repository, maintains its own index, and stays available while the
+      recording Mac sleeps.
     </p>
     <DocsCode
-      lang="shell"
-      code={"# 1. expose the loopback server over public HTTPS\ncloudflared tunnel --url http://127.0.0.1:7641\n\n# 2. front it with a proxy that injects the bearer ChatGPT can't add (Caddy):\n#    huske.example.com {\n#      reverse_proxy 127.0.0.1:7641 {\n#        header_up Authorization \"Bearer {env.HUSKE_MCP_TOKEN}\"\n#      }\n#    }\nHUSKE_MCP_TOKEN=\"$(cat ~/.config/huske/mcp_token)\" caddy run\n\n# 3. ChatGPT → Settings → Apps & Connectors → Advanced → Developer mode,\n#    add a connector at https://huske.example.com/mcp, auth = none."}
+      path="/etc/huske-mcp/huske-mcp.env"
+      lang="ini"
+      code={"HUSKE_MCP_REPOSITORY=git@github.com:you/huske-transcripts.git\nHUSKE_MCP_BRANCH=main\nHUSKE_MCP_DATA_DIR=/var/lib/huske-mcp\nHUSKE_MCP_HOST=127.0.0.1\nHUSKE_MCP_PORT=7641\nHUSKE_MCP_POLL_SECONDS=60\nHUSKE_MCP_TOKEN_FILE=/etc/huske-mcp/token\nHUSKE_MCP_ALLOWED_HOSTS=huske.example.com"}
     />
-    <p className="docs-aside">
-      A public tunnel weakens huske's loopback-only posture. For always-on remote
-      access, prefer the off-device server: <code>huske[server]</code> replicates
-      transcripts to a box you control and runs the agent co-located there, so the
-      read endpoint stays loopback. See
-      {" "}<a href="https://github.com/tiagomoraes/huske/blob/main/docs/server.md" target="_blank" rel="noopener">the server guide</a>.
+    <DocsTerminal>
+      <DocsCmd cmd="huske-mcp doctor" />
+      <DocsCmd cmd="huske-mcp sync" note="initial pull + index" />
+      <DocsCmd cmd="huske-mcp serve" />
+    </DocsTerminal>
+    <p>
+      Agents connect to <code>https://huske.example.com/mcp</code> with
+      <code> Authorization: Bearer &lt;token&gt;</code>. The tools are
+      <code> overview</code>, <code>recap</code>, <code>search</code>,
+      <code> fetch</code>, and <code>sync_status</code>.
+    </p>
+
+    <h3>Designed for a tiny VPS</h3>
+    <p>
+      The default <code>tiny</code> profile uses one process, one poll thread,
+      SQLite FTS5, an 8 MB page cache, and a 32 MB mmap ceiling. It loads no
+      embedding model and is the supported 1 vCPU / 512 MB profile. The optional
+      <code> semantic</code> profile adds Model2Vec hybrid retrieval and needs
+      more memory.
+    </p>
+
+    <h3>Polling plus webhook</h3>
+    <p>
+      Polling is the correctness path and heals missed deliveries or restarts.
+      An optional signed GitHub push webhook at
+      <code> /webhooks/github</code> only wakes the poller early; the HTTP
+      request never performs Git or indexing work.
+    </p>
+
+    <h3>Security posture</h3>
+    <ul className="docs-bullets">
+      <li><strong>A bearer token is mandatory</strong>, even on loopback, because a reverse proxy can publish a loopback listener.</li>
+      <li><strong>Host validation remains enabled.</strong> List the proxy hostname in <code>HUSKE_MCP_ALLOWED_HOSTS</code>.</li>
+      <li><strong>The VPS deploy key is read-only.</strong> The service never pushes or mutates its checkout.</li>
+      <li><strong>The index is derived.</strong> SQLite stays outside Git and can be rebuilt from canonical Markdown.</li>
+      <li><strong>The server holds plaintext.</strong> Encrypt its disk and expose it through TLS or a private overlay network.</li>
+    </ul>
+    <p>
+      Full systemd, Docker, SSH deploy-key, reverse-proxy, webhook, and client
+      instructions are in the{" "}
+      <a href="https://github.com/tiagomoraes/huske/blob/main/docs/server.md" target="_blank" rel="noopener">server guide</a>.
+    </p>
+
+    <h3>No MCP at the destination?</h3>
+    <p>
+      <code>huske export</code> still writes one Markdown digest per day for a
+      Claude Project, NotebookLM, Obsidian, or another document-oriented tool.
+      Export is derived and separate from the canonical Git sync tree.
     </p>
   </DocsSection>
 );
@@ -586,6 +474,7 @@ const Docs = () => {
           <AutostartDoc />
           <ConfigDoc />
           <SearchDoc />
+          <ConnectDoc />
         </article>
       </div>
     </React.Fragment>

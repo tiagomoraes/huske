@@ -1,40 +1,36 @@
-"""Config surface for off-device replication (ADR 0004)."""
-
 from __future__ import annotations
 
 from pathlib import Path
 
-from huske.config import RuntimeConfig, load_config
+import pytest
+from pydantic import ValidationError
+
+from huske.config import RuntimeConfig
 
 
-def test_replication_defaults_are_inert() -> None:
+def test_sync_defaults_are_inert() -> None:
     cfg = RuntimeConfig()
-    # The send side is off until an endpoint is configured.
-    assert cfg.sync_endpoint is None
-    assert cfg.sync_verify_tls is True
+    assert cfg.sync_enabled is False
+    assert cfg.sync_provider == "git"
+    assert cfg.sync_remote is None
+    assert cfg.sync_branch == "main"
     assert cfg.sync_root == Path.home() / "huske" / "sync"
-    # Serve-side defaults are loopback.
-    assert cfg.ingest_host == "127.0.0.1"
-    assert cfg.ingest_port == 7642
-    assert cfg.public_host is None
 
 
-def test_sync_endpoint_and_serve_overrides() -> None:
-    cfg = load_config(
-        cli_overrides={
-            "sync_endpoint": "https://huske.example.com",
-            "ingest_port": 9000,
-            "public_host": "huske.example.com",
-            "embedding_model": "fastembed:intfloat/multilingual-e5-large",
-        }
-    )
-    assert cfg.sync_endpoint == "https://huske.example.com"
-    assert cfg.ingest_port == 9000
-    assert cfg.public_host == "huske.example.com"
-    assert cfg.embedding_model == "fastembed:intfloat/multilingual-e5-large"
+def test_enabled_sync_requires_remote() -> None:
+    with pytest.raises(ValidationError, match="requires sync_remote"):
+        RuntimeConfig(sync_enabled=True)
 
 
-def test_sync_root_expands_user(tmp_path: Path) -> None:
-    cfg = load_config(cli_overrides={"sync_root": "~/somewhere/sync"})
-    assert cfg.sync_root.is_absolute()
-    assert "~" not in str(cfg.sync_root)
+def test_sync_remote_rejects_git_option_injection() -> None:
+    with pytest.raises(ValidationError, match="safe Git repository"):
+        RuntimeConfig(sync_remote="--upload-pack=malicious")
+
+
+@pytest.mark.parametrize(
+    "branch",
+    ("../main", "feature//name", "feature/.hidden", "feature/name.lock", "@"),
+)
+def test_sync_branch_rejects_unsafe_values(branch: str) -> None:
+    with pytest.raises(ValidationError, match="safe Git branch"):
+        RuntimeConfig(sync_branch=branch)

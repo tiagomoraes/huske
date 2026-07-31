@@ -1,14 +1,7 @@
 """Background distillation thread: turn finalized transcripts into Statements.
 
-Why a *thread* (not a subprocess like embed/transcribe)? Those isolate heavy,
-GIL-holding, Metal-contending compute. Distillation's cost lives in the **local
-LLM daemon's own process**; from huske's side it is loopback HTTP, which
-releases the GIL while it waits — it cannot starve the ~50 ms audio drainer, so
-a daemon thread is the right, lighter tool (same call as ``huske.sync``).
-
-When local search is also on, the worker hands each freshly-written sidecar to
-the embed subprocess via the ``on_sidecar`` callback, so Statements get embedded
-without the recording loop having to choreograph the two workers.
+The thread coordinates either the private MLX subprocess or loopback Ollama
+I/O without blocking the ~50 ms audio drainer.
 
 A distillation failure (daemon down, model not pulled) is **non-fatal**: the
 transcript stays on disk and the next session's reconcile — or ``huske
@@ -20,7 +13,6 @@ from __future__ import annotations
 import hashlib
 import queue
 import threading
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -49,13 +41,11 @@ class DistillWorker:
         *,
         max_statements_per_passage: int = 8,
         reconcile_on_start: bool = False,
-        on_sidecar: Callable[[str], None] | None = None,
     ) -> None:
         self._output_root = output_root.resolve()
         self._distiller = distiller
         self._max = max_statements_per_passage
         self._reconcile_on_start = reconcile_on_start
-        self._on_sidecar = on_sidecar
         self._queue: queue.Queue[str] = queue.Queue()
         self._events: queue.Queue[dict[str, Any]] = queue.Queue()
         self._stop = threading.Event()
@@ -140,12 +130,10 @@ class DistillWorker:
             self._emit(ok=False, path=path_str, error=f"could not read transcript: {exc}")
             return
 
-        # Already distilled from this exact content — just make sure the embedder
-        # gets a chance to catch up, then skip the LLM call.
+        # Already distilled from this exact content; skip the LLM call.
         if sidecar_is_current(path, source_sha):
             existing = read_sidecar(path)
             n = len(existing.statements) if existing else 0
-            self._handoff(path_str, n)
             self._emit(ok=True, path=path_str, statements=n, skipped=True)
             return
 
@@ -167,12 +155,7 @@ class DistillWorker:
 
         write_sidecar(path, sidecar)
         n = len(sidecar.statements)
-        self._handoff(path_str, n)
         self._emit(ok=True, path=path_str, statements=n)
-
-    def _handoff(self, path_str: str, statements: int) -> None:
-        if self._on_sidecar is not None and statements > 0:
-            self._on_sidecar(path_str)
 
     def _emit(self, **event: Any) -> None:
         self._events.put(event)

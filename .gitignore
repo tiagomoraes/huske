@@ -41,3 +41,8 @@ audio/
 transcripts/
 logs/
 models/
+
+# Vendored third-party agent skills (installed per-developer, not huske source).
+# Repo-specific agent conventions live in docs/agents/ and .claude/skills/.
+.agents/
+skills-lock.json

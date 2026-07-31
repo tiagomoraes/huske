@@ -94,6 +94,12 @@ final class AppModel {
     private(set) var doctorError: String?
     private(set) var doctorRunning = false
 
+    // MARK: cloud sync
+
+    private(set) var syncRunning = false
+    private(set) var syncMessage: String?
+    private(set) var syncSucceeded: Bool?
+
     // MARK: recover
 
     private(set) var recoverLog: [String] = []
@@ -199,7 +205,31 @@ final class AppModel {
             .appendingPathComponent("huske/transcripts", isDirectory: true)
     }
 
-    // MARK: doctor
+    // MARK: cloud sync
+
+    func syncNow() {
+        guard let binaryURL, !syncRunning else { return }
+        syncRunning = true
+        syncMessage = nil
+        syncSucceeded = nil
+        Task {
+            do {
+                let result = try await CLIRunner.run(
+                    binary: binaryURL, arguments: ["sync"], timeout: 180)
+                let output = (result.stdout + "\n" + result.stderr)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                self.syncSucceeded = result.status == 0
+                self.syncMessage =
+                    output.isEmpty
+                    ? (result.status == 0 ? "Repository is current." : "Sync failed.")
+                    : output
+            } catch {
+                self.syncSucceeded = false
+                self.syncMessage = Self.describe(error)
+            }
+            self.syncRunning = false
+        }
+    }
 
     func runDoctor() {
         guard let binaryURL, !doctorRunning else { return }

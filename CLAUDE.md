@@ -9,9 +9,9 @@ contribution rules live in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 - Python CLI package in `huske/` (entry point: `huske.cli:app`, exposed as
   the `huske` console script — subcommands: `run` (headless engine), `recover`,
-  `doctor`, `devices`, `config`, and the opt-in `index` / `mcp` for local
-  semantic search). There is no terminal UI anymore — the macOS app is the
-  face; `--no-ui` survives as a hidden no-op (ADR 0007).
+  `doctor`, `devices`, `config`, `distill`, `export`, and `sync`). There is no
+  terminal UI anymore — the macOS app is the face; `--no-ui` survives as a
+  hidden no-op (ADR 0007).
 - Native macOS app in `macos/` (SwiftPM: `HuskeKit` library + `Huske` SwiftUI
   executable + XCTests). It is a shell over the engine's control socket and
   CLI — never re-implement pipeline logic there (ADR 0006). Build/test with
@@ -81,59 +81,35 @@ ADR 0007; `huske run` prints plain progress lines instead.)
 `RuntimeConfig` (Pydantic). `paths.py` derives every filesystem path from
 that config; do not hardcode paths elsewhere.
 
-## Local search + MCP (opt-in `huske[mcp]` extra)
+## Cloud sync + isolated MCP service
 
-A separate subsystem makes transcripts semantically searchable from chat
-models. It is off by default and adds no dependencies to the base install.
+ADR 0009 replaces the in-app MCP/search server and custom HTTP ingest path.
 
-- `search/` is the engine: `parser.py` reads the on-disk `.md` contract (not
-  in-memory state, so live indexing and backfill share one path),
-  `windowing.py` groups runs into **Passages** (the retrieval unit — see
-  `CONTEXT.md`), `embedder.py` wraps `mlx-embeddings` (multilingual-e5 on the
-  same MLX/Metal stack as whisper) behind an interface with a dependency-free
-  `HashingEmbedder` for tests, `store.py` is the `sqlite-vec` passage store
-  (filtered KNN, model-mismatch refusal), and `indexer.py` ties them together.
-- `search/worker.py` is an isolated embedding subprocess (mirrors the whisper
-  worker) that `run_loop.py` feeds finalized transcript paths when
-  `indexing_enabled`. Embedding must never run in the main process — same
-  audio-drainer-starvation rule as whisper.
-- `mcp/server.py` serves `search`/`fetch` (ChatGPT's contract, plus optional
-  filters for Claude) over a loopback HTTP MCP endpoint with a bearer token +
-  Origin/Host validation.
+- `huske/sync/` is the base-install Git publisher. `GitPublisher` owns a
+  dedicated checkout, copies only canonical transcript Markdown under
+  `transcripts/`, pulls/rebases before committing, and pushes through the
+  user's existing Git/SSH credentials. `SyncWorker` keeps this off the audio
+  hot path and coalesces bursts. Git commits are the durable retry queue.
+- The recording CLI exposes `huske sync`; Huske.app's Cloud sync pane owns the
+  everyday configuration. There is no `huske mcp`, `huske serve`, `huske
+  index`, `huske setup`, or `huske connect` command.
+- `services/huske_mcp/` is a separate Python distribution for Linux/VPS. It
+  pulls the private Git repository, incrementally rebuilds a SQLite index, and
+  serves authenticated stateless Streamable HTTP MCP.
+- The VPS poller is the consistency mechanism. A signed GitHub webhook only
+  wakes it early.
+- The default `tiny` profile is FTS5-only and has hard cache/mmap ceilings for
+  512 MB boxes. The optional `semantic` profile uses Model2Vec + hybrid RRF and
+  needs more memory.
+- Keep the source checkout read-only, its SQLite database outside Git, and the
+  service's unconditional bearer-token refusal.
 
-The three load-bearing decisions are recorded in `docs/adr/0001-0003`. Keep the
-`sqlite-vec` schema and the model-versioning policy in `store.py` aligned with
-ADR 0002. The base recording pipeline must not import this subsystem eagerly —
-all heavy deps are lazily imported.
+The independent service has its own package, tests, Dockerfile, and systemd
+unit. Run its tests with:
 
-## Off-device server (opt-in `huske[server]` extra)
-
-A second, separate opt-in subsystem replicates transcripts to a single-tenant
-remote server (a VPS) so an always-on, co-located agent can query them while the
-recording Mac is offline. Off by default; the send side adds no dependencies.
-See `docs/adr/0004-off-device-huske-server.md` and `docs/server.md`.
-
-- `sync/` is the **client** (base install, dependency-free): `outbox.py` is a
-  durable stdlib-`sqlite3` record of what the server has acknowledged,
-  `client.py` does `POST /ingest` over stdlib `urllib`, and `worker.py` is a
-  background *thread* — not a subprocess, because network I/O releases the GIL
-  and cannot starve the ~50 ms audio drainer — that pushes finalized transcripts
-  off the hot path and reconciles on reconnect. `run_loop.py` feeds it from the
-  same `_on_written` hook as the embed worker, inert unless `sync_endpoint` is
-  set.
-- `server/` is the **serve side** (`huske[server]`, on the VPS): `ingest.py` is
-  the pure, hostile-input-validated store logic (strict `YYYY-MM-DD/<name>.md`
-  rel-paths, sha256 verification, idempotent atomic writes), `app.py` is the
-  write-token ASGI ingest endpoint, and `serve.py` wires them to the existing
-  `Indexer`/`PassageStore` with a CPU (`fastembed`) embedder. The read side is
-  the unchanged loopback `huske mcp`, run as a second process; both share the one
-  `sqlite-vec` file via WAL.
-
-Security invariant (ADR 0004): only the write-only ingest endpoint is
-network-exposed (a TLS reverse proxy fronts it); the read MCP stays
-loopback-only. The send transport ships in the base install — keep it
-dependency-free; never import the heavy `huske.search` / `huske.mcp` paths from
-`huske.sync`.
+```bash
+PYTHONPATH=services/huske_mcp pytest services/huske_mcp/tests
+```
 
 ## Core Commands
 
@@ -141,8 +117,8 @@ dependency-free; never import the heavy `huske.search` / `huske.mcp` paths from
 # Install (editable, with dev extras)
 uv pip install -e ".[dev]"
 
-# Add the optional local-search / MCP extra (mlx-embeddings, sqlite-vec, mcp)
-uv pip install -e ".[dev,mcp]"
+# Test the separately packaged VPS service
+PYTHONPATH=services/huske_mcp pytest services/huske_mcp/tests
 
 # CI baseline — what PRs must pass
 pytest tests/unit
@@ -181,13 +157,9 @@ error involving it vanishes. An interpreter missing `mlx-lm` hid a real
 first run of this gate. Use the repo venv (`.venv/bin/mypy huske`), not whatever
 `python` happens to resolve to.
 
-The `mcp` extra cuts the other way, and that asymmetry is expected: CI installs
-only `.[dev]`, so `import mcp` is `Any` and `@mcp.tool()` reads as untyped,
-making the ignore *required*; with `.[mcp]` installed it is typed and the same
-ignore is *redundant*. Those two lines carry
-`# type: ignore[untyped-decorator, unused-ignore]`, correct either way. A mypy
-result that only reproduces in one place is usually a dependency difference —
-check that before "fixing" the code.
+The isolated service has its own dependency boundary under
+`services/huske_mcp`; do not add its Linux/VPS dependencies to the macOS
+recording engine.
 
 Optional integration checks:
 
@@ -209,6 +181,24 @@ pytest tests/integration/test_real_whisper.py
   and UI are separate modules.
 - Prefer focused patches and tests over broad refactors.
 - Keep user-facing docs, examples, and specs aligned when behavior changes.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues on `tiagomoraes/huske`, driven by the `gh` CLI.
+See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Canonical kebab-case triage vocabulary (`needs-triage`, `needs-info`,
+`ready-for-agent`, `ready-for-human`, `wontfix`), separate from the topical
+labels in `docs/issue-triage.md`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one root `CONTEXT.md` spanning engine, app, and service, plus
+system-wide ADRs in `docs/adr/`. See `docs/agents/domain.md`.
 
 ## Branching
 

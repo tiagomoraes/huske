@@ -28,8 +28,9 @@ const Pillars = () => (
           <h3>Audio never leaves your machine.</h3>
           <p>
             Capture and transcription run on-device with <code>Parakeet</code> on Apple Silicon.
-            No accounts, no upload, no telemetry. Works offline. The only network call huske makes
-            is a once-a-day, opt-out version check.
+            No accounts, no audio upload, no telemetry. Works offline. Cloud sync is an explicit
+            opt-in and publishes only canonical transcript Markdown to the private Git repository
+            you choose.
           </p>
           <div className="stat">
             <div><strong>0</strong>audio uploads</div>
@@ -56,16 +57,16 @@ const Pillars = () => (
 
         <div className="pillar" style={{ display: "flex", flexDirection: "column" }}>
           <div className="ph">agent · ready</div>
-          <h3>A directory your agent can read — and search.</h3>
+          <h3>A private ledger your agents can reach.</h3>
           <p>
             Plain Markdown, organized by date, full YAML frontmatter, root <code>README.md</code>.
-            Point Claude Code or any LLM agent at <code>~/huske/transcripts/</code>, or opt into the
-            <code>huske[mcp]</code> extra for on-device semantic <a href="#search">search over an MCP server</a>.
+            Read <code>~/huske/transcripts/</code> directly, or let Huske.app publish only
+            those canonical files to private Git for the isolated <a href="#search">always-on service</a>.
           </p>
           <div className="stat">
             <div><strong>md</strong>output format</div>
-            <div><strong>vector</strong>local index</div>
-            <div><strong>mcp</strong>search + fetch</div>
+            <div><strong>git</strong>durable handoff</div>
+            <div><strong>mcp</strong>isolated read side</div>
           </div>
         </div>
       </div>
@@ -371,300 +372,147 @@ const OutputPreview = () => {
   );
 };
 
-const MCP_ENDPOINT = "http://127.0.0.1:7641/mcp";
-const MCP_TOKEN_PATH = "~/.config/huske/mcp_token";
-
-const SETUP_STEPS = [
-  { cmd: "uv tool install 'huske[mcp]'", note: "add the on-device search + MCP extra" },
-  { cmd: "huske index", note: "embed your transcripts locally · one-time backfill" },
-  { cmd: "huske mcp", note: "serve search + fetch · prints your endpoint + token" },
-];
-
-// Per-agent native config. The paste-prompt (below) is the primary path; this is
-// the "wire it yourself" fallback. Configs verified against each tool's docs.
-const AGENTS = [
-  {
-    id: "claude-code",
-    label: "Claude Code",
-    lang: "shell",
-    path: "or edit ~/.claude.json",
-    code:
-`claude mcp add --transport http huske \\
-  ${MCP_ENDPOINT} \\
-  --header "Authorization: Bearer $(cat ${MCP_TOKEN_PATH})"`,
-  },
-  {
-    id: "codex",
-    label: "Codex",
-    lang: "toml",
-    path: "~/.codex/config.toml",
-    code:
-`# first: export HUSKE_MCP_TOKEN=$(cat ${MCP_TOKEN_PATH})
-[mcp_servers.huske]
-url = "${MCP_ENDPOINT}"
-bearer_token_env_var = "HUSKE_MCP_TOKEN"`,
-  },
-  {
-    id: "cursor",
-    label: "Cursor",
-    lang: "json",
-    path: "~/.cursor/mcp.json",
-    code:
-`{
-  "mcpServers": {
-    "huske": {
-      "url": "${MCP_ENDPOINT}",
-      "headers": { "Authorization": "Bearer \${env:HUSKE_MCP_TOKEN}" }
-    }
-  }
-}`,
-  },
-  {
-    id: "vscode",
-    label: "VS Code",
-    lang: "json",
-    path: ".vscode/mcp.json",
-    code:
-`{
-  "servers": {
-    "huske": {
-      "type": "http",
-      "url": "${MCP_ENDPOINT}",
-      "headers": { "Authorization": "Bearer \${env:HUSKE_MCP_TOKEN}" }
-    }
-  }
-}`,
-  },
-  {
-    id: "opencode",
-    label: "opencode",
-    lang: "json",
-    path: "opencode.json",
-    code:
-`{
-  "mcp": {
-    "huske": {
-      "type": "remote",
-      "url": "${MCP_ENDPOINT}",
-      "enabled": true,
-      "headers": { "Authorization": "Bearer <token>" }
-    }
-  }
-}`,
-  },
-  {
-    id: "hermes",
-    label: "Hermes",
-    lang: "yaml",
-    path: "~/.hermes/config.yaml",
-    code:
-`mcp_servers:
-  huske:
-    url: "${MCP_ENDPOINT}"
-    headers:
-      Authorization: "Bearer <token>"`,
-  },
-  {
-    id: "openclaw",
-    label: "OpenClaw",
-    lang: "json",
-    path: "~/.openclaw/openclaw.json",
-    code:
-`{
-  "mcp": {
-    "servers": {
-      "huske": {
-        "url": "${MCP_ENDPOINT}",
-        "transport": "streamable-http",
-        "headers": { "Authorization": "Bearer <token>" }
-      }
-    }
-  }
-}`,
-  },
-];
-
-// The Composio-style instruction: paste it into the agent and it wires itself up.
-// Plain string for the clipboard; PromptText renders the same words with the
-// literal values syntax-highlighted so the code block reads as fill-in-the-values.
-const agentPrompt = (label) =>
-`Add an MCP server named "huske" to ${label}. Use HTTP (streamable) transport at ${MCP_ENDPOINT}, with the header "Authorization: Bearer <TOKEN>", where <TOKEN> is the contents of ${MCP_TOKEN_PATH} on this machine. It exposes "search" and "fetch" over my local huske transcripts. Start "huske mcp" first, then confirm by calling its search tool.`;
-
-const PromptText = ({ label }) => (
-  <>
-    Add an MCP server named <span className="lit">huske</span> to {label}. Use HTTP
-    (streamable) transport at <span className="lit">{MCP_ENDPOINT}</span>, with the
-    header <span className="lit">"Authorization: Bearer &lt;TOKEN&gt;"</span>, where{" "}
-    <span className="lit">&lt;TOKEN&gt;</span> is the contents of{" "}
-    <span className="lit">{MCP_TOKEN_PATH}</span> on this machine. It exposes{" "}
-    <span className="lit">search</span> and <span className="lit">fetch</span> over my
-    local huske transcripts. Start <span className="lit">huske mcp</span> first, then
-    confirm by calling its search tool.
-  </>
-);
-
-const SearchRecall = () => {
-  const [agentId, setAgentId] = React.useState("claude-code");
-  const [showNative, setShowNative] = React.useState(false);
-  const agent = AGENTS.find((a) => a.id === agentId) || AGENTS[0];
-  const prompt = agentPrompt(agent.label);
-  return (
-    <section id="search">
-      <div className="page">
-        <SectionHead
-          num="04"
-          label="search · mcp"
-          lead={<>Recall over <span className="accent">MCP.</span></>}
-          sub={<>Opt into the <code>huske[mcp]</code> extra and every transcript becomes searchable by <em>meaning</em>: on-device embeddings, a local vector index, and an MCP server your agent queries directly. Run it, paste one prompt into Claude Code, Codex, Cursor, or any MCP client, and it wires itself up. Nothing but the answer ever leaves your machine.</>}
-        />
-        <div className="recall connect-grid">
-          <div className="panel connect">
-            <div className="cstep">
-              <div className="cstep-head"><span className="cnum">01</span> run the server</div>
-              <div className="setup">
-                {SETUP_STEPS.map((s) => (
-                  <div className="sline" key={s.cmd}>
-                    <code className="sc"><span className="sp">$</span> {s.cmd}</code>
-                    <span className="snote"># {s.note}</span>
-                    <CopyButton text={s.cmd} className="copy ghost mini" withLabel={false}/>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="cstep">
-              <div className="cstep-head"><span className="cnum">02</span> connect your agent</div>
-              <div className="agent-tabs" role="tablist" aria-label="Select your agent">
-                {AGENTS.map((a) => (
-                  <button
-                    key={a.id}
-                    role="tab"
-                    aria-selected={a.id === agentId}
-                    className={`atab ${a.id === agentId ? "active" : ""}`}
-                    onClick={() => setAgentId(a.id)}
-                  >
-                    {a.label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="prompt-block">
-                <div className="pb-head">
-                  <span className="pb-label">paste into {agent.label}</span>
-                  <CopyButton text={prompt} className="copy ghost" />
+const SearchRecall = () => (
+  <section id="search">
+    <div className="page">
+      <SectionHead
+        num="04"
+        label="cloud · sync"
+        lead={<>Your Mac writes. <span className="accent">Private Git carries.</span></>}
+        sub={<>Huske.app publishes each finalized transcript to a private repository using your existing Git credentials. No ingest API, no token stored by huske, and no network work on the audio hot path.</>}
+      />
+      <div className="recall connect-grid">
+        <div className="panel connect">
+          <div className="cstep">
+            <div className="cstep-head"><span className="cnum">01</span> create one private repository</div>
+            <p className="rnote">
+              Keep transcript data separate from the Huske source. Paste its SSH
+              URL into the app's <strong>Cloud sync</strong> pane.
+            </p>
+          </div>
+          <div className="cstep">
+            <div className="cstep-head"><span className="cnum">02</span> sync now, then automate</div>
+            <div className="setup">
+              {[
+                { cmd: "huske config set sync_remote git@github.com:you/huske-transcripts.git", note: "or use Huske.app" },
+                { cmd: "huske config set sync_enabled true", note: "publish after every transcript" },
+                { cmd: "huske sync", note: "initial/manual reconciliation" },
+              ].map((s) => (
+                <div className="sline" key={s.cmd}>
+                  <code className="sc"><span className="sp">$</span> {s.cmd}</code>
+                  <span className="snote"># {s.note}</span>
+                  <CopyButton text={s.cmd} className="copy ghost mini" withLabel={false}/>
                 </div>
-                <div className="pb-code"><PromptText label={agent.label}/></div>
-                <div className="pb-foot">the agent reads your token and registers the server itself. no secret is shown on this page.</div>
-              </div>
-
-              <div className={`native ${showNative ? "open" : ""}`}>
-                <button
-                  type="button"
-                  className="native-toggle"
-                  aria-expanded={showNative}
-                  onClick={() => setShowNative((v) => !v)}
-                >
-                  <span className="chev" aria-hidden="true">›</span>
-                  rather wire it up yourself? {agent.label} config
-                </button>
-                <div className="native-wrap">
-                  <div className="native-inner">
-                    <div className="native-body">
-                      <div className="nb-head">
-                        <span className="nb-path">{agent.path}</span>
-                        <span className="nb-lang">{agent.lang}</span>
-                        <CopyButton text={agent.code} className="copy ghost"/>
-                      </div>
-                      <pre className="nb-code"><code>{agent.code}</code></pre>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
-
-          <div className="panel wiring">
-            <div className="whead"><span className="dot"/> mcp · loopback</div>
-            <div className="wmeta">
-              <div className="row"><span className="k">endpoint</span><span className="v">127.0.0.1:7641/mcp</span></div>
-              <div className="row"><span className="k">transport</span><span className="v">http · streamable</span></div>
-              <div className="row"><span className="k">tools</span><span className="v">search · fetch</span></div>
-              <div className="row"><span className="k">model</span><span className="v">multilingual-e5-base · 768d</span></div>
-              <div className="row"><span className="k">index</span><span className="v">on-device · sqlite-vec</span></div>
-              <div className="row"><span className="k">distill</span><span className="v">qwen3.5:0.8b · opt-in</span></div>
-            </div>
-            <div className="auth">
-              <div className="auth-head"><KeyGlyph/> authentication</div>
-              <p className="auth-p">
-                Every request carries a bearer token. huske generates one on first run,
-                prints it in the <code>huske mcp</code> banner, and stores it at
-                {" "}<code>{MCP_TOKEN_PATH}</code> (mode <code>0600</code>).
-              </p>
-              <p className="auth-p">
-                Reference it with <code>$(cat …)</code> or an env var so the secret stays out
-                of committed config, and off this page.
-              </p>
-            </div>
-            <div className="wnote">
-              <div className="ln"><span className="tick">✓</span><span>Claude Code, Codex, Cursor &amp; more connect direct over loopback. No tunnel.</span></div>
-              <div className="ln"><span className="warn">⚠</span><span>ChatGPT needs a public HTTPS tunnel to reach it (opt-in).</span></div>
-            </div>
+          <div className="cstep">
+            <div className="cstep-head"><span className="cnum">03</span> retry without another database</div>
+            <p className="rnote">
+              Huske pulls and rebases before pushing. A commit left offline is
+              the durable retry queue; a byte conflict at an established
+              transcript path stops safely instead of overwriting either copy.
+            </p>
           </div>
         </div>
-
-        <div className="two-stage">
-          <div className="ts-head">
-            <span className="ts-tag">opt-in</span>
-            <span>two-stage recall · distillation</span>
+        <div className="panel wiring">
+          <div className="whead"><span className="dot"/> published surface</div>
+          <div className="wmeta">
+            <div className="row"><span className="k">included</span><span className="v">transcripts/YYYY-MM-DD/*.md</span></div>
+            <div className="row"><span className="k">excluded</span><span className="v">audio · screenshots · logs</span></div>
+            <div className="row"><span className="k">credentials</span><span className="v">ssh-agent · Git helper</span></div>
+            <div className="row"><span className="k">checkout</span><span className="v">~/huske/sync</span></div>
+            <div className="row"><span className="k">default</span><span className="v">off · explicit opt-in</span></div>
           </div>
-          <div className="ts-grid">
-            <div className="ts-main">
-              <div className="ts-flow">
-                <span className="node">transcript</span>
-                <span className="arr">→</span>
-                <span className="node hot">distil · local LLM</span>
-                <span className="arr">→</span>
-                <span className="node">statements</span>
-                <span className="arr">→</span>
-                <span className="node">search</span>
-                <span className="arr">→</span>
-                <span className="node">fetch grounds in source</span>
-              </div>
-              <p className="ts-p">
-                Set <code>distill_enabled</code> and a local LLM condenses each transcript
-                into compact, self-contained <em>statements</em> in a fast, non-reasoning
-                pass. huske searches those first — denser and less noisy than raw speech —
-                then <code>fetch</code>
-                grounds every hit back in the verbatim transcript. The model is just a
-                config string, so swap it freely; it runs in its own daemon, stays
-                on-device, and degrades gracefully when it's off.
-              </p>
-            </div>
-            <div className="ts-meta">
-              <div className="row"><span className="k">model</span><span className="v">qwen3.5:0.8b <span className="opt">· any local tag</span></span></div>
-              <div className="row"><span className="k">backend</span><span className="v">ollama · on-device</span></div>
-              <div className="row"><span className="k">writes</span><span className="v">&lt;name&gt;.statements.json</span></div>
-              <div className="row"><span className="k">default</span><span className="v">off · graceful</span></div>
-            </div>
+          <div className="wnote">
+            <div className="ln"><span className="tick">✓</span><span>Only canonical Markdown crosses the boundary.</span></div>
+            <div className="ln"><span className="tick">✓</span><span>Git work runs in one coalescing background thread.</span></div>
+            <div className="ln"><span className="warn">⚠</span><span>The private repository contains plaintext transcripts.</span></div>
           </div>
         </div>
       </div>
-    </section>
-  );
-};
+    </div>
+  </section>
+);
+
+const Connect = () => (
+  <section id="connect">
+    <div className="page">
+      <SectionHead
+        num="05"
+        label="isolated · mcp"
+        lead={<>Your Mac sleeps. <span className="accent">Your context stays available.</span></>}
+        sub={<>Run the separate <code>huske-mcp</code> package on a VPS. It owns no capture code: it pulls a read-only Git replica, incrementally indexes Markdown, and exposes authenticated Streamable HTTP MCP.</>}
+      />
+      <div className="prereq">
+        <span className="pq-label">the boundary</span>
+        <ul>
+          <li>Huske.app only records and pushes canonical transcript files.</li>
+          <li>The VPS deploy key is read-only; polling is the consistency path.</li>
+          <li>The derived SQLite database lives outside Git and can be rebuilt.</li>
+        </ul>
+      </div>
+      <div className="recall connect-grid">
+        <div className="panel connect">
+          <div className="cstep">
+            <div className="cstep-head"><span className="cnum">01</span> tiny by default</div>
+            <p className="rnote">
+              One process, one poll thread, SQLite FTS5, an 8 MB page cache, and
+              a 32 MB mmap ceiling. No resident model. This is the supported
+              profile for 1 vCPU / 512 MB.
+            </p>
+          </div>
+          <div className="cstep">
+            <div className="cstep-head"><span className="cnum">02</span> webhook for latency, polling for truth</div>
+            <p className="rnote">
+              A signed GitHub push webhook only wakes the poller. Missed webhook,
+              restart, or network outage: the next poll still converges.
+            </p>
+          </div>
+          <div className="cstep">
+            <div className="cstep-head"><span className="cnum">03</span> connect your agents</div>
+            <p className="rnote">
+              Use <code>https://huske.example.com/mcp</code> with an
+              <code> Authorization: Bearer &lt;token&gt;</code> header. The
+              service refuses to start without that token, even on loopback.
+            </p>
+          </div>
+        </div>
+        <div className="panel wiring">
+          <div className="whead"><span className="dot"/> huske-mcp · vps</div>
+          <div className="wmeta">
+            <div className="row"><span className="k">sync</span><span className="v">git pull · fast-forward only</span></div>
+            <div className="row"><span className="k">index</span><span className="v">SQLite WAL · incremental SHA-256</span></div>
+            <div className="row"><span className="k">tools</span><span className="v">overview · recap · search · fetch · sync_status</span></div>
+            <div className="row"><span className="k">auth</span><span className="v">mandatory bearer · Host validation</span></div>
+            <div className="row"><span className="k">optional</span><span className="v">Model2Vec hybrid semantic profile</span></div>
+          </div>
+          <div className="wnote">
+            <div className="ln"><span className="tick">✓</span><span>Answers while the recording Mac is offline.</span></div>
+            <div className="ln"><span className="tick">✓</span><span>systemd caps the tiny service below a 512 MB VPS.</span></div>
+            <div className="ln"><span className="warn">⚠</span><span>The VPS holds plaintext; encrypt and expose it deliberately.</span></div>
+          </div>
+        </div>
+      </div>
+      <p className="section-cta">
+        <a href="docs/#connect">Open the full Git, VPS, webhook, and MCP guide →</a>
+      </p>
+    </div>
+  </section>
+);
 
 const Privacy = () => (
   <section id="privacy">
     <div className="page">
       <SectionHead
-        num="05"
+        num="06"
         label="privacy"
         lead={<>Local-first isn't a vibe. <span className="accent">It's the architecture.</span></>}
       />
       <div className="privacy">
         <div>
           <div className="eyebrow"><span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "var(--brand-amber)" }}/> the deal</div>
-          <h3>Audio, transcripts, and screenshots stay on the machine that recorded them.</h3>
+          <h3>Audio and screenshots stay on the Mac. Transcript sync is explicit.</h3>
           <p>
             huske is local-first by design. The capture pipeline never opens an outbound socket
             for audio. Transcription happens on your Apple GPU. Filenames, frontmatter, logs —
@@ -672,8 +520,10 @@ const Privacy = () => (
             <strong> you</strong> chose.
           </p>
           <p>
-            The single network call huske makes is a once-a-day version check against PyPI.
-            <code>HUSKE_NO_UPDATE_CHECK=1</code> turns it off.
+            By default, the only network call is a once-a-day version check
+            against PyPI. <code>HUSKE_NO_UPDATE_CHECK=1</code> turns it off.
+            Enabling Cloud sync additionally pushes canonical plaintext
+            transcripts to the private Git repository you chose.
           </p>
         </div>
         <div>
@@ -681,8 +531,8 @@ const Privacy = () => (
             <li>
               <span className="glyph">✓</span>
               <span>
-                <strong>No upload.</strong>
-                <span className="desc">Audio, transcripts, and metadata never leave the device.</span>
+                <strong>No audio upload.</strong>
+                <span className="desc">Audio and screenshots never enter the sync repository. Transcript sync is off by default.</span>
               </span>
             </li>
             <li>
@@ -722,7 +572,19 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.12.0", date: "2026-07-28", tag: "latest",
+    ver: "0.13.0", date: "2026-07-31", tag: "latest",
+    items: [
+      { kind: "removed", text: <><strong>Read this first if you upgrade: five commands are gone.</strong> <code>huske mcp</code>, <code>huske serve</code>, <code>huske index</code>, <code>huske setup</code>, and <code>huske connect</code>, along with the <code>mcp</code>/<code>server</code> extras, the embed worker, the OAuth connector, the local <code>sqlite-vec</code> stores, and the ingest endpoint. Search and MCP now live in a separate service (below); recording and transcription are unchanged.</> },
+      { kind: "added", text: <><strong>Cloud sync: your Mac publishes to a private Git repository.</strong> The new Cloud sync pane takes a repository and branch and publishes every finalized transcript automatically; <code>huske sync</code> does the same from a terminal. Only canonical <code>YYYY-MM-DD/*.md</code> crosses the boundary — never audio, screenshots, logs, or config. It uses your existing SSH agent or Git credential helper, so huske stores no token, and an unpushed commit <em>is</em> the offline retry queue.</> },
+      { kind: "added", text: <><strong><code>huske-mcp</code>: an always-on service that answers while the Mac sleeps.</strong> A separate Linux/VPS package that pulls the repository read-only, indexes it incrementally by SHA-256 into SQLite, and serves authenticated Streamable HTTP MCP — <code>search</code>, <code>fetch</code>, <code>recap</code>, <code>overview</code>, <code>sync_status</code>. Polling is what makes it correct; a signed GitHub webhook only wakes it early.</> },
+      { kind: "added", text: <><strong>It fits on a 512 MB box.</strong> The default <code>tiny</code> profile is FTS5-only — one process, one poll thread, an 8 MB page cache, a 32 MB mmap ceiling, no resident model — and is supported on 1 vCPU / 512 MB. The optional <code>semantic</code> profile adds Model2Vec hybrid retrieval when you have more memory. Docker, a systemd unit with resource limits, and a full VPS guide ship with it.</> },
+      { kind: "changed", text: <>The recording app is now only a writer and publisher. Its MCP, OAuth, local vector index, custom ingest endpoint, and off-device server responsibilities all move behind the independent service boundary in ADR 0009.</> },
+      { kind: "changed", text: <>Local distillation stays an opt-in Statement sidecar and export feature. The remote service deliberately builds its own index from canonical Markdown, so sidecars are not part of the Git sync contract.</> },
+      { kind: "security", text: <><code>huske-mcp</code> refuses to start without a bearer token even on loopback, validates MCP Host and Origin values, bounds request and transcript sizes, keeps its Git checkout read-only, and never exposes repository credentials through MCP status or its public health response.</> },
+    ],
+  },
+  {
+    ver: "0.12.0", date: "2026-07-28",
     items: [
       { kind: "added", text: <><strong>huske starts Ollama for you.</strong> Only relevant if you have set <code>distill_backend = "ollama"</code> — the default backend runs the model itself and needs none of this. When distillation turns on, huske now starts the daemon if the <code>ollama</code> CLI is installed but idle, and pulls the configured model if it's missing, streaming progress into the activity feed, instead of only telling you the daemon is unreachable. It only ever runs the local <code>ollama</code> CLI and will never install Ollama for you. Set <code>distill_auto_manage = false</code> to go back to being told about the problem rather than having it fixed.</> },
       { kind: "fixed", text: <><strong>A latent crash in the built-in distillation backend.</strong> <code>mlx_lm.load()</code> returns two values or three depending on how it's called, and huske unpacked exactly two — correct today, but one argument away from breaking. Found by turning on the type checker in CI, which had been configured and never enforced.</> },
@@ -891,7 +753,7 @@ const Releases = () => (
   <section id="releases">
     <div className="page">
       <SectionHead
-        num="06"
+        num="07"
         label="releases"
         lead={<>A short, public <span className="accent">changelog.</span></>}
         sub={<>Semantic versioning after 0.1.0. Patch notes are written in plain English and live in the repo. Install with <code>uv tool upgrade huske</code>, <code>pipx upgrade huske</code>, or <code>brew upgrade huske</code>.</>}
@@ -928,7 +790,7 @@ const Community = () => (
   <section id="community">
     <div className="page">
       <SectionHead
-        num="07"
+        num="08"
         label="community"
         lead={<>Open source. <span className="accent">Calmly maintained.</span></>}
         sub="huske is a small project. Contributions are welcome, issues are triaged in the open, and there's a clear PR template. Read the contributing guide before opening anything bigger than a typo fix."
@@ -970,7 +832,7 @@ const FAQ = () => (
   <section id="faq" className="faq-section">
     <div className="page page-narrow">
       <SectionHead
-        num="08"
+        num="09"
         label="faq"
         lead={<>The questions that actually <span className="accent">come up.</span></>}
       />
@@ -978,8 +840,8 @@ const FAQ = () => (
         <details open>
           <summary>Does any audio leave my machine? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>No. Capture and transcription both run locally — <code>Parakeet</code> on Apple Silicon. The only network call huske makes is a once-a-day, opt-out version check against PyPI.</p>
-            <p>If you want to keep it fully offline, <code>HUSKE_NO_UPDATE_CHECK=1</code> turns even that off. <code>huske doctor</code> validates local setup without uploading recordings.</p>
+            <p>No. Capture and transcription both run locally — <code>Parakeet</code> on Apple Silicon. Cloud sync, when explicitly enabled, publishes canonical transcript Markdown only; audio and screenshots never enter Git.</p>
+            <p>With sync off, the only network call is the once-a-day version check. <code>HUSKE_NO_UPDATE_CHECK=1</code> turns that off too.</p>
           </div>
         </details>
         <details>
@@ -998,21 +860,41 @@ const FAQ = () => (
           <summary>Can I use it with Claude Code or another agent? <span className="chev">→</span></summary>
           <div className="answer">
             <p>Yes — that's the design target. Files under <code>~/huske/transcripts/</code> are plain Markdown, dated, with frontmatter. Point your agent at the directory and ask. The root <code>README.md</code> is auto-generated to be a useful entry point.</p>
-            <p>For semantic recall across months — "what did we decide about X this week" — install the <code>huske[mcp]</code> extra and run <code>huske mcp</code>. Your agent then searches by meaning over a local index instead of grepping filenames. See <a href="#search">search</a>.</p>
+            <p>For permanent indexed access, enable private Git sync and run the separate <code>huske-mcp</code> service on a VPS. It offers topic search, exact date/source/session filters, chronological recap, overview, and contextual fetch.</p>
           </div>
         </details>
         <details>
-          <summary>How does the semantic search / MCP server work? <span className="chev">→</span></summary>
+          <summary>How does the isolated MCP service work? <span className="chev">→</span></summary>
           <div className="answer">
-            <p><code>pip install 'huske[mcp]'</code> adds two subcommands. <code>huske index</code> embeds every transcript into a single local <code>sqlite-vec</code> file with a multilingual model running on the Apple GPU via MLX — the same stack as transcription, so nothing leaves the machine. Set <code>indexing_enabled = true</code> to keep it fresh automatically as you record.</p>
-            <p><code>huske mcp</code> serves a loopback HTTP MCP endpoint (bearer token + Origin checks) exposing <code>search</code> and <code>fetch</code>. Claude Code, Cursor, Codex, and most local agents connect directly over loopback — no tunnel. Claude Desktop connects through a small <code>mcp-remote</code> bridge, and ChatGPT needs an HTTPS tunnel; the <a href="docs/#search">docs</a> have copy-paste config for each. Answering still happens in whichever chat model you connect, so result snippets reach that provider when it reads them — the indexing and the index itself stay on-device.</p>
+            <p>Huske.app pushes immutable Markdown into a private repository. The independent Linux service pulls it read-only, incrementally updates a SQLite WAL index by transcript SHA-256, and serves Streamable HTTP MCP with mandatory bearer authentication.</p>
+            <p>The default <code>tiny</code> profile is FTS5-only and supports a 1 vCPU / 512 MB VPS. The optional <code>semantic</code> profile adds Model2Vec dense retrieval and reciprocal-rank fusion when more RAM is available.</p>
+          </div>
+        </details>
+        <details>
+          <summary>Why can't I just ask <code>search</code> what happened yesterday? <span className="chev">→</span></summary>
+          <div className="answer">
+            <p>Because dates are exact filters, not relevance signals. <code>recap</code> returns the requested range chronologically; <code>overview</code> reports corpus coverage first. Use <code>search</code> for topics and <code>fetch</code> before quoting.</p>
+          </div>
+        </details>
+        <details>
+          <summary>Can I query my transcripts from my phone? <span className="chev">→</span></summary>
+          <div className="answer">
+            <p>Yes, when the phone's agent supports a remote MCP URL with a bearer header. Put <code>huske-mcp</code> behind TLS or a private overlay network and use its permanent endpoint.</p>
+            <p>Clients that insist on browser OAuth and cannot attach a bearer header need an external identity-aware proxy. OAuth account management is intentionally not embedded in the tiny transcript service.</p>
+          </div>
+        </details>
+        <details>
+          <summary>Why not just sync the transcripts to Google Drive? <span className="chev">→</span></summary>
+          <div className="answer">
+            <p>Future storage providers can fit the same boundary, but Git is the first because it gives an auditable durable handoff, simple read-only deploy keys on the VPS, and deterministic conflict handling.</p>
+            <p>For document-only destinations, <code>huske export</code> still produces one digest per day. That is separate from the canonical Git replica.</p>
           </div>
         </details>
         <details>
           <summary>What is transcript distillation? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>An opt-in second stage for search. Flip it on in the app (Configuration → Distillation, or mid-session from the Record pane / ⌘K palette) and a <strong>local</strong> LLM condenses each transcript into compact, self-contained <em>statements</em> — the decisions, facts, and commitments, minus the filler. huske embeds those into a separate index and your agent searches them first, then <code>fetch</code> grounds every hit back in the verbatim transcript. Denser recall for "what did we decide about X," with the source always one hop away.</p>
-            <p>By default huske runs the model itself (built-in MLX backend — nothing to install; the default <code>Qwen3.5 0.8B</code> downloads on first use like the Parakeet weights), or point <code>distill_backend = "ollama"</code> at your own daemon. Fully on-device, off by default, and it degrades gracefully: if the model isn't ready, recording and ordinary search carry on. Run <code>huske distill</code> to backfill your history. See the <a href="docs/#search">docs</a>.</p>
+            <p>An optional local derivation. A local LLM condenses transcripts into inspectable <code>.statements.json</code> sidecars that <code>huske export</code> can use. Canonical Markdown remains the record.</p>
+            <p>The sidecars are regenerable and are not pushed by Cloud sync; the isolated VPS service builds its own index from canonical transcripts. Run <code>huske distill</code> to backfill them.</p>
           </div>
         </details>
         <details>
@@ -1045,45 +927,124 @@ const FAQ = () => (
   </section>
 );
 
-// Bridge CTA under the hero — surfaces the two opt-in "power" commands
-// (run on login, recall over MCP) with one headline command each and a link
-// into the full docs walkthrough. Not a numbered chapter; a quick-start strip.
-const SETUP_CARDS = [
+// The onboarding IA. Setup used to be spread across the hero, a "go further"
+// strip, the search section, and the connect section — four places, none of
+// which said what a step costs or requires. So this is the single answer to
+// "what do I actually do", as three tiers ordered by effort, each stating its
+// prerequisites up front.
+//
+// The third tier deliberately leads with its requirement rather than its
+// benefit: it needs a server the reader has to own, and discovering that after
+// following two steps is the worst version of this page.
+const TIERS = [
   {
-    id: "autostart",
-    ph: "record from login",
-    cmd: "huske autostart install",
-    desc: "In the app it's two switches — Open at login + Start recording when Huske opens. This command is the app-less launchd alternative.",
-    cta: "Autostart guide",
-    href: "docs/#autostart",
-    aria: "Record from login — read the autostart guide",
+    id: "record",
+    num: "01",
+    kicker: "everyone starts here",
+    title: "Record and transcribe",
+    cost: "about 2 minutes",
+    terminal: false,
+    needs: ["macOS 14+ Apple Silicon"],
+    steps: [
+      <>Download <strong>Huske.app</strong> and open it.</>,
+      <>macOS blocks the first open because the build isn't notarized — go to <strong>System Settings → Privacy &amp; Security</strong> and click <strong>Open Anyway</strong>. Once, ever.</>,
+      <>The app installs its engine for you, then asks for <strong>Microphone</strong> and audio-capture permission.</>,
+      <>Press record. Transcripts land in <code>~/huske/transcripts/</code>.</>,
+    ],
+    outcome: "A day-organized Markdown ledger of everything said on your Mac.",
   },
   {
-    id: "mcp",
-    ph: "recall over mcp",
-    cmd: "huske mcp",
-    desc: "Serves on-device semantic search over your transcripts to Claude, Codex, Cursor, and more.",
-    cta: "MCP setup",
-    href: "docs/#search",
-    aria: "Recall over MCP — read the MCP setup guide",
+    id: "connect-local",
+    num: "02",
+    kicker: "private cloud sync",
+    title: "Publish the ledger",
+    cost: "about 2 minutes",
+    terminal: false,
+    needs: ["an empty private GitHub repository", "Git or SSH credentials already working on this Mac"],
+    steps: [
+      <>Open <strong>Cloud sync</strong> in Huske.app.</>,
+      <>Paste the private repository URL and press <strong>Sync now</strong>.</>,
+      <>Enable automatic sync after the initial push succeeds.</>,
+      <>Huske publishes only canonical transcript Markdown after each finalized chunk.</>,
+    ],
+    outcome: "A durable private Git replica that catches up automatically after outages.",
+    cli: "huske sync",
+  },
+  {
+    id: "connect-remote",
+    num: "03",
+    kicker: "advanced",
+    title: "Serve it to agents",
+    cost: "half an hour, and upkeep",
+    terminal: true,
+    needs: [
+      "an always-on server you control (a VPS)",
+      "TLS or a private overlay network",
+      "a read-only deploy key for the transcript repository",
+    ],
+    steps: [
+      <>Install the separate <code>huske-mcp</code> package on the VPS.</>,
+      <>Configure its read-only repository, bearer token, and allowed proxy hostname.</>,
+      <>Run the initial pull/index, then enable the supplied systemd unit.</>,
+      <>Connect any agent that supports Streamable HTTP MCP plus a bearer header.</>,
+    ],
+    outcome: "An authenticated permanent MCP endpoint that works while the Mac sleeps.",
+    href: "docs/#connect",
+    hrefLabel: "Full guide",
   },
 ];
 
-const SetupStrip = () => (
-  <section className="setup-strip" aria-label="Set up huske">
+const GetStarted = () => (
+  <section id="start">
     <div className="page">
-      <div className="strip-head"><span className="num">→</span><span>go further</span></div>
-      <p className="strip-sub">Two opt-in set-ups take huske further: record from every login, and search your transcripts straight from your agent.</p>
-      <div className="strip-grid">
-        {SETUP_CARDS.map((c) => (
-          <div className="strip-card" key={c.id}>
-            <div className="sc-ph">{c.ph}</div>
-            <div className="sc-cmd">
-              <span className="sc-cmd-text"><span className="sp">$</span> {c.cmd}</span>
-              <CopyButton text={c.cmd} className="copy ghost mini" withLabel={false} />
+      <SectionHead
+        num="→"
+        label="get started"
+        lead={<>Three steps. <span className="accent">Two need no terminal.</span></>}
+        sub={<>Each one below says what it costs and what it needs before you begin. Stop after step 1 and huske is still a complete transcript ledger; stop after step 2 and your agent can search it. Step 3 is the only one that needs infrastructure, and it says so.</>}
+      />
+      <div className="tiers">
+        {TIERS.map((t) => (
+          <div className={`tier ${t.terminal ? "adv" : ""}`} key={t.id}>
+            <div className="tier-head">
+              <span className="tier-num">{t.num}</span>
+              <div className="tier-titles">
+                <div className="tier-kicker">{t.kicker}</div>
+                <h3>{t.title}</h3>
+              </div>
             </div>
-            <p className="sc-desc">{c.desc}</p>
-            <a className="sc-cta" href={c.href} aria-label={c.aria}>{c.cta} <span className="arrow">→</span></a>
+            <div className="tier-meta">
+              <span className="tm">{t.cost}</span>
+              <span className={`tm ${t.terminal ? "warn" : "good"}`}>
+                {t.terminal ? "terminal required" : "no terminal"}
+              </span>
+            </div>
+            <div className="tier-needs">
+              <span className="tn-label">you need</span>
+              <ul>
+                {t.needs.map((n, i) => <li key={i}>{n}</li>)}
+              </ul>
+            </div>
+            <ol className="tier-steps">
+              {t.steps.map((step, i) => <li key={i}>{step}</li>)}
+            </ol>
+            <p className="tier-outcome">{t.outcome}</p>
+            {t.cli && (
+              <p className="tier-cli">
+                Prefer a terminal? <code>{t.cli}</code> does the same thing and tells you
+                which step you're on.
+              </p>
+            )}
+            {t.href && (
+              // Same-site hrefs (docs/#…) stay in this tab; only off-site ones open a new one.
+              <a
+                className="tier-link"
+                href={t.href}
+                {...(/^https?:/.test(t.href) ? { target: "_blank", rel: "noopener" } : {})}
+              >
+                {t.hrefLabel} <span className="arrow">→</span>
+              </a>
+            )}
           </div>
         ))}
       </div>
@@ -1092,8 +1053,5 @@ const SetupStrip = () => (
 );
 
 Object.assign(window, {
-  SectionHead, Pillars, SetupStrip, HowItWorks, OutputPreview, SearchRecall, Privacy, Releases, Community, FAQ,
-  // Shared so the docs page (components-docs.jsx) reuses the same MCP setup
-  // data and per-agent configs — single source of truth.
-  MCP_ENDPOINT, MCP_TOKEN_PATH, SETUP_STEPS, AGENTS, agentPrompt, PromptText,
+  SectionHead, Pillars, GetStarted, HowItWorks, OutputPreview, SearchRecall, Connect, Privacy, Releases, Community, FAQ,
 });

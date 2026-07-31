@@ -107,26 +107,6 @@ def incomplete_root(cfg: RuntimeConfig) -> Path:
     return cfg.audio_root / "incomplete"
 
 
-def index_root(cfg: RuntimeConfig) -> Path:
-    return cfg.index_root
-
-
-def index_db_path(cfg: RuntimeConfig) -> Path:
-    """Single-file sqlite-vec passage store under ``index_root``."""
-    return cfg.index_root / "passages.db"
-
-
-def statements_db_path(cfg: RuntimeConfig) -> Path:
-    """Single-file sqlite-vec store of distilled Statements under ``index_root``.
-
-    Kept separate from ``passages.db`` so the two retrieval granularities are
-    independent — enabling distillation never forces a rebuild of an existing
-    passage index, and a Statement re-index doesn't touch Passages. See
-    docs/adr/0005-llm-distillation.md.
-    """
-    return cfg.index_root / "statements.db"
-
-
 def statements_sidecar_path(transcript_path: Path) -> Path:
     """The distilled-Statements sidecar for a transcript.
 
@@ -140,16 +120,6 @@ def statements_sidecar_path(transcript_path: Path) -> Path:
 
 def sync_root(cfg: RuntimeConfig) -> Path:
     return cfg.sync_root
-
-
-def outbox_db_path(cfg: RuntimeConfig) -> Path:
-    """Durable replication send-outbox (sqlite) under ``sync_root``.
-
-    Records which transcripts the off-device huske server has acknowledged so a
-    Mac that was offline catches the server up on reconnect. See
-    docs/adr/0004-off-device-huske-server.md.
-    """
-    return cfg.sync_root / "outbox.db"
 
 
 def screenshots_session_dir(

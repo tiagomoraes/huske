@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded-by-0009
 ---
 
 # Optional off-device huske server (push-replicated transcripts)

@@ -93,9 +93,13 @@ class RuntimeConfig(BaseModel):
     audio_root: Path = Field(default=Path.home() / "huske" / "audio")
     logs_root: Path = Field(default=Path.home() / "huske" / "logs")
     screenshots_root: Path = Field(default=Path.home() / "huske" / "screenshots")
-    # Local semantic search index (sqlite-vec passage store). See
-    # docs/adr/0002-local-search-stack.md.
-    index_root: Path = Field(default=Path.home() / "huske" / "index")
+    # Where `huske export` writes its one-file-per-day Markdown digests. Nothing
+    # is written here unless you run `huske export`; it exists so a folder-reading
+    # tool (a Claude Project, NotebookLM, Obsidian, or a synced Drive folder) has
+    # a single document per day instead of one per chunk. Point a sync client at
+    # this directory only if you accept plaintext transcripts leaving the machine
+    # — see docs/integrations.md.
+    export_root: Path = Field(default=Path.home() / "huske" / "export")
 
     # Transcription backend. Parakeet by default (silence-robust, multilingual,
     # MLX-accelerated); `whisper` keeps the legacy mlx-whisper path.
@@ -195,71 +199,33 @@ class RuntimeConfig(BaseModel):
     #   off : disable system audio capture entirely (mic-only).
     system_audio_backend: SystemAudioBackend = "auto"
 
-    # --- Local semantic search + MCP server (opt-in, `huske[mcp]` extra) ---
-    # When true, `huske run` indexes each finalized transcript into the passage
-    # store via an isolated embedding subprocess. Off by default so recording
-    # never pays the embedding cost unless explicitly opted in. See
-    # docs/adr/0003-embed-worker-isolation.md.
-    indexing_enabled: bool = False
-    # Embedding model id. Changing this invalidates the index (different vector
-    # space) — the store refuses to mix spaces; run `huske index --rebuild`.
-    embedding_model: str = "mlx-community/multilingual-e5-base"
-    # Passages per embedding forward pass. Lower = less peak GPU/RAM per batch
-    # (a lighter footprint); higher = more throughput on a roomy machine.
-    # Applies to both live indexing and the `huske index` backfill.
-    embed_batch_size: int = Field(default=16, ge=1, le=256)
-    # The `huske index` backfill runs in *low-impact* mode by default: it lowers
-    # its CPU priority, shrinks the embed batch, and releases the MLX buffer
-    # cache between files so a full-history backfill can't exhaust RAM or pin
-    # the GPU. Set false (or pass `huske index --fast`) to run at full speed.
-    index_low_impact: bool = True
-    # Optional hard ceiling (MB) on the MLX/Metal working set during indexing.
-    # None lets MLX use its default (~1.5x the device's recommended working
-    # set). Set this only if even low-impact mode is too heavy for your Mac.
-    index_memory_limit_mb: int | None = Field(default=None, ge=128)
-    # `huske mcp` daemon bind address. Loopback-only by default; a bearer token
-    # and Origin/Host validation guard it. See docs/adr/0001-http-only-mcp-daemon.md.
-    mcp_host: str = "127.0.0.1"
-    mcp_port: int = Field(default=7641, gt=0, le=65535)
-
-    # --- Off-device huske server (opt-in replication) ----------------------
-    # See docs/adr/0004-off-device-huske-server.md. The send side ships in the
-    # base install and is *inert* until `sync_endpoint` is set, so the 99% local
-    # case pays nothing.
+    # --- Cloud transcript sync (Git first; provider boundary is explicit) ---
+    # See docs/adr/0009-git-replica-and-isolated-mcp-service.md.
     #
-    # Client (`huske run` / `huske sync`): when set, each finalized transcript is
-    # pushed to this huske server's ingest endpoint, e.g.
-    # "https://huske.example.com". The bearer (write) token is read from
-    # ~/.config/huske/sync_token. Recording never blocks on the network — the
-    # push runs out-of-band and reconciles on reconnect.
-    sync_endpoint: str | None = None
-    # Verify the server's TLS certificate. Disable ONLY for local testing.
-    sync_verify_tls: bool = True
-    # Durable send-outbox location (records which transcripts the server has
-    # acknowledged, so an offline Mac catches up on reconnect).
+    # The recording app publishes immutable transcript files to a private Git
+    # repository. It never hosts a read/MCP surface. Git is the first storage
+    # provider (GitHub is the documented setup), while `sync_provider` keeps the
+    # config contract open for a future object-store implementation.
+    sync_enabled: bool = False
+    sync_provider: Literal["git"] = "git"
+    # SSH is recommended (`git@github.com:owner/private-repo.git`) because the
+    # credential stays in the user's normal ssh-agent / Keychain instead of in
+    # huske's config. HTTPS also works with the user's Git credential helper.
+    sync_remote: str | None = None
+    sync_branch: str = "main"
+    # A dedicated managed checkout. Only transcript Markdown is copied into its
+    # `transcripts/` directory; audio, screenshots, logs, and local config never
+    # enter the repository.
     sync_root: Path = Field(default=Path.home() / "huske" / "sync")
-
-    # Serve side (`huske serve`, on the VPS): ingest endpoint bind address.
-    # Loopback by default — a TLS-terminating reverse proxy (e.g. Caddy) fronts
-    # it and is the only public surface; the read MCP (`huske mcp`) stays
-    # loopback-only. On the VPS set `embedding_model` to a `fastembed:<hf-id>`
-    # backend (no Metal there).
-    ingest_host: str = "127.0.0.1"
-    ingest_port: int = Field(default=7642, gt=0, le=65535)
-    # Public hostname the reverse proxy serves, used to validate the Host header
-    # on ingested requests. Optional (skip the check when unset).
-    public_host: str | None = None
+    sync_push_timeout_seconds: float = Field(default=60.0, ge=5.0, le=600.0)
 
     # --- LLM distillation into searchable Statements (opt-in) ---------------
     # See docs/adr/0005-llm-distillation.md. When enabled, each finalized
     # transcript is distilled by a LOCAL LLM into compact, self-contained
-    # "statements" (a `<name>.statements.json` sidecar). With indexing also on,
-    # those statements are embedded into a separate statement store, and `huske
-    # mcp` searches them first, drilling into the source transcript on `fetch`.
-    # Off by default; the distill call is loopback HTTP to a local LLM daemon
-    # (Ollama) over stdlib urllib — it adds no Python dependency. Degrades
-    # gracefully: if the daemon/model is unavailable, recording + passage search
-    # continue untouched.
+    # "statements" (a `<name>.statements.json` sidecar). These are optional
+    # derived files; the remote service rebuilds its own retrieval index from
+    # canonical transcript Markdown. Off by default; failures never block
+    # recording or Git sync.
     distill_enabled: bool = False
     # Where the LLM runs (see DistillBackend). "mlx" is self-contained.
     distill_backend: DistillBackend = "mlx"
@@ -277,8 +243,7 @@ class RuntimeConfig(BaseModel):
     # Upper bound on statements distilled from a single Passage — caps LLM
     # output and statement-index growth on dense passages.
     distill_max_statements_per_passage: int = Field(default=8, ge=1, le=50)
-    # `huske distill` backfill runs gentle by default (lower CPU priority), same
-    # rationale as `index_low_impact`. Pass `--fast` to run flat out.
+    # `huske distill` backfill runs gentle by default (lower CPU priority).
     distill_low_impact: bool = True
     # Distillation runs a NON-reasoning call by default. Thinking-capable models
     # (e.g. Qwen3.5) otherwise spend their budget on a hidden reasoning pass —
@@ -302,7 +267,7 @@ class RuntimeConfig(BaseModel):
         "audio_root",
         "logs_root",
         "screenshots_root",
-        "index_root",
+        "export_root",
         "sync_root",
         mode="before",
     )
@@ -316,6 +281,53 @@ class RuntimeConfig(BaseModel):
         if v is None:
             return None
         return Path(str(v)).expanduser()
+
+    @field_validator("sync_branch")
+    @classmethod
+    def _valid_sync_branch(cls, value: str) -> str:
+        branch = value.strip()
+        if (
+            not branch
+            or branch == "@"
+            or branch.startswith(("-", ".", "/"))
+            or branch.endswith(("/", "."))
+            or ".." in branch
+            or "//" in branch
+            or "@{" in branch
+            or any(
+                ch.isspace()
+                or ord(ch) < 32
+                or ord(ch) == 127
+                or ch in "~^:?*[\\\\"
+                for ch in branch
+            )
+            or any(
+                part.startswith(".") or part.endswith(".lock")
+                for part in branch.split("/")
+            )
+        ):
+            raise ValueError("sync_branch is not a safe Git branch name")
+        return branch
+
+    @field_validator("sync_remote")
+    @classmethod
+    def _valid_sync_remote(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        remote = value.strip()
+        if not remote:
+            raise ValueError("sync_remote cannot be empty")
+        if remote.startswith("-") or any(
+            character in remote for character in ("\n", "\r", "\0")
+        ):
+            raise ValueError("sync_remote is not a safe Git repository location")
+        return remote
+
+    @model_validator(mode="after")
+    def _sync_has_remote(self) -> RuntimeConfig:
+        if self.sync_enabled and not (self.sync_remote and self.sync_remote.strip()):
+            raise ValueError("sync_enabled=true requires sync_remote")
+        return self
 
     @model_validator(mode="after")
     def _no_cuda_on_mac(self) -> RuntimeConfig:
@@ -338,6 +350,33 @@ def _read_toml(path: Path) -> dict[str, Any]:
         return tomllib.load(f)
 
 
+# Removed in ADR 0009. Ignore these on read so an existing installation starts
+# cleanly after upgrade; the next config write removes them from the file.
+_RETIRED_CONFIG_KEYS = {
+    "index_root",
+    "indexing_enabled",
+    "embedding_model",
+    "embed_batch_size",
+    "index_low_impact",
+    "index_memory_limit_mb",
+    "mcp_host",
+    "mcp_port",
+    "mcp_public_url",
+    "mcp_access_token_ttl_seconds",
+    "mcp_refresh_token_ttl_seconds",
+    "mcp_allowed_origins",
+    "sync_endpoint",
+    "sync_verify_tls",
+    "ingest_host",
+    "ingest_port",
+    "public_host",
+}
+
+
+def without_retired_config(values: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in values.items() if key not in _RETIRED_CONFIG_KEYS}
+
+
 def default_user_config_path() -> Path:
     return Path.home() / ".config" / "huske" / "config.toml"
 
@@ -358,7 +397,7 @@ def load_config(
         config_path = None
 
     file_path = config_path or default_user_config_path()
-    file_data = _read_toml(file_path) if file_path.exists() else {}
+    file_data = without_retired_config(_read_toml(file_path)) if file_path.exists() else {}
     overrides = {k: v for k, v in (cli_overrides or {}).items() if v is not None}
     merged = {**file_data, **overrides}
     return RuntimeConfig(**merged)
@@ -377,7 +416,7 @@ def update_user_config(
 
     target = config_path or default_user_config_path()
     target.parent.mkdir(parents=True, exist_ok=True)
-    existing = _read_toml(target)
+    existing = without_retired_config(_read_toml(target))
     merged: dict[str, Any] = dict(existing)
     for k, v in updates.items():
         if v is None:
