@@ -10,7 +10,11 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
-    "mcp>=1.26,<3",
+    # SDK 2.0 removed `mcp.server.fastmcp` (now `mcp.server.mcpserver`), which
+    # `server.py` builds the app from. Keep this below 2.0 until the service is
+    # ported; a `<3` range silently resolves to 2.x on a clean install and the
+    # server tests fail with "install the huske-mcp service dependencies".
+    "mcp>=1.26,<2",
     "starlette>=0.37",
     "uvicorn>=0.30",
 ]
