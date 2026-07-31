@@ -572,7 +572,19 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.12.0", date: "2026-07-28", tag: "latest",
+    ver: "0.13.0", date: "2026-07-31", tag: "latest",
+    items: [
+      { kind: "removed", text: <><strong>Read this first if you upgrade: five commands are gone.</strong> <code>huske mcp</code>, <code>huske serve</code>, <code>huske index</code>, <code>huske setup</code>, and <code>huske connect</code>, along with the <code>mcp</code>/<code>server</code> extras, the embed worker, the OAuth connector, the local <code>sqlite-vec</code> stores, and the ingest endpoint. Search and MCP now live in a separate service (below); recording and transcription are unchanged.</> },
+      { kind: "added", text: <><strong>Cloud sync: your Mac publishes to a private Git repository.</strong> The new Cloud sync pane takes a repository and branch and publishes every finalized transcript automatically; <code>huske sync</code> does the same from a terminal. Only canonical <code>YYYY-MM-DD/*.md</code> crosses the boundary — never audio, screenshots, logs, or config. It uses your existing SSH agent or Git credential helper, so huske stores no token, and an unpushed commit <em>is</em> the offline retry queue.</> },
+      { kind: "added", text: <><strong><code>huske-mcp</code>: an always-on service that answers while the Mac sleeps.</strong> A separate Linux/VPS package that pulls the repository read-only, indexes it incrementally by SHA-256 into SQLite, and serves authenticated Streamable HTTP MCP — <code>search</code>, <code>fetch</code>, <code>recap</code>, <code>overview</code>, <code>sync_status</code>. Polling is what makes it correct; a signed GitHub webhook only wakes it early.</> },
+      { kind: "added", text: <><strong>It fits on a 512 MB box.</strong> The default <code>tiny</code> profile is FTS5-only — one process, one poll thread, an 8 MB page cache, a 32 MB mmap ceiling, no resident model — and is supported on 1 vCPU / 512 MB. The optional <code>semantic</code> profile adds Model2Vec hybrid retrieval when you have more memory. Docker, a systemd unit with resource limits, and a full VPS guide ship with it.</> },
+      { kind: "changed", text: <>The recording app is now only a writer and publisher. Its MCP, OAuth, local vector index, custom ingest endpoint, and off-device server responsibilities all move behind the independent service boundary in ADR 0009.</> },
+      { kind: "changed", text: <>Local distillation stays an opt-in Statement sidecar and export feature. The remote service deliberately builds its own index from canonical Markdown, so sidecars are not part of the Git sync contract.</> },
+      { kind: "security", text: <><code>huske-mcp</code> refuses to start without a bearer token even on loopback, validates MCP Host and Origin values, bounds request and transcript sizes, keeps its Git checkout read-only, and never exposes repository credentials through MCP status or its public health response.</> },
+    ],
+  },
+  {
+    ver: "0.12.0", date: "2026-07-28",
     items: [
       { kind: "added", text: <><strong>huske starts Ollama for you.</strong> Only relevant if you have set <code>distill_backend = "ollama"</code> — the default backend runs the model itself and needs none of this. When distillation turns on, huske now starts the daemon if the <code>ollama</code> CLI is installed but idle, and pulls the configured model if it's missing, streaming progress into the activity feed, instead of only telling you the daemon is unreachable. It only ever runs the local <code>ollama</code> CLI and will never install Ollama for you. Set <code>distill_auto_manage = false</code> to go back to being told about the problem rather than having it fixed.</> },
       { kind: "fixed", text: <><strong>A latent crash in the built-in distillation backend.</strong> <code>mlx_lm.load()</code> returns two values or three depending on how it's called, and huske unpacked exactly two — correct today, but one argument away from breaking. Found by turning on the type checker in CI, which had been configured and never enforced.</> },
