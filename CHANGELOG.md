@@ -6,6 +6,8 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.13.0 - 2026-07-31
+
 ### Added
 
 - **Private Git transcript sync in Huske.app.** The new Cloud sync pane accepts

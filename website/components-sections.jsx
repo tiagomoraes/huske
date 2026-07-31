@@ -572,7 +572,19 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.12.0", date: "2026-07-28", tag: "latest",
+    ver: "0.13.0", date: "2026-07-31", tag: "latest",
+    items: [
+      { kind: "added", text: <><strong>Private Git transcript sync in Huske.app.</strong> The new Cloud sync pane accepts a repository and branch, runs the initial reconciliation, and can publish every finalized transcript automatically. The base engine gains <code>huske sync</code> and a provider boundary whose first implementation is Git. It copies only canonical <code>YYYY-MM-DD/*.md</code> transcripts into a managed checkout, pulls/rebases before committing, uses the user's SSH agent or Git credential helper, and treats Git commits as the durable offline retry queue.</> },
+      { kind: "added", text: <><strong><code>services/huske_mcp</code>: a separate always-on Linux/VPS distribution.</strong> It pulls the private repository read-only, incrementally indexes transcripts by SHA-256 into SQLite WAL, and serves authenticated stateless Streamable HTTP MCP with <code>overview</code>, <code>recap</code>, <code>search</code>, <code>fetch</code>, and <code>sync_status</code>. Polling is the reconciliation path; an optional HMAC-verified GitHub webhook only wakes the poller.</> },
+      { kind: "added", text: <><strong>A 512 MB service profile.</strong> The default <code>tiny</code> profile uses FTS5, one process, one poll thread, an 8 MB SQLite cache, and a 32 MB mmap ceiling with no resident model. The optional <code>semantic</code> extra adds Model2Vec hybrid retrieval for larger VPSes. Docker, systemd resource limits, health checks, deploy-key guidance, and a complete VPS guide ship with the service.</> },
+      { kind: "changed", text: <>The recording app is now only a writer/publisher. Its MCP, OAuth, local vector-index, custom HTTP ingest, and off-device server responsibilities move behind the independent service boundary in ADR 0009.</> },
+      { kind: "changed", text: <>Local distillation remains an opt-in Statement-sidecar/export feature. The remote service deliberately derives its own index from canonical Markdown; sidecars are not part of the Git sync contract.</> },
+      { kind: "removed", text: <><code>huske index</code>, <code>huske mcp</code>, <code>huske setup</code>, <code>huske connect</code>, and <code>huske serve</code>, along with the <code>mcp</code>/<code>server</code> extras, embed worker, OAuth connector, local sqlite-vec stores, ingest endpoint, and their app supervision UI.</> },
+      { kind: "security", text: <><code>huske-mcp</code> refuses to start without a bearer token even on loopback, validates MCP Host/Origin values, bounds request and transcript sizes, keeps the Git checkout read-only, and never exposes repository credentials through MCP status or its public health response.</> },
+    ],
+  },
+  {
+    ver: "0.12.0", date: "2026-07-28",
     items: [
       { kind: "added", text: <><strong>huske starts Ollama for you.</strong> Only relevant if you have set <code>distill_backend = "ollama"</code> — the default backend runs the model itself and needs none of this. When distillation turns on, huske now starts the daemon if the <code>ollama</code> CLI is installed but idle, and pulls the configured model if it's missing, streaming progress into the activity feed, instead of only telling you the daemon is unreachable. It only ever runs the local <code>ollama</code> CLI and will never install Ollama for you. Set <code>distill_auto_manage = false</code> to go back to being told about the problem rather than having it fixed.</> },
       { kind: "fixed", text: <><strong>A latent crash in the built-in distillation backend.</strong> <code>mlx_lm.load()</code> returns two values or three depending on how it's called, and huske unpacked exactly two — correct today, but one argument away from breaking. Found by turning on the type checker in CI, which had been configured and never enforced.</> },
