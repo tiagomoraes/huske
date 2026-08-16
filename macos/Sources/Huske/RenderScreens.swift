@@ -228,7 +228,7 @@ enum ScreenRenderer {
         let model = makeIdleModel()
         let json = """
             {"path": "\(NSHomeDirectory())/.config/huske/config.toml", "exists": true,
-             "file": {"input_device": "MacBook Pro Microphone", "chunk_minutes": 30.0,
+             "file": {"input_device": "MacBook Pro Microphone", "chunk_minutes": 15.0,
                       "sync_enabled": true,
                       "sync_remote": "git@github.com:you/huske-transcripts.git",
                       "sync_branch": "main"},
@@ -236,7 +236,7 @@ enum ScreenRenderer {
                            "parakeet_model": "mlx-community/parakeet-tdt-0.6b-v3",
                            "language": "", "whisper_idle_unload": true,
                            "speech_gated": true, "silence_split_seconds": 60.0,
-                           "chunk_minutes": 30.0,
+                           "chunk_minutes": 15.0,
                            "input_device": "MacBook Pro Microphone",
                            "system_audio_backend": "auto", "echo_cancel": true,
                            "echo_dedup": "drop",

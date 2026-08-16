@@ -54,6 +54,10 @@ class ControlSnapshot:
     # Recent orchestrator events, oldest first:
     # ``{"ts": iso8601, "severity": "info"|"warn"|"error", "message": str}``.
     events: list[dict[str, str]] = field(default_factory=list)
+    # v3 — process RSS in MiB (0 when unknown). Add-only so older clients ignore it.
+    asr_rss_mb: float = 0.0
+    distill_rss_mb: float = 0.0
+    engine_rss_mb: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -132,6 +136,9 @@ def decode_message(line: str) -> ControlSnapshot | CommandMessage | DeviceList:
             input_device_name=obj.get("input_device_name"),
             warnings=dict(obj.get("warnings") or {}),
             events=list(obj.get("events") or []),
+            asr_rss_mb=float(obj.get("asr_rss_mb", 0.0) or 0.0),
+            distill_rss_mb=float(obj.get("distill_rss_mb", 0.0) or 0.0),
+            engine_rss_mb=float(obj.get("engine_rss_mb", 0.0) or 0.0),
         )
     if kind == "cmd":
         arg = obj.get("arg")

@@ -51,6 +51,15 @@ def test_is_current_matches_source_hash(tmp_path: Path) -> None:
     assert not sidecar_is_current(transcript, "other-hash")
 
 
+def test_v1_statement_sidecar_is_not_current(tmp_path: Path) -> None:
+    transcript = tmp_path / "2026-05-07" / "t.md"
+    transcript.parent.mkdir(parents=True)
+    old = _sidecar(transcript)
+    old.version = 1
+    write_sidecar(transcript, old)
+    assert not sidecar_is_current(transcript, "deadbeef")
+
+
 def test_missing_sidecar_reads_none(tmp_path: Path) -> None:
     assert read_sidecar(tmp_path / "nope.md") is None
     assert not sidecar_is_current(tmp_path / "nope.md", "x")

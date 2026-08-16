@@ -58,6 +58,9 @@ def test_snapshot_carries_render_state_fields() -> None:
     assert len(snap.events) == 1
     assert snap.events[0]["severity"] == "info"
     assert "ts" in snap.events[0]
+    assert snap.asr_rss_mb == 0.0
+    assert snap.distill_rss_mb == 0.0
+    assert snap.engine_rss_mb == 0.0
 
 
 def test_snapshot_round_trips_over_the_wire() -> None:

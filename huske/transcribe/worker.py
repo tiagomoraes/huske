@@ -64,12 +64,16 @@ _KEEP_AUDIO_SPECS: dict[str, tuple[str, str | None, str]] = {
 }
 
 
+_COMPRESS_BLOCK = 65_536
+
+
 def _compress_kept_audio(wav_path: Path, fmt: str) -> None:
     """Transcode a finished chunk WAV to a compressed sibling, then drop the WAV.
 
     The ASR engine has already read the WAV, so the codec is irrelevant to the
     transcript — this only shrinks what ``--keep-audio`` leaves on disk. Encoded
-    with libsndfile via ``soundfile`` (no extra dependency). Best-effort: on any
+    with libsndfile via ``soundfile`` (no extra dependency). Streams in blocks
+    so a long chunk is never fully decoded into RAM. Best-effort: on any
     failure the original WAV is kept and any partial output removed.
     """
     spec = _KEEP_AUDIO_SPECS.get(fmt)
@@ -80,11 +84,21 @@ def _compress_kept_audio(wav_path: Path, fmt: str) -> None:
     try:
         import soundfile as sf
 
-        data, sr = sf.read(str(wav_path), dtype="float32")
-        if subtype is not None:
-            sf.write(str(out), data, sr, format=container, subtype=subtype)
-        else:
-            sf.write(str(out), data, sr, format=container)
+        with sf.SoundFile(str(wav_path)) as src:
+            kwargs: dict[str, Any] = {
+                "mode": "w",
+                "samplerate": src.samplerate,
+                "channels": src.channels,
+                "format": container,
+            }
+            if subtype is not None:
+                kwargs["subtype"] = subtype
+            with sf.SoundFile(str(out), **kwargs) as dst:
+                while True:
+                    block = src.read(_COMPRESS_BLOCK)
+                    if len(block) == 0:
+                        break
+                    dst.write(block)
         wav_path.unlink(missing_ok=True)
     except Exception:
         out.unlink(missing_ok=True)  # drop any half-written file; keep the WAV
@@ -141,7 +155,13 @@ def _ordered_sources(audio_paths: dict[str, str], audio_sources: list[str]) -> l
     return ordered
 
 
-def _mark_echoes(segments: list[Any], arrays: dict[str, Any], echo_mode: str) -> None:
+def _mark_echoes(
+    segments: list[Any],
+    arrays: dict[str, Any],
+    echo_mode: str,
+    *,
+    cleaned_mic: Any | None = None,
+) -> None:
     """Apply text and audio-level echo marking in-place."""
     if echo_mode == "off":
         return
@@ -154,10 +174,19 @@ def _mark_echoes(segments: list[Any], arrays: dict[str, Any], echo_mode: str) ->
 
     from huske.transcribe.aec import mark_acoustic_echoes
 
-    mark_acoustic_echoes(segments, arrays["microphone"], arrays["system"])
+    mark_acoustic_echoes(
+        segments,
+        arrays["microphone"],
+        arrays["system"],
+        cleaned_mic=cleaned_mic,
+    )
 
 
-def _worker_main(in_q: Any, out_q: Any) -> None:
+def _worker_main(
+    in_q: Any,
+    out_q: Any,
+    footprint: dict[str, Any] | None = None,
+) -> None:
     """Subprocess entry point. Loops on jobs until sentinel arrives."""
     _configure_worker_signal_handlers()
 
@@ -171,6 +200,13 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
 
     import mlx.core as mx
 
+    from huske.mlx_runtime import configure_mlx_limits, mlx_memory_mb, reclaim_mlx, rss_mb
+
+    limits = footprint or {}
+    cache_limit_mb = int(limits.get("metal_cache_limit_mb", 512))
+    memory_limit_mb = int(limits.get("metal_memory_limit_mb", 8192))
+    recycle_idle = bool(limits.get("recycle_idle_process", True))
+
     # Force the Metal context to initialize *before* the parent process can
     # start the Core Audio tap. If the worker's first Metal allocation happens
     # after the parent has loaded the Core Audio Tap framework, the spawned
@@ -181,6 +217,11 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
     # M-series chip, this can take 20-40 s as Metal compiles its kernels for the
     # first time; the parent's ``wait_ready`` timeout has to be sized to match.
     mx.eval(mx.zeros(1))
+    configure_mlx_limits(
+        cache_limit_mb=cache_limit_mb,
+        memory_limit_mb=memory_limit_mb,
+        wired_limit_mb=0,
+    )
     out_q.put(_READY_MSG)
 
     from huske.models import AudioChunk
@@ -206,10 +247,18 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
         msg = _next_message(in_q, model_resident, idle_unload, idle_unload_seconds)
         if msg is _IDLE_TIMEOUT:
             # Genuinely idle past the window — reclaim the model until the next
-            # job. Safe even if nothing is loaded (no-op).
+            # job. Safe even if nothing is loaded (no-op). Recycle exits the
+            # process so macOS can take the Metal heap back; the parent respawns.
             if engine is not None:
                 engine.unload()
+            reclaim_mlx()
             model_resident = False
+            if recycle_idle:
+                try:
+                    out_q.put({"event": "idle_recycle"})
+                except Exception:
+                    pass
+                return
             continue
         if msg == _SENTINEL:
             return
@@ -249,6 +298,8 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
             # far-end reference, *before* transcription. Self-gating — with
             # headphones there is no coherent echo path and the mic passes
             # through. The transcript-level dedup below is the backstop.
+            orig_mic = arrays.get("microphone")
+            cleaned_mic = None
             if (
                 job_data.get("echo_cancel", True)
                 and "microphone" in arrays
@@ -261,6 +312,7 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
                 arrays["microphone"] = cancel_echo(
                     arrays["microphone"], arrays["system"]
                 )
+                cleaned_mic = arrays["microphone"]
 
             # Arm idle-unload *before* the first transcribe loads weights, so a
             # mid-job throw still reaches the unload path next iteration.
@@ -275,7 +327,10 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
             merged.sort(key=lambda s: (s.start, s.source))
 
             echo_mode = job_data.get("echo_dedup", "drop")
-            _mark_echoes(merged, arrays, echo_mode)
+            mark_arrays = dict(arrays)
+            if orig_mic is not None:
+                mark_arrays["microphone"] = orig_mic
+            _mark_echoes(merged, mark_arrays, echo_mode, cleaned_mic=cleaned_mic)
 
             seg_dicts: list[dict[str, Any]] = []
             for s in merged:
@@ -341,6 +396,7 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
                     for p in audio_paths.values():
                         _compress_kept_audio(_Path(p), keep_format)
 
+            mem = mlx_memory_mb()
             out_q.put(
                 {
                     "chunk_seq": job_data["chunk_seq"],
@@ -348,6 +404,8 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
                     "transcript_path": str(written) if written is not None else None,
                     "skipped_empty": written is None,
                     "error": None,
+                    "rss_mb": rss_mb(),
+                    **mem,
                 }
             )
         except Exception as exc:
@@ -363,10 +421,7 @@ def _worker_main(in_q: Any, out_q: Any) -> None:
         finally:
             # Release the transient Metal buffer pool after every job so the
             # decode/encode working set doesn't stay pinned through the idle gap.
-            try:
-                mx.clear_cache()
-            except Exception:
-                pass
+            reclaim_mlx()
 
 
 class TranscriptionWorker:
@@ -374,7 +429,18 @@ class TranscriptionWorker:
 
     SENTINEL = _SENTINEL
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        metal_cache_limit_mb: int = 512,
+        metal_memory_limit_mb: int = 8192,
+        recycle_idle_process: bool = True,
+    ) -> None:
+        self._footprint = {
+            "metal_cache_limit_mb": metal_cache_limit_mb,
+            "metal_memory_limit_mb": metal_memory_limit_mb,
+            "recycle_idle_process": recycle_idle_process,
+        }
         self._in_q: Any = _ctx.Queue()
         self._out_q: Any = _ctx.Queue()
         self._proc: Any = None
@@ -382,12 +448,23 @@ class TranscriptionWorker:
     def start(self) -> None:
         if self._proc is not None and self._proc.is_alive():
             return
+        if self._proc is not None:
+            self._close_queues()
+            self._in_q = _ctx.Queue()
+            self._out_q = _ctx.Queue()
         self._proc = _ctx.Process(
             target=_worker_main,
-            args=(self._in_q, self._out_q),
+            args=(self._in_q, self._out_q, self._footprint),
             name="huske-worker",
         )
         self._proc.start()
+
+    def ensure_ready(self, timeout: float = 90.0) -> bool:
+        """Restart the child if it recycled or died, then wait for Metal init."""
+        if self._proc is not None and self._proc.is_alive():
+            return True
+        self.start()
+        return self.wait_ready(timeout=timeout)
 
     def wait_ready(self, timeout: float = 90.0) -> bool:
         """Block until the worker has finished its eager Metal init.
@@ -410,7 +487,17 @@ class TranscriptionWorker:
         return False
 
     def submit(self, job: dict[str, Any]) -> None:
+        if self._proc is None or not self._proc.is_alive():
+            if not self.ensure_ready():
+                raise RuntimeError("transcription worker failed to restart")
         self._in_q.put(job)
+
+    @property
+    def pid(self) -> int | None:
+        if self._proc is None or not self._proc.is_alive():
+            return None
+        pid = getattr(self._proc, "pid", None)
+        return int(pid) if isinstance(pid, int) and pid > 0 else None
 
     def poll_result(self, timeout: float = 0.0) -> dict[str, Any] | None:
         try:

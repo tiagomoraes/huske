@@ -357,6 +357,26 @@ def run_doctor(
 
     # Model cached check (does not download — we attempt to load only at run time).
     checks.append(Check("model", True, model_desc))
+    if cfg.asr_engine == "whisper" and cfg.model == "large-v3":
+        checks.append(
+            Check(
+                "whisper size",
+                True,
+                "large-v3 is ~2.9 GB resident; large-v3-turbo is ~1.5 GB with the same language pin",
+                'set model = "large-v3-turbo" for daily use.',
+            )
+        )
+    checks.append(
+        Check(
+            "metal footprint",
+            True,
+            (
+                f"cache {cfg.metal_cache_limit_mb} MB, "
+                f"eval limit {cfg.metal_memory_limit_mb} MB, "
+                f"recycle_idle={'on' if cfg.recycle_idle_process else 'off'}"
+            ),
+        )
+    )
 
     # Language enforceability. Parakeet has no language input — it infers one per
     # decode window — so a configured `language` is a hint there, not a promise,
@@ -479,7 +499,7 @@ def run_doctor(
     if autostart_check is not None:
         checks.append(autostart_check)
 
-    # LLM distillation into searchable statements (optional subsystem).
+    # LLM correction of ASR transcripts (optional subsystem).
     checks.extend(_distill_checks(cfg))
 
     # Render.

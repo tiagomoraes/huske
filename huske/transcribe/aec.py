@@ -152,6 +152,88 @@ def _align_far_to_near(far: NDArrayF32, delay: int, n: int) -> NDArrayF32:
     return far[:n]
 
 
+# STFT of a long monologue at these hop settings is multi-GB. Process at most
+# this much audio at a time and overlap-add. Short files stay on the original
+# single-STFT path so existing tests (and headphones/self-gate) are unchanged.
+_ECHO_WINDOW_SECONDS = 8.0
+_ECHO_OVERLAP_SECONDS = 2.0
+
+
+def echo_window_bounds(
+    n: int,
+    sr: int,
+    *,
+    window_seconds: float = _ECHO_WINDOW_SECONDS,
+    overlap_seconds: float = _ECHO_OVERLAP_SECONDS,
+) -> list[tuple[int, int]]:
+    """Inclusive-exclusive ``[start, end)`` sample ranges covering ``n`` samples."""
+    if n <= 0:
+        return []
+    win = max(1, int(window_seconds * sr))
+    overlap = max(0, min(win - 1, int(overlap_seconds * sr)))
+    hop = max(1, win - overlap)
+    if n <= win:
+        return [(0, n)]
+    bounds: list[tuple[int, int]] = []
+    start = 0
+    while start < n:
+        end = min(start + win, n)
+        bounds.append((start, end))
+        if end >= n:
+            break
+        start += hop
+    return bounds
+
+
+def _suppress_stft(
+    near: NDArrayF32,
+    far: NDArrayF32,
+    sr: int,
+    *,
+    beta: float,
+    smoothing: float,
+    gain_floor_db: float,
+    nperseg: int,
+    noverlap: int,
+) -> NDArrayF32:
+    """Coherence suppressor for one already-aligned window."""
+    n = min(len(near), len(far))
+    if n == 0:
+        return np.zeros(0, dtype=np.float32)
+    near_t = near[:n]
+    far_t = far[:n]
+    _, _, X = _sig.stft(near_t, fs=sr, nperseg=nperseg, noverlap=noverlap)
+    _, _, Y = _sig.stft(far_t, fs=sr, nperseg=nperseg, noverlap=noverlap)
+    a = smoothing
+    b_coef = [1.0 - a]
+    a_coef = [1.0, -a]
+    sxx = _sig.lfilter(b_coef, a_coef, np.abs(X) ** 2, axis=1)
+    syy = _sig.lfilter(b_coef, a_coef, np.abs(Y) ** 2, axis=1)
+    sxy = _sig.lfilter(b_coef, a_coef, X * np.conj(Y), axis=1)
+    coh = (np.abs(sxy) ** 2) / (sxx * syy + _EPS)
+    floor = 10 ** (gain_floor_db / 20.0)
+    gain = np.maximum(floor, (1.0 - np.clip(coh, 0.0, 1.0)) ** beta)
+    _, out = _sig.istft(X * gain, fs=sr, nperseg=nperseg, noverlap=noverlap)
+    out = np.asarray(out[:n], dtype=np.float32)
+    if len(out) < n:
+        out = np.concatenate([out, np.zeros(n - len(out), dtype=np.float32)])
+    return cast(NDArrayF32, out)
+
+
+def _ola_taper(length: int, start: int, end: int, n: int, overlap: int) -> NDArrayF32:
+    """Fade in/out on the overlapped edges so adjacent windows crossfade."""
+    w = np.ones(length, dtype=np.float32)
+    ov = min(overlap, length)
+    if ov <= 0:
+        return cast(NDArrayF32, w)
+    ramp = np.linspace(0.0, 1.0, ov, dtype=np.float32)
+    if start > 0:
+        w[:ov] *= ramp
+    if end < n:
+        w[-ov:] *= ramp[::-1]
+    return cast(NDArrayF32, w)
+
+
 def cancel_echo(
     near: NDArrayAny,
     far: NDArrayAny,
@@ -162,6 +244,8 @@ def cancel_echo(
     gain_floor_db: float = -25.0,
     nperseg: int = 1024,
     noverlap: int = 768,
+    window_seconds: float = _ECHO_WINDOW_SECONDS,
+    overlap_seconds: float = _ECHO_OVERLAP_SECONDS,
 ) -> NDArrayF32:
     """Suppress the acoustic echo of ``far`` (system) in ``near`` (mic).
 
@@ -170,6 +254,9 @@ def cancel_echo(
     aggressiveness (gain ``(1 - coherence) ** beta``); ``smoothing`` is the
     recursive-averaging factor for the local spectra. Safe when there is no
     echo (coherence ≈ 0 → gain ≈ 1).
+
+    Long files are processed in ``window_seconds`` hops so the STFT working
+    set stays bounded (~tens of MB) instead of scaling with the whole chunk.
     """
     near = _to_mono_f32(near)
     far = _to_mono_f32(far)
@@ -189,30 +276,44 @@ def cancel_echo(
     delay = estimate_delay(near_t, far_t, sr)
     far_aligned = _align_far_to_near(far_t, delay, n)
 
-    _, _, X = _sig.stft(near_t, fs=sr, nperseg=nperseg, noverlap=noverlap)
-    _, _, Y = _sig.stft(far_aligned, fs=sr, nperseg=nperseg, noverlap=noverlap)
+    bounds = echo_window_bounds(
+        n, sr, window_seconds=window_seconds, overlap_seconds=overlap_seconds
+    )
+    if len(bounds) <= 1:
+        cleaned = _suppress_stft(
+            near_t,
+            far_aligned,
+            sr,
+            beta=beta,
+            smoothing=smoothing,
+            gain_floor_db=gain_floor_db,
+            nperseg=nperseg,
+            noverlap=noverlap,
+        )
+    else:
+        overlap = max(0, int(overlap_seconds * sr))
+        acc = np.zeros(n, dtype=np.float64)
+        weight = np.zeros(n, dtype=np.float64)
+        for start, end in bounds:
+            piece = _suppress_stft(
+                near_t[start:end],
+                far_aligned[start:end],
+                sr,
+                beta=beta,
+                smoothing=smoothing,
+                gain_floor_db=gain_floor_db,
+                nperseg=nperseg,
+                noverlap=noverlap,
+            )
+            taper = _ola_taper(end - start, start, end, n, overlap)
+            acc[start:end] += piece * taper
+            weight[start:end] += taper
+        weight = np.maximum(weight, _EPS)
+        cleaned = (acc / weight).astype(np.float32)
 
-    # Recursively-smoothed auto/cross spectra for a local coherence estimate.
-    # The smoothing is a first-order IIR (s[t] = a·s[t-1] + (1-a)·p[t]) applied
-    # along the time axis, vectorized with lfilter so cost is independent of how
-    # long the chunk is (no per-frame Python loop).
-    a = smoothing
-    b_coef = [1.0 - a]
-    a_coef = [1.0, -a]
-    sxx = _sig.lfilter(b_coef, a_coef, np.abs(X) ** 2, axis=1)
-    syy = _sig.lfilter(b_coef, a_coef, np.abs(Y) ** 2, axis=1)
-    sxy = _sig.lfilter(b_coef, a_coef, X * np.conj(Y), axis=1)
-    coh = (np.abs(sxy) ** 2) / (sxx * syy + _EPS)  # magnitude-squared coherence, 0..1
-    floor = 10 ** (gain_floor_db / 20.0)
-    gain = np.maximum(floor, (1.0 - np.clip(coh, 0.0, 1.0)) ** beta)
-
-    _, out = _sig.istft(X * gain, fs=sr, nperseg=nperseg, noverlap=noverlap)
-    out = np.asarray(out[:n], dtype=np.float32)
-    if len(out) < n:
-        out = np.concatenate([out, np.zeros(n - len(out), dtype=np.float32)])
     if tail.size:
-        out = np.concatenate([out, tail])
-    return cast(NDArrayF32, out.astype(np.float32))
+        cleaned = np.concatenate([cleaned, tail])
+    return cast(NDArrayF32, np.asarray(cleaned, dtype=np.float32))
 
 
 def _temporally_near(mic: Any, sys: Any, max_lag_seconds: float) -> bool:
@@ -260,6 +361,7 @@ def mark_acoustic_echoes(
     system_audio: NDArrayAny,
     sr: int = 16000,
     *,
+    cleaned_mic: NDArrayAny | None = None,
     min_erle_db: float = 5.5,
     max_lag_seconds: float = 2.0,
     pad_seconds: float = 2.0,
@@ -276,6 +378,7 @@ def mark_acoustic_echoes(
     """
     mic_audio = _to_mono_f32(mic_audio)
     system_audio = _to_mono_f32(system_audio)
+    cleaned = _to_mono_f32(cleaned_mic) if cleaned_mic is not None else None
     if mic_audio.size == 0 or system_audio.size == 0:
         return 0
 
@@ -305,7 +408,12 @@ def mark_acoustic_echoes(
         sys_win = sys_win[:n]
         if _rms_db(sys_win) < min_system_db:
             continue
-        if acoustic_echo_erle(mic_win, sys_win, sr) >= min_erle_db:
+        if cleaned is not None:
+            cleaned_win = _slice_seconds(cleaned, sr, window_start, window_end)[:n]
+            erle = erle_db(mic_win, cleaned_win)
+        else:
+            erle = acoustic_echo_erle(mic_win, sys_win, sr)
+        if erle >= min_erle_db:
             seg.echo = True
             marked += 1
     return marked

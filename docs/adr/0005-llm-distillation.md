@@ -4,6 +4,15 @@ status: amended-by-0009
 
 # LLM distillation of transcripts into searchable Statements
 
+## Amendment — transcript correction
+
+Distillation no longer extracts searchable Statements as its primary job.
+A small local model (default Qwen3.5 0.8B) conservatively corrects ASR
+errors in each transcript run. The uncorrected Markdown is snapshotted to
+`<name>.asr.txt` (not published). The canonical `.md` is rewritten in
+place. The `.statements.json` sidecar remains as a skip-hash / export
+artifact (one entry per polished run). 2B and 4B stay selectable.
+
 ## Amendment — ADR 0009
 
 The sidecar-producing distillation subsystem remains available for local

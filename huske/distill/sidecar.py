@@ -1,4 +1,4 @@
-"""Read/write the ``<name>.statements.json`` sidecar — the distillation artifact.
+"""Read/write the ``<name>.statements.json`` sidecar — skip-hash + polished runs.
 
 Atomic write (temp + ``os.replace``) so a reader (export or a human) never sees
 a half-written file. ``read_sidecar`` returns ``None``
@@ -41,6 +41,13 @@ def read_sidecar(transcript_path: Path) -> StatementSidecar | None:
 
 
 def sidecar_is_current(transcript_path: Path, source_sha256: str) -> bool:
-    """True if a sidecar exists and was distilled from this exact transcript content."""
+    """True if a v2+ sidecar exists and was distilled from this exact raw snapshot.
+
+    v1 sidecars were statement extraction; they must not skip the correction pass.
+    """
     sidecar = read_sidecar(transcript_path)
-    return sidecar is not None and sidecar.source_sha256 == source_sha256
+    return (
+        sidecar is not None
+        and sidecar.version >= 2
+        and sidecar.source_sha256 == source_sha256
+    )

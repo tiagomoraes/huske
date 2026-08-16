@@ -1,4 +1,4 @@
-"""``huske distill`` orchestration: config → distiller → backfill sidecars.
+"""``huske distill`` orchestration: config → distiller → correct transcripts.
 
 Mirrors ``huske.search.runner``: gentle (low-impact) by default so a one-shot
 backfill of a long transcript history can't pin the machine. The heavy work is
@@ -14,7 +14,7 @@ from typing import Any
 
 from huske.config import load_config
 from huske.distill.client import DistillError, OllamaClient
-from huske.distill.distiller import build_distiller, distill_transcript
+from huske.distill.distiller import build_distiller, distill_transcript, source_sha256_for
 from huske.distill.sidecar import sidecar_is_current, write_sidecar
 from huske.distill.worker import iter_transcripts
 from huske.search.parser import ParseError
@@ -89,7 +89,7 @@ def run_distill(
     force: bool = False,
     low_impact: bool | None = None,
 ) -> int:
-    """Distill every transcript lacking a current sidecar. Returns an exit code."""
+    """Correct every transcript lacking a current sidecar. Returns an exit code."""
     try:
         cfg = load_config(config_path=config_path, cli_overrides=cli_overrides)
     except ValueError as exc:
@@ -116,7 +116,7 @@ def run_distill(
         _lower_process_priority()
         _print(f"[huske] low-impact mode: nice +{_GENTLE_NICE}. Pass --fast to run flat out.")
     _print(
-        f"[huske] distilling transcripts under {cfg.output_root} "
+        f"[huske] correcting transcripts under {cfg.output_root} "
         f"(model {cfg.distill_model} via {cfg.distill_backend})…"
     )
 
@@ -124,9 +124,7 @@ def run_distill(
     for path in iter_transcripts(cfg.output_root):
         summary.files_seen += 1
         try:
-            import hashlib
-
-            source_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+            source_sha = source_sha256_for(path)
             if not force and sidecar_is_current(path, source_sha):
                 summary.files_skipped += 1
                 continue
@@ -144,9 +142,9 @@ def run_distill(
             summary.errors.append(f"{path.name}: {exc}")
 
     _print(
-        f"\n{summary.files_distilled} distilled, {summary.files_skipped} unchanged, "
+        f"\n{summary.files_distilled} corrected, {summary.files_skipped} unchanged, "
         f"{summary.files_failed} failed across {summary.files_seen} transcript(s); "
-        f"{summary.statements} statement(s) written."
+        f"{summary.statements} run(s) polished."
     )
     for e in summary.errors[:10]:
         _print(f"  [warn] {e.splitlines()[0]}")

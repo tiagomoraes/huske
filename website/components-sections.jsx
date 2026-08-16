@@ -893,8 +893,8 @@ const FAQ = () => (
         <details>
           <summary>What is transcript distillation? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>An optional local derivation. A local LLM condenses transcripts into inspectable <code>.statements.json</code> sidecars that <code>huske export</code> can use. Canonical Markdown remains the record.</p>
-            <p>The sidecars are regenerable and are not pushed by Cloud sync; the isolated VPS service builds its own index from canonical transcripts. Run <code>huske distill</code> to backfill them.</p>
+            <p>An optional local derivation. A tiny local LLM (default Qwen3.5 0.8B) corrects typos and obvious ASR errors in each finished transcript. The raw snapshot stays in <code>.asr.txt</code>; the polished Markdown is the published record.</p>
+            <p>A <code>.statements.json</code> sidecar is only a skip-hash / export artifact and is not pushed by Cloud sync. The isolated VPS service indexes the polished canonical transcripts. Run <code>huske distill</code> to backfill.</p>
           </div>
         </details>
         <details>

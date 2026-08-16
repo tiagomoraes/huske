@@ -156,13 +156,13 @@ def run(
     distill: bool | None = typer.Option(
         None,
         "--distill/--no-distill",
-        help="Distill each finished transcript into compact statements with "
-        "huske's built-in local LLM (downloads on first use). Off by default.",
+        help="Correct typos and ASR errors in each finished transcript with "
+        "huske's tiny built-in local LLM (downloads on first use). Off by default.",
     ),
     distill_model: str | None = typer.Option(
         None,
         "--distill-model",
-        help="Distillation model: a Hugging Face repo for the built-in MLX "
+        help="Correction model: a Hugging Face repo for the built-in MLX "
         "backend (default mlx-community/Qwen3.5-0.8B-4bit) or an Ollama tag "
         "when distill_backend = 'ollama'.",
     ),
@@ -384,7 +384,7 @@ def config_unset(
 def distill(
     output_root: Path | None = typer.Option(None, "--output-root"),
     model: str | None = typer.Option(
-        None, "--model", help="Distill with this LLM tag (e.g. qwen3.5:0.8b), overriding config."
+        None, "--model", help="Correct with this LLM tag (e.g. qwen3.5:0.8b), overriding config."
     ),
     force: bool = typer.Option(
         False, "--force", help="Re-distill even transcripts whose content is unchanged."
@@ -396,11 +396,12 @@ def distill(
     ),
     config_path: Path | None = typer.Option(None, "--config"),
 ) -> None:
-    """Distill transcripts into compact statement sidecars with a local LLM.
+    """Correct ASR errors in transcripts with a tiny local LLM.
 
-    Writes a ``<name>.statements.json`` next to each transcript. Uses the
-    built-in MLX model by default (downloads on first use); set
-    ``distill_backend = "ollama"`` to delegate to an Ollama daemon instead.
+    Rewrites each canonical ``.md`` in place after snapshotting the raw ASR
+    to ``<name>.asr.txt``. Uses the built-in 0.8B MLX model by default
+    (downloads on first use); set ``distill_backend = "ollama"`` to delegate
+    to an Ollama daemon instead.
     """
     from huske.distill.runner import run_distill
 

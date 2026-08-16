@@ -1,10 +1,10 @@
-"""The on-disk Statement sidecar — distillation's published contract.
+"""The on-disk distill sidecar — skip-hash plus polished runs.
 
-A ``Statement`` is one self-contained factual claim distilled from a Passage,
-carrying the Passage's time range + Source set as provenance (so retrieval can
-ground it back in the transcript by time, independent of how the Passage index
-happens to be windowed). A ``StatementSidecar`` is the whole ``.statements.json``
-file: provenance for the source transcript plus the ordered Statements.
+A ``Statement`` is one corrected transcript run (same time range + source as
+the ASR line it came from). A ``StatementSidecar`` is the whole
+``.statements.json`` file: provenance for the raw ASR snapshot plus the
+ordered polished runs. Export can still list them; Git sync never publishes
+this file.
 
 Kept dependency-free (stdlib only) so the base-install distiller and export
 pipeline can read and write the same shape.
@@ -16,12 +16,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-SIDECAR_VERSION = 1
+SIDECAR_VERSION = 2  # v2 = per-run ASR correction (v1 was statement extraction)
 
 
 @dataclass(slots=True)
 class Statement:
-    """One distilled claim + its provenance (the source Passage's window)."""
+    """One polished transcript run + its provenance."""
 
     text: str
     start: datetime
@@ -52,7 +52,7 @@ class StatementSidecar:
 
     transcript_path: str  # resolved absolute path of the source ``.md``
     session_id: str
-    source_sha256: str  # sha256 of the source ``.md`` bytes — for incremental skip
+    source_sha256: str  # sha256 of the raw ``.asr.txt`` (or first-seen ``.md``)
     model: str  # the distill model id used (e.g. "qwen3.5:0.8b")
     backend: str  # the distill backend (e.g. "ollama")
     distilled_at: str  # ISO-8601 timestamp the sidecar was produced

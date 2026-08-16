@@ -30,12 +30,13 @@ from multiprocessing.connection import Connection
 from typing import Any
 
 from huske.distill.client import DistillError
-from huske.distill.distiller import build_prompt, parse_statements
+from huske.distill.distiller import apply_correction, build_prompt
 
 DEFAULT_MLX_MODEL = "mlx-community/Qwen3.5-0.8B-4bit"
 
 _FAKE_ENV = "HUSKE_DISTILL_MLX_FAKE"
 _IDLE_UNLOAD_SECONDS = 120.0
+_MAX_KV_SIZE = 2048
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 
@@ -89,6 +90,62 @@ def _clean_reply(raw: str) -> str:
     return match.group(0) if match else text
 
 
+def _generate_unwired(
+    model: Any,
+    tokenizer: Any,
+    prompt: str,
+    *,
+    max_tokens: int = 512,
+    sampler: Any = None,
+) -> str:
+    """Token loop via ``generate_step`` â€” skips mlx-lm's ``wired_limit``.
+
+    ``mlx_lm.generate`` / ``stream_generate`` temporarily wire
+    ``max_recommended_working_set_size`` (14 GB on an 18 GB M3 Pro). That
+    pins almost the whole machine for a 0.6 GB correction model. We never
+    raise the wired cap.
+    """
+    import mlx.core as mx
+    from mlx_lm.generate import generate_step
+
+    if hasattr(tokenizer, "encode"):
+        tokens = tokenizer.encode(prompt)
+    else:
+        tokens = tokenizer(prompt)
+    prompt_arr = mx.array(tokens)
+    eos_ids: set[int] = set()
+    for attr in ("eos_token_ids", "eos_token_id"):
+        raw_eos = getattr(tokenizer, attr, None)
+        if raw_eos is None:
+            continue
+        if isinstance(raw_eos, (list, tuple, set)):
+            eos_ids.update(int(x) for x in raw_eos)
+        else:
+            eos_ids.add(int(raw_eos))
+
+    kwargs: dict[str, Any] = {
+        "max_tokens": max_tokens,
+        "max_kv_size": _MAX_KV_SIZE,
+    }
+    if sampler is not None:
+        kwargs["sampler"] = sampler
+
+    out: list[int] = []
+    try:
+        for token, _logprobs in generate_step(prompt_arr, model, **kwargs):
+            tid = int(token)
+            out.append(tid)
+            if tid in eos_ids:
+                break
+        if hasattr(tokenizer, "decode"):
+            return str(tokenizer.decode(out))
+        return str(tokenizer.detokenizer.decode(out) if hasattr(tokenizer, "detokenizer") else "")
+    finally:
+        from huske.mlx_runtime import reclaim_mlx
+
+        reclaim_mlx()
+
+
 def _child_main(conn: Connection, model_id: str) -> None:  # pragma: no cover â€” subprocess
     """LLM loop: recv prompt â†’ generate â†’ send reply. ``None`` stops it."""
     try:
@@ -99,22 +156,26 @@ def _child_main(conn: Connection, model_id: str) -> None:  # pragma: no cover â€
         pass
 
     fake = bool(os.environ.get(_FAKE_ENV))
+    if not fake:
+        try:
+            from huske.mlx_runtime import DEFAULT_LLM_MEMORY_LIMIT_MB, configure_mlx_limits
+
+            configure_mlx_limits(
+                cache_limit_mb=256,
+                memory_limit_mb=DEFAULT_LLM_MEMORY_LIMIT_MB,
+                wired_limit_mb=0,
+            )
+        except Exception:
+            pass
+
     model: Any = None
     tokenizer: Any = None
 
     while True:
-        # Idle unload: free the resident weights after a quiet stretch; the
-        # next passage pays a local-cache reload (a few seconds, no network).
+        # Idle recycle: exit the child so macOS can reclaim the Metal heap.
+        # The parent respawns on the next passage (same trade as ASR).
         if model is not None and not conn.poll(_IDLE_UNLOAD_SECONDS):
-            model = None
-            tokenizer = None
-            try:
-                import mlx.core as mx
-
-                mx.clear_cache()
-            except Exception:
-                pass
-            continue
+            return
         try:
             msg = conn.recv()
         except (EOFError, OSError):
@@ -124,9 +185,9 @@ def _child_main(conn: Connection, model_id: str) -> None:  # pragma: no cover â€
         prompt = str(msg.get("prompt", ""))
         try:
             if fake:
-                raw = '{"statements": ["fake statement"]}'
+                raw = '{"text": "fake statement"}'
             else:
-                from mlx_lm import generate, load
+                from mlx_lm import load
 
                 if model is None:
                     # `load` is typed as returning (model, tokenizer) *or*
@@ -147,14 +208,16 @@ def _child_main(conn: Connection, model_id: str) -> None:  # pragma: no cover â€
                     templated = tokenizer.apply_chat_template(
                         chat, add_generation_prompt=True, tokenize=False
                     )
-                kwargs: dict[str, Any] = {"max_tokens": 512}
+                sampler = None
                 try:
                     from mlx_lm.sample_utils import make_sampler
 
-                    kwargs["sampler"] = make_sampler(temp=0.0)
+                    sampler = make_sampler(temp=0.0)
                 except Exception:
                     pass
-                raw = generate(model, tokenizer, prompt=templated, **kwargs)
+                raw = _generate_unwired(
+                    model, tokenizer, str(templated), max_tokens=512, sampler=sampler
+                )
             conn.send({"ok": True, "raw": raw})
         except Exception as exc:
             conn.send({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
@@ -172,6 +235,13 @@ class MLXDistiller:
         self._proc: Any = None
         self._conn: Connection | None = None
         self._warmed = False
+
+    @property
+    def pid(self) -> int | None:
+        if self._proc is None or not getattr(self._proc, "is_alive", lambda: False)():
+            return None
+        pid = getattr(self._proc, "pid", None)
+        return int(pid) if isinstance(pid, int) and pid > 0 else None
 
     def distill_passage(self, text: str, *, sources: list[str], language: str) -> list[str]:
         prompt = build_prompt(
@@ -204,7 +274,7 @@ class MLXDistiller:
         self._warmed = True
         if not reply.get("ok"):
             raise DistillError(str(reply.get("error", "unknown built-in LLM error")))
-        return parse_statements(_clean_reply(str(reply.get("raw", ""))), self._max)
+        return [apply_correction(text, _clean_reply(str(reply.get("raw", ""))))]
 
     def close(self) -> None:
         """Stop the LLM subprocess. Idempotent."""
