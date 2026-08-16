@@ -572,7 +572,16 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.13.0", date: "2026-07-31", tag: "latest",
+    ver: "0.14.0", date: "2026-08-16", tag: "latest",
+    items: [
+      { kind: "changed", text: <><strong>Lower peak RAM on long sessions.</strong> Acoustic echo suppression now processes 8-second windows instead of the whole chunk (a 30-minute dual source file no longer allocates multi-GB STFTs). Parakeet converts only the current 120 s slice to Metal. WAV load and <code>--keep-audio</code> transcode stream in blocks. The ASR and distill children cap the MLX buffer cache (512 MB / 256 MB) and never raise mlx-lm's <code>wired_limit</code> (which pinned ~14 GB on an 18 GB M3 Pro). After two idle minutes the ASR/LLM <em>process</em> exits so macOS can reclaim the Metal heap; the parent respawns on the next job.</> },
+      { kind: "changed", text: <><strong>One Metal model at a time.</strong> Distillation waits until transcription is idle, and a new chunk preempts the next LLM passage. ASR stays the priority so recording never shares unified memory with the distill model.</> },
+      { kind: "changed", text: <><strong>Safer defaults.</strong> <code>chunk_minutes</code> is now 15 (was 30). Idle unload still defaults on; <code>recycle_idle_process</code>, <code>metal_cache_limit_mb</code>, and <code>metal_memory_limit_mb</code> are the new footprint knobs. Huske.app shows per-process RSS, recommends <code>large-v3-turbo</code> when Whisper is pinning a language, and recycles <code>seenEventIDs</code> with the event log.</> },
+      { kind: "changed", text: <><strong>Distillation is now a tiny ASR corrector.</strong> The opt-in local LLM (default <code>mlx-community/Qwen3.5-0.8B-4bit</code>, ~0.6 GB) fixes typos and obvious mishears in each transcript run instead of extracting statements with a 4B model. The raw snapshot stays in <code><name>.asr.txt</code> (not synced); the canonical <code>.md</code> is rewritten in place. 2B / 4B remain selectable.</> },
+    ],
+  },
+  {
+    ver: "0.13.0", date: "2026-07-31",
     items: [
       { kind: "removed", text: <><strong>Read this first if you upgrade: five commands are gone.</strong> <code>huske mcp</code>, <code>huske serve</code>, <code>huske index</code>, <code>huske setup</code>, and <code>huske connect</code>, along with the <code>mcp</code>/<code>server</code> extras, the embed worker, the OAuth connector, the local <code>sqlite-vec</code> stores, and the ingest endpoint. Search and MCP now live in a separate service (below); recording and transcription are unchanged.</> },
       { kind: "added", text: <><strong>Cloud sync: your Mac publishes to a private Git repository.</strong> The new Cloud sync pane takes a repository and branch and publishes every finalized transcript automatically; <code>huske sync</code> does the same from a terminal. Only canonical <code>YYYY-MM-DD/*.md</code> crosses the boundary — never audio, screenshots, logs, or config. It uses your existing SSH agent or Git credential helper, so huske stores no token, and an unpushed commit <em>is</em> the offline retry queue.</> },
