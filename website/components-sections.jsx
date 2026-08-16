@@ -572,7 +572,15 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.13.0", date: "2026-07-31", tag: "latest",
+    ver: "0.14.0", date: "2026-08-16", tag: "latest",
+    items: [
+      { kind: "changed", text: <><strong>Long sessions no longer pin the whole machine.</strong> Echo suppression windows 8 s instead of STFT-ing a 30-minute chunk. Parakeet only lifts a 120 s slice onto Metal. ASR and the optional LLM cap their caches and never raise mlx-lm's <code>wired_limit</code> (~14 GB on an 18 GB M3 Pro). After two idle minutes the child <em>process</em> exits so macOS can reclaim the heap. Distill waits for transcription; a new chunk preempts the next LLM run.</> },
+      { kind: "changed", text: <><strong>Distillation is now a tiny ASR corrector.</strong> The opt-in local model (default Qwen3.5 0.8B, ~0.6 GB) fixes typos and obvious mishears in each transcript run instead of extracting statements with a 4B model. The raw snapshot stays in a sibling <code>.asr.txt</code> (not synced); the canonical <code>.md</code> is rewritten in place. 2B and 4B stay selectable.</> },
+      { kind: "changed", text: <><strong>Safer defaults.</strong> <code>chunk_minutes</code> is 15 (was 30). Huske.app shows per-process RSS and recommends Whisper <code>large-v3-turbo</code> when a language is pinned. New knobs: <code>recycle_idle_process</code>, <code>metal_cache_limit_mb</code>, <code>metal_memory_limit_mb</code>.</> },
+    ],
+  },
+  {
+    ver: "0.13.0", date: "2026-07-31",
     items: [
       { kind: "removed", text: <><strong>Read this first if you upgrade: five commands are gone.</strong> <code>huske mcp</code>, <code>huske serve</code>, <code>huske index</code>, <code>huske setup</code>, and <code>huske connect</code>, along with the <code>mcp</code>/<code>server</code> extras, the embed worker, the OAuth connector, the local <code>sqlite-vec</code> stores, and the ingest endpoint. Search and MCP now live in a separate service (below); recording and transcription are unchanged.</> },
       { kind: "added", text: <><strong>Cloud sync: your Mac publishes to a private Git repository.</strong> The new Cloud sync pane takes a repository and branch and publishes every finalized transcript automatically; <code>huske sync</code> does the same from a terminal. Only canonical <code>YYYY-MM-DD/*.md</code> crosses the boundary — never audio, screenshots, logs, or config. It uses your existing SSH agent or Git credential helper, so huske stores no token, and an unpushed commit <em>is</em> the offline retry queue.</> },

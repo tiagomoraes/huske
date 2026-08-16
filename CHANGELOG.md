@@ -6,6 +6,8 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.14.0 - 2026-08-16
+
 ### Changed
 
 - **Lower peak RAM on long sessions.** Acoustic echo suppression now
