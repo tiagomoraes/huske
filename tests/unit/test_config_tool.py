@@ -47,7 +47,7 @@ def test_show_json_for_missing_file_uses_defaults(
     payload = json.loads(capsys.readouterr().out)
     assert payload["exists"] is False
     assert payload["file"] == {}
-    assert payload["effective"]["chunk_minutes"] == 30.0
+    assert payload["effective"]["chunk_minutes"] == 15.0
 
 
 def test_show_human_marks_explicit_keys(

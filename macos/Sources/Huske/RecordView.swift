@@ -507,6 +507,20 @@ struct MeterBar: View {
 
 // MARK: - chunk + extras cards
 
+private func memoryCaption(_ snapshot: ControlSnapshot) -> String {
+    var parts: [String] = []
+    if snapshot.asrRssMb > 0 {
+        parts.append(String(format: "asr %.0f MB", snapshot.asrRssMb))
+    }
+    if snapshot.distillRssMb > 0 {
+        parts.append(String(format: "llm %.0f MB", snapshot.distillRssMb))
+    }
+    if snapshot.engineRssMb > 0 {
+        parts.append(String(format: "engine %.0f MB", snapshot.engineRssMb))
+    }
+    return parts.joined(separator: " · ")
+}
+
 struct ChunkCard: View {
     let snapshot: ControlSnapshot
 
@@ -542,6 +556,11 @@ struct ChunkCard: View {
                     )
                     .font(.brandSans(12))
                     .foregroundStyle(snapshot.queueDepth > 0 ? Theme.fg : Theme.fgMuted)
+                }
+                if snapshot.asrRssMb > 0 || snapshot.distillRssMb > 0 {
+                    Text(memoryCaption(snapshot))
+                        .font(.brandMono(11))
+                        .foregroundStyle(Theme.fgFaint)
                 }
                 if let name = snapshot.lastSavedName {
                     LastSavedLink(name: name, path: snapshot.lastSavedPath)
@@ -620,8 +639,8 @@ struct ExtrasCard: View {
                 .toggleStyle(.switch)
                 .controlSize(.small)
                 .help(
-                    "Distill finished transcripts into compact statements with "
-                        + "huske's built-in local model (downloads on first use).")
+                    "Correct typos and ASR errors in finished transcripts with "
+                        + "huske's tiny built-in local model (downloads on first use).")
 
                 Rectangle().fill(Theme.divider).frame(height: 1)
 
@@ -641,9 +660,9 @@ struct ExtrasCard: View {
             return warning
         }
         if snapshot.distillEnabled {
-            return "extracting statements for semantic search"
+            return "correcting typos and ASR errors"
         }
-        return "statements for semantic search — built-in model"
+        return "tiny local model — correct ASR errors"
     }
 }
 

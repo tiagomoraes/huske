@@ -108,7 +108,7 @@ def incomplete_root(cfg: RuntimeConfig) -> Path:
 
 
 def statements_sidecar_path(transcript_path: Path) -> Path:
-    """The distilled-Statements sidecar for a transcript.
+    """The distill sidecar for a transcript (skip-hash + polished runs).
 
     ``…/2026-05-07/093000_8a3f2c19_001.md`` →
     ``…/2026-05-07/093000_8a3f2c19_001.statements.json``. A sibling JSON file so
@@ -116,6 +116,15 @@ def statements_sidecar_path(transcript_path: Path) -> Path:
     glob (indexing/sync never pick it up as a transcript).
     """
     return transcript_path.with_name(f"{transcript_path.stem}.statements.json")
+
+
+def asr_raw_path(transcript_path: Path) -> Path:
+    """Uncorrected ASR snapshot for a transcript.
+
+    ``…/001.md`` → ``…/001.asr.txt``. Not Markdown, so the app, Git sync, and
+    ``*.md`` globs never treat it as a published transcript.
+    """
+    return transcript_path.with_name(f"{transcript_path.stem}.asr.txt")
 
 
 def sync_root(cfg: RuntimeConfig) -> Path:

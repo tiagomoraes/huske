@@ -22,7 +22,8 @@ silence_split_seconds = 60
 
 # Maximum chunk length in minutes (0.1–60). With speech_gated on this is just a
 # safety cap on an unbroken monologue; chunks normally close on a pause.
-chunk_minutes = 30
+# 15 min keeps peak RAM (AEC + PCM) bounded on 16–18 GB Macs.
+chunk_minutes = 15
 
 # Keep raw WAV chunks after successful transcription (they are deleted by
 # default once a chunk is transcribed).
@@ -74,8 +75,9 @@ echo_cancel = true
 # the clean system line are never removed.
 echo_dedup = "drop"
 
-# Whisper model size when asr_engine = "whisper": tiny | base | small | medium | large-v3
-# Loaded on first use from the matching mlx-community/whisper-<size>-mlx repo.
+# Whisper model size when asr_engine = "whisper":
+# tiny | base | small | medium | large-v3-turbo | large-v3
+# For a pinned language (e.g. pt) prefer large-v3-turbo over large-v3.
 model = "base"
 
 # Optional language hint, ISO 639-1 (e.g. "pt", "en"). Omit for auto-detect.
@@ -100,6 +102,12 @@ device = "auto"
 # `huske run --no-idle-unload`) to keep the model warm for back-to-back work.
 # whisper_idle_unload = false
 # whisper_idle_unload_seconds = 120
+# Recycle the ASR process after idle-unload (default true) so macOS can
+# reclaim the Metal heap. metal_cache_limit_mb / metal_memory_limit_mb cap
+# the MLX buffer cache and evaluation guideline (defaults 512 / 8192).
+# recycle_idle_process = true
+# metal_cache_limit_mb = 512
+# metal_memory_limit_mb = 8192
 
 # ============================================================
 # Output & storage paths
@@ -162,3 +170,13 @@ no_ui = false
 
 # Where `huske export` writes one Markdown digest per day for file-only tools.
 # export_root = "~/huske/export"
+
+# ============================================================
+# Transcript correction (opt-in)
+# ============================================================
+# A tiny local LLM polishes ASR typos in each finished transcript.
+# The raw snapshot is kept as <name>.asr.txt next to the .md.
+# distill_enabled = false
+# distill_backend = "mlx"
+# distill_model = "mlx-community/Qwen3.5-0.8B-4bit"   # or Qwen3.5-2B-4bit
+# distill_think = false

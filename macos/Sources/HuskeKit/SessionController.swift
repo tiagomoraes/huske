@@ -190,6 +190,7 @@ public final class SessionController {
         }
         if eventLog.count > Self.eventLogLimit {
             eventLog.removeFirst(eventLog.count - Self.eventLogLimit)
+            seenEventIDs = Set(eventLog.map(\.id))
         }
     }
 

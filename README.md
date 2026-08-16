@@ -42,7 +42,7 @@ it about your day.
 - **Speech-gated segmentation** — files split on real pauses in speech, not a
   fixed clock: a chunk opens when speech starts and closes after a pause
   (`--silence-split`, default 60 s) or at the `--chunk-minutes` cap (default
-  30 min). Quiet stretches produce no file, and a conversation isn't cut
+  15 min). Quiet stretches produce no file, and a conversation isn't cut
   mid-sentence at an arbitrary tick. `--no-speech-gated` restores fixed-interval
   rotation.
 - **Speaker-bleed removal** — when you record mic + system on speakers (no
@@ -77,9 +77,10 @@ it about your day.
   Linux/VPS, pulls the repository, incrementally indexes it, and serves agents
   while the Mac sleeps. The default profile is designed for a 512 MB VPS;
   semantic hybrid search is an explicit larger-memory option.
-- **LLM distillation into statements (opt-in)** — distil each transcript into
-  compact, self-contained claims with a local MLX model or Ollama. Derived
-  sidecars are on-device and never required by the remote retrieval index.
+- **LLM correction of transcripts (opt-in)** — a tiny local MLX model (or
+  Ollama) fixes typos and obvious ASR errors in each finished transcript.
+  The raw snapshot stays on-device as `.asr.txt`; Git sync publishes the
+  polished Markdown.
 - **Optional periodic screenshots** — opt in with `--screenshots` to also
   capture a JPEG of every attached display every 60 s (compressed for LLM input), stored under
   `~/huske/screenshots/YYYY-MM-DD/<session>/HHMMSS_dN.jpg` for downstream
@@ -299,26 +300,27 @@ This heals missed webhooks and restarts without a second data plane. Full setup:
 **[docs/integrations.md](docs/integrations.md)**. Decision record:
 [ADR 0009](docs/adr/0009-git-replica-and-isolated-mcp-service.md).
 
-## Distil transcripts into statements (opt-in)
+## Correct transcript typos (opt-in)
 
-Huske can distil each transcript into compact, self-contained statement sidecars
-using a local MLX model or Ollama. These are derived and optional; the VPS
-service builds retrieval from canonical transcript Markdown and never depends on
-them.
+Huske can polish each finished transcript with a tiny local MLX model (default
+Qwen3.5 0.8B) or Ollama. The job is conservative ASR correction, not
+summarisation. The raw snapshot is kept as `<name>.asr.txt`; the canonical
+`.md` is what syncs and what the VPS service indexes.
 
 ```bash
 huske distill
 ```
 
-To keep sidecars fresh automatically:
+To correct automatically after each chunk:
 
 ```toml
 distill_enabled = true
 distill_model = "mlx-community/Qwen3.5-0.8B-4bit"
 ```
 
-Distillation runs off the recording hot path and failures never block recording
+Correction runs off the recording hot path and failures never block recording
 or cloud sync. See [docs/distillation.md](docs/distillation.md).
+
 ## Privacy and consent
 
 huske is local-first: audio capture and transcription run on your machine, and
@@ -367,8 +369,8 @@ metadata can contain private or legally sensitive information.
 - [macOS app](docs/macos-app.md) — the native SwiftUI app over the same engine.
 - [Always-on service](docs/server.md) — GitHub sync plus the isolated VPS MCP
   service (opt-in).
-- [Transcript distillation](docs/distillation.md) — distil transcripts into
-  compact statements with a local LLM (opt-in).
+- [Transcript correction](docs/distillation.md) — polish ASR typos with a
+  tiny local LLM (opt-in).
 - [Architecture decisions](docs/adr/) — including the Git replica and isolated
   MCP service boundary in ADR 0009.
 

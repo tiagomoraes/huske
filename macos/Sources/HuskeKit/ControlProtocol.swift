@@ -60,6 +60,9 @@ public struct ControlSnapshot: Equatable, Sendable {
     public var inputDeviceName: String?
     public var warnings: [String: String]
     public var events: [SessionEvent]
+    public var asrRssMb: Double
+    public var distillRssMb: Double
+    public var engineRssMb: Double
 
     public init(
         sessionId: String,
@@ -82,7 +85,10 @@ public struct ControlSnapshot: Equatable, Sendable {
         screenshotsCount: Int = 0,
         inputDeviceName: String? = nil,
         warnings: [String: String] = [:],
-        events: [SessionEvent] = []
+        events: [SessionEvent] = [],
+        asrRssMb: Double = 0,
+        distillRssMb: Double = 0,
+        engineRssMb: Double = 0
     ) {
         self.sessionId = sessionId
         self.recording = recording
@@ -105,6 +111,9 @@ public struct ControlSnapshot: Equatable, Sendable {
         self.inputDeviceName = inputDeviceName
         self.warnings = warnings
         self.events = events
+        self.asrRssMb = asrRssMb
+        self.distillRssMb = distillRssMb
+        self.engineRssMb = engineRssMb
     }
 }
 
@@ -220,7 +229,10 @@ public enum ControlProtocol {
             screenshotsCount: obj["screenshots_count"] as? Int ?? 0,
             inputDeviceName: obj["input_device_name"] as? String,
             warnings: obj["warnings"] as? [String: String] ?? [:],
-            events: events
+            events: events,
+            asrRssMb: doubleValue(obj["asr_rss_mb"]) ?? 0,
+            distillRssMb: doubleValue(obj["distill_rss_mb"]) ?? 0,
+            engineRssMb: doubleValue(obj["engine_rss_mb"]) ?? 0
         )
     }
 

@@ -37,7 +37,6 @@ from typing import TYPE_CHECKING, Any
 from huske.transcribe.engines.base import Segment, TranscriptionEngine
 
 if TYPE_CHECKING:
-    import mlx.core as mx
     import numpy as np
     import numpy.typing as npt
 
@@ -109,7 +108,7 @@ class ParakeetEngine(TranscriptionEngine):
     # -- transcription ------------------------------------------------------
 
     def transcribe(self, audio_np: npt.NDArray[np.float32]) -> list[Segment]:
-        import mlx.core as mx
+        import numpy as np
         from parakeet_mlx.alignment import sentences_to_result, tokens_to_sentences
         from parakeet_mlx.parakeet import DecodingConfig
 
@@ -117,15 +116,15 @@ class ParakeetEngine(TranscriptionEngine):
             return []
         model = self._ensure_model()
         sr = int(model.preprocessor_config.sample_rate)
-        audio = mx.array(audio_np)
+        audio_np = np.ascontiguousarray(audio_np, dtype=np.float32)
 
         length_seconds = audio_np.shape[0] / float(sr)
         if length_seconds <= self._chunk_duration:
             decoding = DecodingConfig()
-            tokens = self._decode_window(model, audio, 0, audio.shape[0], sr, decoding)
+            tokens = self._decode_window(model, audio_np, 0, audio_np.shape[0], sr, decoding)
             result = sentences_to_result(tokens_to_sentences(tokens, decoding.sentence))
         else:
-            result = self._transcribe_chunked(model, audio, sr)
+            result = self._transcribe_chunked(model, audio_np, sr)
 
         return _result_to_segments(result)
 
@@ -134,7 +133,7 @@ class ParakeetEngine(TranscriptionEngine):
     def _decode_window(
         self,
         model: Any,
-        audio: mx.array,
+        audio_np: npt.NDArray[np.float32],
         start: int,
         end: int,
         sr: int,
@@ -152,11 +151,14 @@ class ParakeetEngine(TranscriptionEngine):
         window that is fine — the overwhelming majority — costs one decode, as
         before.
         """
+        import mlx.core as mx
         from parakeet_mlx.audio import get_logmel
 
         from huske.transcribe import langdrift
 
-        mel = get_logmel(audio[start:end], model.preprocessor_config)
+        # Convert only this window — a 30 min mx.array of the whole chunk
+        # would pin ~115 MB of Metal on top of the weights.
+        mel = get_logmel(mx.array(audio_np[start:end]), model.preprocessor_config)
         result = model.generate(mel, decoding_config=decoding)[0]
 
         offset = start / float(sr)
@@ -176,10 +178,10 @@ class ParakeetEngine(TranscriptionEngine):
         overlap = int(_GUARD_SPLIT_OVERLAP_SECONDS * sr)
         mid = start + (end - start) // 2
         first = self._decode_window(
-            model, audio, start, min(mid + overlap, end), sr, decoding, depth + 1
+            model, audio_np, start, min(mid + overlap, end), sr, decoding, depth + 1
         )
         second = self._decode_window(
-            model, audio, max(mid - overlap, start), end, sr, decoding, depth + 1
+            model, audio_np, max(mid - overlap, start), end, sr, decoding, depth + 1
         )
         merged = _merge_tokens(first, second, _GUARD_SPLIT_OVERLAP_SECONDS)
         # Only keep the re-decode if it actually recovered the language; a split
@@ -191,7 +193,9 @@ class ParakeetEngine(TranscriptionEngine):
             return tokens
         return merged
 
-    def _transcribe_chunked(self, model: Any, audio: mx.array, sr: int) -> Any:
+    def _transcribe_chunked(
+        self, model: Any, audio_np: npt.NDArray[np.float32], sr: int
+    ) -> Any:
         """Sliding-window transcription with token-stream merging (long audio)."""
         from parakeet_mlx.alignment import sentences_to_result, tokens_to_sentences
         from parakeet_mlx.parakeet import DecodingConfig
@@ -204,12 +208,12 @@ class ParakeetEngine(TranscriptionEngine):
         decoding = DecodingConfig()
 
         all_tokens: list[Any] = []
-        n = audio.shape[0]
+        n = audio_np.shape[0]
         for start in range(0, n, stride):
             end = min(start + chunk_samples, n)
             if end - start < hop:  # too short to form a single mel frame
                 break
-            tokens = self._decode_window(model, audio, start, end, sr, decoding)
+            tokens = self._decode_window(model, audio_np, start, end, sr, decoding)
             if all_tokens:
                 all_tokens = _merge_tokens(all_tokens, tokens, self._overlap_duration)
             else:

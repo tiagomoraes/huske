@@ -105,6 +105,13 @@ def test_lock_path_inside_audio_root(cfg: RuntimeConfig) -> None:
     assert lp.parent == cfg.audio_root / sid
 
 
+def test_asr_raw_path_is_txt_not_markdown() -> None:
+    transcript = Path("/tmp/2026-05-07/093000_8a3f2c19_001.md")
+    raw = paths.asr_raw_path(transcript)
+    assert raw.name == "093000_8a3f2c19_001.asr.txt"
+    assert raw.suffix == ".txt"
+
+
 def test_filenames_sort_chronologically() -> None:
     times = [
         datetime(2026, 5, 7, 9, 15, 0),

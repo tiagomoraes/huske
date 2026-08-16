@@ -28,7 +28,8 @@ def test_hf_repos_pass_through() -> None:
 
 def test_known_ollama_tags_map_to_mlx_builds() -> None:
     assert resolve_mlx_model("qwen3.5:0.8b") == DEFAULT_MLX_MODEL
-    assert resolve_mlx_model("qwen3.5:0.8b-mlx") == DEFAULT_MLX_MODEL
+    assert resolve_mlx_model("qwen3.5:0.8b-mlx") == "mlx-community/Qwen3.5-0.8B-4bit"
+    assert resolve_mlx_model("qwen3.5:4b") == "mlx-community/Qwen3.5-4B-4bit"
     assert resolve_mlx_model("QWEN3.5:2B") == "mlx-community/Qwen3.5-2B-4bit"
 
 
@@ -42,13 +43,13 @@ def test_unknown_tag_passes_through_unchanged() -> None:
 
 
 def test_clean_reply_strips_think_blocks_and_fences() -> None:
-    raw = '<think>reasoning...</think>\n```json\n{"statements": ["a"]}\n```'
-    assert _clean_reply(raw) == '{"statements": ["a"]}'
+    raw = '<think>reasoning...</think>\n```json\n{"text": "a"}\n```'
+    assert _clean_reply(raw) == '{"text": "a"}'
 
 
 def test_clean_reply_isolates_json_amid_prose() -> None:
-    raw = 'Sure! Here you go: {"statements": ["a", "b"]} Hope that helps.'
-    assert _clean_reply(raw) == '{"statements": ["a", "b"]}'
+    raw = 'Sure! Here you go: {"text": "a"} Hope that helps.'
+    assert _clean_reply(raw) == '{"text": "a"}'
 
 
 # ---------------------------------------------------------------------------

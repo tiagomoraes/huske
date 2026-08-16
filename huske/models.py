@@ -116,6 +116,9 @@ class RenderState:
     screenshots_count: int = 0
     last_screenshot_at: datetime | None = None
     distill_enabled: bool = False
+    asr_rss_mb: float = 0.0
+    distill_rss_mb: float = 0.0
+    engine_rss_mb: float = 0.0
     events: deque[Event] = field(default_factory=lambda: deque(maxlen=5))
     warnings: dict[str, str] = field(default_factory=dict)
     _lock: Lock = field(default_factory=Lock, repr=False)

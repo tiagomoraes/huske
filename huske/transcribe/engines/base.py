@@ -44,24 +44,53 @@ class Segment:
     echo: bool = False
 
 
+_LOAD_BLOCK_FRAMES = 65_536
+
+
 def load_mono_16k(path: str) -> npt.NDArray[np.float32]:
     """Load ``path`` as a 16 kHz mono float32 numpy array (no ffmpeg).
 
-    Reads with ``soundfile``, downmixes to mono, and resamples to 16 kHz with
-    ``soxr`` when needed. Raises if the file can't be read — the worker treats
-    that as a per-chunk failure.
+    Streams the file in blocks so a 30-minute 48 kHz WAV is never fully
+    materialized as float32 before resampling. Raises if the file can't be
+    read — the worker treats that as a per-chunk failure.
     """
     import numpy as np
     import soundfile as sf
 
-    data, sr = sf.read(path, dtype="float32", always_2d=False)
-    if data.ndim > 1:
-        data = data.mean(axis=1)
-    if sr != TARGET_SAMPLE_RATE:
-        import soxr
+    with sf.SoundFile(path) as handle:
+        sr = int(handle.samplerate)
+        parts: list[npt.NDArray[np.float32]] = []
+        if sr == TARGET_SAMPLE_RATE:
+            while True:
+                block = handle.read(_LOAD_BLOCK_FRAMES, dtype="float32", always_2d=True)
+                if len(block) == 0:
+                    break
+                mono = block.mean(axis=1) if block.shape[1] > 1 else block[:, 0]
+                parts.append(np.ascontiguousarray(mono, dtype=np.float32))
+        else:
+            import soxr
 
-        data = soxr.resample(data, sr, TARGET_SAMPLE_RATE)
-    out: npt.NDArray[np.float32] = np.ascontiguousarray(data, dtype=np.float32)
+            stream = soxr.ResampleStream(sr, TARGET_SAMPLE_RATE, 1, dtype="float32")
+            while True:
+                block = handle.read(_LOAD_BLOCK_FRAMES, dtype="float32", always_2d=True)
+                if len(block) == 0:
+                    break
+                mono = block.mean(axis=1) if block.shape[1] > 1 else block[:, 0]
+                resampled = stream.resample_chunk(
+                    np.ascontiguousarray(mono, dtype=np.float32), last=False
+                )
+                if resampled.size:
+                    parts.append(np.ascontiguousarray(resampled, dtype=np.float32))
+            flushed = stream.resample_chunk(
+                np.zeros(0, dtype=np.float32), last=True
+            )
+            if flushed.size:
+                parts.append(np.ascontiguousarray(flushed, dtype=np.float32))
+    if not parts:
+        return np.zeros(0, dtype=np.float32)
+    out: npt.NDArray[np.float32] = np.ascontiguousarray(
+        np.concatenate(parts), dtype=np.float32
+    )
     return out
 
 
