@@ -1,35 +1,38 @@
-"""Passage → Statements, behind a small protocol.
+"""Per-run ASR correction, behind a small protocol.
 
-``OllamaDistiller`` is the production path: it prompts a local model for atomic,
-faithful claims and parses the JSON back. ``HeuristicDistiller`` is a
-deterministic, dependency-free stand-in (splits on sentences) used by the test
-suite and by ``--model heuristic`` — the same "test the pipeline without the
-heavy backend" trick ``HashingEmbedder`` plays for embeddings.
+A tiny local model (default Qwen3.5 0.8B) fixes typos and obvious ASR
+mishears in one transcript run. It must not summarise, translate, or invent.
+``HeuristicDistiller`` is a deterministic identity stand-in used by the test
+suite and by ``--model heuristic``.
 
-``distill_transcript`` is the one shared code path: parse the ``.md`` → window
-into Passages (reusing ``huske.search``) → distill each Passage → assemble the
-sidecar. Both the live worker and the ``huske distill`` backfill call it.
+``distill_transcript`` is the one shared code path: snapshot the raw Markdown
+to ``.asr.txt``, correct each ``[HH:MM:SS · source]`` run, rewrite the
+canonical ``.md`` body, and assemble the skip-hash sidecar. Both the live
+worker and the ``huske distill`` backfill call it.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from huske.distill.models import Statement, StatementSidecar
-from huske.search.parser import parse_transcript
-from huske.search.windowing import window
+from huske.paths import asr_raw_path
+from huske.search.models import Run
+from huske.search.parser import ParseError, parse_transcript
 
-_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?…])\s+")
+_FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n?(.*)\Z", re.DOTALL)
+_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
 @runtime_checkable
 class Distiller(Protocol):
-    """Turns one Passage's text into a list of self-contained claim strings."""
+    """Turns one run's ASR text into a one-item list ``[corrected]``."""
 
     model_id: str
     backend: str
@@ -46,70 +49,94 @@ def _source_legend(sources: list[str]) -> str:
     return "Speakers: mic = the user, system = the other party."
 
 
-def build_prompt(text: str, *, sources: list[str], language: str, max_statements: int) -> str:
-    """The distillation instruction for one Passage. Faithful, atomic, JSON-out."""
+def build_prompt(text: str, *, sources: list[str], language: str, max_statements: int = 1) -> str:
+    """Conservative correction instruction for one transcript run. JSON-out."""
+    del max_statements  # kept so older callers/tests keep working
     lang_hint = (
-        "Write each statement in the same language as the excerpt."
+        "Keep the same language as the excerpt."
         if not language or language == "auto"
-        else f"Write each statement in {language}."
+        else f"Keep the excerpt in {language}. Do not translate."
     )
     return (
-        "You extract atomic, self-contained factual statements from an excerpt of "
-        "a transcribed conversation. Rules:\n"
-        "- Each statement is ONE sentence, understandable on its own (resolve "
-        "pronouns and references using the excerpt).\n"
-        "- Be faithful: state only what the excerpt supports. Do NOT invent, infer, "
-        "or speculate beyond the text.\n"
-        "- Capture decisions, facts, requests, questions, and commitments; skip "
-        "greetings, filler, and backchannel.\n"
-        f"- Return at most {max_statements} statements. If the excerpt has no "
-        "substantive content, return an empty list.\n"
+        "You correct automatic speech-recognition errors in one transcript excerpt. "
+        "Rules:\n"
+        "- Fix typos, missing punctuation, obvious mishears, and broken casing.\n"
+        "- Do NOT add, remove, summarise, or paraphrase facts. Do NOT invent names "
+        "or numbers that are not clearly implied by the excerpt.\n"
+        "- If the excerpt is already fine, return it unchanged.\n"
         f"- {lang_hint}\n"
         f"- {_source_legend(sources)}\n"
-        'Respond ONLY with JSON of the form {"statements": ["...", "..."]}.\n\n'
+        'Respond ONLY with JSON of the form {"text": "..."}.\n\n'
         "Excerpt:\n"
         f"{text}"
     )
 
 
-def parse_statements(raw: str, max_statements: int) -> list[str]:
-    """Parse the model's JSON reply into a clean, de-duplicated claim list.
+def _extract_corrected_text(data: Any) -> str | None:
+    if isinstance(data, str):
+        text = data.strip()
+        return text or None
+    if isinstance(data, dict):
+        for key in ("text", "corrected", "correction"):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        if len(data) == 1:
+            value = next(iter(data.values()))
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return None
 
-    Tolerant of the common shapes a small model emits: ``{"statements": [...]}``,
-    a bare list, or a dict whose only value is the list.
-    """
+
+def acceptable_correction(original: str, candidate: str) -> bool:
+    """Reject empty replies and wild length swings from a tiny model."""
+    orig = original.strip()
+    cand = candidate.strip()
+    if not cand:
+        return False
+    if not orig:
+        return True
+    o_len, c_len = len(orig), len(cand)
+    if o_len >= 16 and c_len < int(o_len * 0.5):
+        return False
+    if c_len > max(int(o_len * 2.5), o_len + 80):
+        return False
+    return True
+
+
+def parse_correction(raw: str, original: str) -> str:
+    """Parse ``{"text": "..."}`` (and a few small-model shapes) or keep ``original``."""
+    try:
+        data: Any = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return original
+    candidate = _extract_corrected_text(data)
+    if candidate is None or not acceptable_correction(original, candidate):
+        return original
+    return candidate
+
+
+def parse_statements(raw: str, max_statements: int = 1) -> list[str]:
+    """Compatibility wrapper: a one-item ``[corrected]`` list (or empty)."""
+    del max_statements
+    # Empty / unusable JSON must not look like a successful identity correction.
     try:
         data: Any = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
         return []
-
-    items: Any
-    if isinstance(data, dict):
-        items = data.get("statements")
-        if items is None and len(data) == 1:
-            items = next(iter(data.values()))
-    elif isinstance(data, list):
-        items = data
-    else:
-        items = None
-    if not isinstance(items, list):
+    candidate = _extract_corrected_text(data)
+    if candidate is None:
         return []
+    return [candidate]
 
-    out: list[str] = []
-    seen: set[str] = set()
-    for item in items:
-        text = item.strip() if isinstance(item, str) else str(item).strip()
-        if not text or text.lower() in seen:
-            continue
-        seen.add(text.lower())
-        out.append(text)
-        if len(out) >= max_statements:
-            break
-    return out
+
+def apply_correction(original: str, raw_reply: str) -> str:
+    """Return a conservative correction, or ``original`` when the reply is unusable."""
+    return parse_correction(raw_reply, original)
 
 
 class OllamaDistiller:
-    """Distills via a local Ollama model. See :class:`huske.distill.client.OllamaClient`."""
+    """Corrects via a local Ollama model. See :class:`huske.distill.client.OllamaClient`."""
 
     def __init__(
         self, client: Any, model: str, *, max_statements: int = 8, think: bool = False
@@ -123,7 +150,7 @@ class OllamaDistiller:
     def distill_passage(self, text: str, *, sources: list[str], language: str) -> list[str]:
         prompt = build_prompt(text, sources=sources, language=language, max_statements=self._max)
         # temperature 0 for faithfulness; num_predict caps a runaway generation.
-        # think=False by default — extraction needs no reasoning pass (see config).
+        # think=False by default — correction needs no reasoning pass (see config).
         raw = self._client.chat(
             self.model_id,
             prompt,
@@ -131,15 +158,15 @@ class OllamaDistiller:
             think=self._think,
             options={"temperature": 0.0, "num_predict": 512},
         )
-        return parse_statements(raw, self._max)
+        return [apply_correction(text, raw)]
 
 
 class HeuristicDistiller:
-    """Deterministic, dependency-free distiller for tests and ``--model heuristic``.
+    """Deterministic identity distiller for tests and ``--model heuristic``.
 
-    Splits a Passage into sentences and returns the first ``max_statements``.
-    Not a real model — it never reaches a network — but it exercises the full
-    parse → window → sidecar → embed → search pipeline without a daemon.
+    Returns the run unchanged. Not a real model — it never reaches a network —
+    but it exercises snapshot → per-run correct → rewrite → sidecar without a
+    daemon.
     """
 
     model_id = "heuristic"
@@ -149,8 +176,9 @@ class HeuristicDistiller:
         self._max = max_statements
 
     def distill_passage(self, text: str, *, sources: list[str], language: str) -> list[str]:
-        parts = [p.strip() for p in _SENTENCE_SPLIT_RE.split(text.strip()) if p.strip()]
-        return parts[: self._max]
+        del sources, language
+        stripped = text.strip()
+        return [stripped] if stripped else []
 
 
 def build_distiller(
@@ -164,9 +192,9 @@ def build_distiller(
 ) -> Distiller:
     """Construct the distiller for ``model``.
 
-    ``heuristic`` / ``fake`` → the dependency-free test distiller. Backend
+    ``heuristic`` / ``fake`` → the dependency-free identity distiller. Backend
     ``ollama`` → a daemon-backed distiller pointed at ``endpoint`` (``think``
-    enables its reasoning pass; extraction does not need it). Anything else →
+    enables its reasoning pass; correction does not need it). Anything else →
     the built-in MLX backend, which runs the model itself in an isolated
     subprocess (no daemon; downloads from Hugging Face on first use).
     """
@@ -182,6 +210,78 @@ def build_distiller(
     return MLXDistiller(model, max_statements=max_statements, timeout=timeout)
 
 
+def ensure_asr_raw(transcript_path: Path) -> Path:
+    """Copy the first-seen ``.md`` to ``.asr.txt``; later calls reuse that snapshot."""
+    raw = asr_raw_path(transcript_path)
+    if not raw.exists():
+        raw.write_bytes(transcript_path.read_bytes())
+    return raw
+
+
+def source_sha256_for(transcript_path: Path) -> str:
+    """Hash the raw ASR snapshot when present, otherwise the live ``.md``."""
+    raw = asr_raw_path(transcript_path)
+    target = raw if raw.exists() else transcript_path
+    return hashlib.sha256(target.read_bytes()).hexdigest()
+
+
+def body_from_runs(runs: list[Run]) -> str:
+    """Rebuild the ``[HH:MM:SS · source] text`` body from corrected runs."""
+    blocks: list[str] = []
+    for run in runs:
+        text = (run.text or "").strip()
+        if not text:
+            continue
+        ts = run.start.strftime("%H:%M:%S")
+        source = run.source or "mic"
+        blocks.append(f"[{ts} · {source}] {text}")
+    return "\n\n".join(blocks)
+
+
+def _heading(start: datetime, end: datetime) -> str:
+    day = _DAYS[start.weekday()]
+    return (
+        f"# {start.strftime('%H:%M')} – {end.strftime('%H:%M')} "  # noqa: RUF001
+        f"({day} {start.date().isoformat()})"
+    )
+
+
+def rewrite_transcript_body(path: Path, body: str) -> None:
+    """Atomically replace the body of an existing transcript; keep frontmatter."""
+    raw = path.read_text(encoding="utf-8")
+    match = _FRONTMATTER_RE.match(raw)
+    if not match:
+        raise ParseError(f"{path}: missing YAML frontmatter")
+    front = match.group(1)
+    rest = match.group(2).lstrip("\n")
+    heading = ""
+    if rest.startswith("#"):
+        heading, _, _tail = rest.partition("\n")
+        heading = heading.strip()
+    if not heading:
+        # Fall back to a heading derived from frontmatter times if the file
+        # has no H1 (legacy / hand-edited). parse_transcript already validated.
+        doc = parse_transcript(path)
+        heading = _heading(doc.start_time, doc.end_time)
+    cleaned = body.strip() if body and body.strip() else "_(no speech detected)_"
+    rendered = f"---\n{front}\n---\n\n{heading}\n\n{cleaned}\n"
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(rendered, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _correct_run(distiller: Distiller, run: Run, *, language: str) -> str:
+    original = (run.text or "").strip()
+    if not original:
+        return original
+    sources = [run.source] if run.source else []
+    claims = distiller.distill_passage(original, sources=sources, language=language)
+    candidate = claims[0].strip() if claims else original
+    if not acceptable_correction(original, candidate):
+        return original
+    return candidate
+
+
 def distill_transcript(
     path: Path,
     distiller: Distiller,
@@ -189,22 +289,30 @@ def distill_transcript(
     max_statements_per_passage: int = 8,
     now: datetime | None = None,
 ) -> StatementSidecar:
-    """Parse → window → distill each Passage → assemble the sidecar for ``path``."""
+    """Snapshot raw ASR, correct each run, rewrite ``.md``, assemble the sidecar."""
+    del max_statements_per_passage
     path = path.resolve()
-    source_sha = hashlib.sha256(path.read_bytes()).hexdigest()
-    doc = parse_transcript(path)
+    raw_path = ensure_asr_raw(path)
+    source_sha = hashlib.sha256(raw_path.read_bytes()).hexdigest()
+    # Always correct from the raw snapshot so a re-run cannot drift the polish.
+    doc = parse_transcript(raw_path)
     key = str(path)
-    passages = window(doc, doc_key=key)
 
+    corrected_runs: list[Run] = []
     statements: list[Statement] = []
-    for p in passages:
-        claims = distiller.distill_passage(p.text, sources=list(p.sources), language=doc.language)
-        for claim in claims[:max_statements_per_passage]:
-            claim = claim.strip()
-            if claim:
-                statements.append(
-                    Statement(text=claim, start=p.start, end=p.end, sources=list(p.sources))
-                )
+    for run in doc.runs:
+        text = _correct_run(distiller, run, language=doc.language)
+        end = run.end or doc.end_time
+        sources = [run.source] if run.source else []
+        corrected_runs.append(
+            Run(start=run.start, source=run.source, text=text, end=end)
+        )
+        if text:
+            statements.append(
+                Statement(text=text, start=run.start, end=end, sources=sources)
+            )
+
+    rewrite_transcript_body(path, body_from_runs(corrected_runs))
 
     stamp = (now or datetime.now().astimezone()).isoformat(timespec="seconds")
     return StatementSidecar(

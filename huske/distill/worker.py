@@ -1,23 +1,22 @@
-"""Background distillation thread: turn finalized transcripts into Statements.
+"""Background distillation thread: correct finalized transcripts.
 
 The thread coordinates either the private MLX subprocess or loopback Ollama
 I/O without blocking the ~50 ms audio drainer.
 
 A distillation failure (daemon down, model not pulled) is **non-fatal**: the
-transcript stays on disk and the next session's reconcile — or ``huske
-distill`` — regenerates the sidecar. We never block recording on the LLM.
+raw transcript stays on disk and the next session's reconcile — or ``huske
+distill`` — retries. We never block recording on the LLM.
 """
 
 from __future__ import annotations
 
-import hashlib
 import queue
 import threading
 from pathlib import Path
 from typing import Any
 
 from huske.distill.client import DistillError
-from huske.distill.distiller import Distiller, distill_transcript
+from huske.distill.distiller import Distiller, distill_transcript, source_sha256_for
 from huske.distill.sidecar import read_sidecar, sidecar_is_current, write_sidecar
 from huske.search.parser import ParseError
 
@@ -32,7 +31,7 @@ def iter_transcripts(output_root: Path) -> list[Path]:
 
 
 class DistillWorker:
-    """Distills transcripts into Statement sidecars in a background daemon thread."""
+    """Corrects transcripts in a background daemon thread."""
 
     def __init__(
         self,
@@ -68,7 +67,7 @@ class DistillWorker:
         enqueued = 0
         for path in iter_transcripts(self._output_root):
             try:
-                source_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+                source_sha = source_sha256_for(path)
             except OSError:
                 continue
             if sidecar_is_current(path, source_sha):
@@ -102,6 +101,12 @@ class DistillWorker:
     def alive(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
+    @property
+    def pid(self) -> int | None:
+        """PID of the built-in MLX LLM child, if that backend is running."""
+        pid = getattr(self._distiller, "pid", None)
+        return int(pid) if isinstance(pid, int) and pid > 0 else None
+
     # -- worker loop -------------------------------------------------------
 
     def _loop(self) -> None:
@@ -125,12 +130,12 @@ class DistillWorker:
     def _process(self, path_str: str) -> None:
         path = Path(path_str)
         try:
-            source_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+            source_sha = source_sha256_for(path)
         except OSError as exc:
             self._emit(ok=False, path=path_str, error=f"could not read transcript: {exc}")
             return
 
-        # Already distilled from this exact content; skip the LLM call.
+        # Already corrected from this exact raw snapshot; skip the LLM call.
         if sidecar_is_current(path, source_sha):
             existing = read_sidecar(path)
             n = len(existing.statements) if existing else 0

@@ -14,7 +14,7 @@ def test_defaults_are_sane() -> None:
     cfg = RuntimeConfig()
     # chunk_minutes is now a safety cap, not the usual boundary — chunks split
     # on real pauses (speech_gated / silence_split_seconds).
-    assert cfg.chunk_minutes == 30.0
+    assert cfg.chunk_minutes == 15.0
     assert cfg.speech_gated is True
     assert cfg.silence_split_seconds == 60.0
     assert cfg.echo_cancel is True
@@ -27,14 +27,14 @@ def test_defaults_are_sane() -> None:
     assert cfg.language is None
     assert cfg.sample_rate == 48000
     assert cfg.channels == 2
-    assert cfg.chunk_seconds == 1800.0
+    assert cfg.chunk_seconds == 900.0
 
 
 def test_distill_defaults_are_light_and_opt_in() -> None:
     cfg = RuntimeConfig()
     assert cfg.distill_enabled is False  # opt-in; never on by default
     assert cfg.distill_backend == "mlx"  # built-in: no external daemon
-    # Lightest portable tier — runs across the whole Apple-Silicon range.
+    # Tiny correction model — not a 4B statement extractor.
     assert cfg.distill_model == "mlx-community/Qwen3.5-0.8B-4bit"
     assert cfg.distill_think is False  # non-reasoning distillation by default
 
@@ -104,7 +104,14 @@ def test_load_config_cli_overrides_win(tmp_path: Path) -> None:
 
 def test_load_config_missing_toml_uses_defaults(tmp_path: Path) -> None:
     cfg = load_config(config_path=tmp_path / "missing.toml")
-    assert cfg.chunk_minutes == 30.0
+    assert cfg.chunk_minutes == 15.0
+
+
+def test_footprint_defaults_cap_metal() -> None:
+    cfg = RuntimeConfig()
+    assert cfg.recycle_idle_process is True
+    assert cfg.metal_cache_limit_mb == 512
+    assert cfg.metal_memory_limit_mb == 8192
 
 
 def test_unknown_field_rejected() -> None:

@@ -155,6 +155,42 @@ def test_acoustic_echo_marker_preserves_local_voice() -> None:
     assert segs[0].echo is False
 
 
+def test_echo_window_bounds_cap_each_slice() -> None:
+    from huske.transcribe.aec import echo_window_bounds
+
+    bounds = echo_window_bounds(30 * SR, SR, window_seconds=8.0, overlap_seconds=2.0)
+    assert bounds[0] == (0, 8 * SR)
+    assert all(end - start <= 8 * SR for start, end in bounds)
+    assert bounds[-1][1] == 30 * SR
+    # Overlap means more than 30/8 windows, but far fewer samples than 30 min STFT.
+    assert 4 <= len(bounds) <= 8
+
+
+def test_windowed_cancel_echo_reduces_long_echo() -> None:
+    """A 20 s file must still attenuate echo after the STFT is windowed."""
+    system = _rng_speech(20.0, seed=20)
+    echo = fftconvolve(system, _rir(0.7))[: len(system)].astype(np.float32)
+    cleaned = cancel_echo(echo, system, SR)
+    assert erle_db(echo, cleaned) > 4.0
+
+
+def test_mark_acoustic_echo_uses_pre_cleaned_audio() -> None:
+    from huske.transcribe.aec import mark_acoustic_echoes
+
+    system = _rng_speech(6.0, seed=21)
+    echo = fftconvolve(system, _rir(0.8))[: len(system)].astype(np.float32)
+    cleaned = (echo * 0.05).astype(np.float32)
+    segs = [
+        Segment(0.5, 4.5, "garbled mic", "microphone"),
+        Segment(0.5, 4.5, "system line", "system"),
+    ]
+
+    marked = mark_acoustic_echoes(segs, echo, system, SR, cleaned_mic=cleaned)
+
+    assert marked == 1
+    assert segs[0].echo is True
+
+
 def test_empty_inputs_are_safe() -> None:
     empty = np.zeros(0, dtype=np.float32)
     assert cancel_echo(empty, _rng_speech(1.0, 7), SR).size == 0

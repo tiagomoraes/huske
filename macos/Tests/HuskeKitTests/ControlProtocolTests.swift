@@ -59,6 +59,9 @@ final class ControlProtocolTests: XCTestCase {
         XCTAssertEqual(snap.events, [])
         XCTAssertNil(snap.chunkStartedAt)
         XCTAssertEqual(snap.huskeVersion, "")
+        XCTAssertEqual(snap.asrRssMb, 0)
+        XCTAssertEqual(snap.distillRssMb, 0)
+        XCTAssertEqual(snap.engineRssMb, 0)
     }
 
     func testDecodesDevices() throws {

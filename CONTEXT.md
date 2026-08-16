@@ -56,9 +56,10 @@ Source. It carries one time range and the set of Sources it spans. It is the
 unit returned by search and recap.
 
 **Statement**:
-A self-contained claim distilled locally from a Transcript and written to a
-`<name>.statements.json` sidecar. Statements are derived and optional; the
-remote index does not require them.
+A local distill artifact: one polished transcript run written to a
+`<name>.statements.json` sidecar (skip-hash plus the corrected lines). The
+uncorrected ASR snapshot lives in `<name>.asr.txt`. Both are derived and
+optional; the remote index reads the polished canonical Markdown.
 
 **Tiny profile**:
 The 512 MB service profile. It uses Unicode SQLite FTS5 and metadata filters

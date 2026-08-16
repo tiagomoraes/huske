@@ -236,7 +236,8 @@ struct ConfigView: View {
                             Text("base — default").tag("base")
                             Text("small").tag("small")
                             Text("medium").tag("medium")
-                            Text("large-v3 — best, heaviest").tag("large-v3")
+                            Text("large-v3-turbo — recommended").tag("large-v3-turbo")
+                            Text("large-v3 — heaviest").tag("large-v3")
                         }
                         .labelsHidden()
                         .frame(maxWidth: 240)
@@ -282,7 +283,7 @@ struct ConfigView: View {
                 Toggle(isOn: config.boolBinding("whisper_idle_unload", default: true)) {
                     settingLabel(
                         "Unload model when idle",
-                        "Frees RAM between chunks; the next chunk pays a few-second reload.")
+                        "Recycles the ASR process after 2 min idle so macOS can reclaim Metal RAM.")
                 }
                 .toggleStyle(.switch)
                 .controlSize(.small)
@@ -312,7 +313,7 @@ struct ConfigView: View {
                 }
                 CommittingSlider(
                     label: "Max chunk length",
-                    value: config.double("chunk_minutes", default: 30),
+                    value: config.double("chunk_minutes", default: 15),
                     range: 1...60,
                     format: { "\(Int($0)) min" }
                 ) { config.set("chunk_minutes", to: .number($0)) }
@@ -423,8 +424,8 @@ struct ConfigView: View {
                 SectionLabel("Distillation")
                 Toggle(isOn: config.boolBinding("distill_enabled")) {
                     settingLabel(
-                        "Distill transcripts into compact statements",
-                        "A small local LLM extracts atomic claims for two-stage semantic search.")
+                        "Correct transcript typos with a tiny local LLM",
+                        "Fixes ASR errors in each finished transcript. Raw copy stays in .asr.txt.")
                 }
                 .toggleStyle(.switch)
                 .controlSize(.small)
@@ -441,9 +442,9 @@ struct ConfigView: View {
                         label: "Model",
                         explicit: config.isExplicit("distill_model"),
                         options: [
-                            ("qwen3.5:0.8b", "Qwen3.5 0.8B — lightest"),
-                            ("qwen3.5:2b", "Qwen3.5 2B — better quality"),
-                            ("qwen3.5:4b", "Qwen3.5 4B — best quality"),
+                            ("qwen3.5:0.8b", "Qwen3.5 0.8B — default, lightest"),
+                            ("qwen3.5:2b", "Qwen3.5 2B — a bit stronger"),
+                            ("qwen3.5:4b", "Qwen3.5 4B — heavier"),
                         ],
                         value: config.string("distill_model"),
                         customPrompt: "any pulled ollama tag"
@@ -462,11 +463,11 @@ struct ConfigView: View {
                         explicit: config.isExplicit("distill_model"),
                         options: [
                             ("mlx-community/Qwen3.5-0.8B-4bit",
-                             "Qwen3.5 0.8B — lightest (default)"),
+                             "Qwen3.5 0.8B — default, lightest"),
                             ("mlx-community/Qwen3.5-2B-4bit",
-                             "Qwen3.5 2B — better quality"),
+                             "Qwen3.5 2B — a bit stronger"),
                             ("mlx-community/Qwen3.5-4B-4bit",
-                             "Qwen3.5 4B — best quality"),
+                             "Qwen3.5 4B — heavier"),
                         ],
                         value: config.string(
                             "distill_model", default: "mlx-community/Qwen3.5-0.8B-4bit"),

@@ -165,7 +165,7 @@ read files by date/time. No bespoke tooling is required.
 2. **Stable frontmatter keys** listed above. New keys may be added; existing keys will not be removed in v1.x.
 3. **Authoritative time window** is `start_time` / `end_time` in frontmatter, not filename.
 4. **Sort order**: directory listing sort = chronological order, both within a day and across days.
-5. **Companion files**: the transcript itself is a single self-contained `.md` file. Audio is not a sibling unless `--keep-audio`. When LLM distillation is enabled (opt-in, off by default), a `<name>.statements.json` sidecar of compact distilled statements may sit beside the transcript; it is derived, regenerable, and not part of this transcript contract or the Git sync surface. See `docs/adr/0005-llm-distillation.md`.
+5. **Companion files**: the transcript itself is a single self-contained `.md` file. Audio is not a sibling unless `--keep-audio`. When LLM correction is enabled (opt-in, off by default), a `<name>.asr.txt` snapshot of the uncorrected Markdown and a `<name>.statements.json` skip-hash sidecar may sit beside the transcript; they are derived, regenerable, and not part of this transcript contract or the Git sync surface. The published `.md` may be the polished body. See `docs/adr/0005-llm-distillation.md`.
 
 ## What is NOT a contract
 

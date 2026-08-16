@@ -6,6 +6,32 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.14.0 - 2026-08-16
+
+### Changed
+
+- **Lower peak RAM on long sessions.** Acoustic echo suppression now
+  processes 8-second windows instead of the whole chunk (a 30-minute dual
+  source file no longer allocates multi-GB STFTs). Parakeet converts only the
+  current 120 s slice to Metal. WAV load and `--keep-audio` transcode stream
+  in blocks. The ASR and distill children cap the MLX buffer cache (512 MB /
+  256 MB) and never raise mlx-lm's `wired_limit` (which pinned ~14 GB on an
+  18 GB M3 Pro). After two idle minutes the ASR/LLM *process* exits so macOS
+  can reclaim the Metal heap; the parent respawns on the next job.
+- **One Metal model at a time.** Distillation waits until transcription is
+  idle, and a new chunk preempts the next LLM passage. ASR stays the
+  priority so recording never shares unified memory with the distill model.
+- **Safer defaults.** `chunk_minutes` is now 15 (was 30). Idle unload still
+  defaults on; `recycle_idle_process`, `metal_cache_limit_mb`, and
+  `metal_memory_limit_mb` are the new footprint knobs. Huske.app shows
+  per-process RSS, recommends `large-v3-turbo` when Whisper is pinning a
+  language, and recycles `seenEventIDs` with the event log.
+- **Distillation is now a tiny ASR corrector.** The opt-in local LLM
+  (default `mlx-community/Qwen3.5-0.8B-4bit`, ~0.6 GB) fixes typos and
+  obvious mishears in each transcript run instead of extracting statements
+  with a 4B model. The raw snapshot stays in `<name>.asr.txt` (not synced);
+  the canonical `.md` is rewritten in place. 2B / 4B remain selectable.
+
 ## 0.13.0 - 2026-07-31
 
 ### Added

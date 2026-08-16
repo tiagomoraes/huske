@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import os
 import signal
 import subprocess
 import sys
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -25,6 +27,7 @@ from huske.config import RuntimeConfig, load_config, update_user_config
 from huske.control import Command, CommandChannel
 from huske.ipc import ControlServer
 from huske.ipc.protocol import ControlSnapshot, DeviceList, InputDeviceEntry
+from huske.mlx_runtime import GatedDistiller, MetalGate, rss_bytes_by_pid
 from huske.models import AudioChunk, AudioSource, RenderState, SessionState
 from huske.output_readme import ensure_output_readme
 from huske.recovery.scanner import (
@@ -49,6 +52,14 @@ _MIC_RECLAIM_INTERVAL_SECONDS = 30.0
 
 def _print(msg: str) -> None:
     print(msg, flush=True)
+
+
+def _make_asr_worker(cfg: RuntimeConfig) -> TranscriptionWorker:
+    return TranscriptionWorker(
+        metal_cache_limit_mb=cfg.metal_cache_limit_mb,
+        metal_memory_limit_mb=cfg.metal_memory_limit_mb,
+        recycle_idle_process=cfg.recycle_idle_process,
+    )
 
 
 def build_control_snapshot(
@@ -98,6 +109,9 @@ def build_control_snapshot(
             }
             for ev in list(state.events)
         ],
+        asr_rss_mb=round(float(state.asr_rss_mb), 1),
+        distill_rss_mb=round(float(state.distill_rss_mb), 1),
+        engine_rss_mb=round(float(state.engine_rss_mb), 1),
     )
 
 
@@ -167,7 +181,7 @@ def run_session(
     # first Metal allocation. The cold-start cost is one-off per session
     # (~30 s on M-series) and replaces the same wait we would otherwise
     # see at the first chunk.
-    worker = TranscriptionWorker()
+    worker = _make_asr_worker(cfg)
     worker.start()
     _print("[huske] warming up transcription engine (mlx Metal)…")
     if not worker.wait_ready(timeout=90.0):
@@ -208,10 +222,12 @@ def run_session(
             log.warning("sync_worker_start_failed", error=str(exc))
             sync_worker = None
 
-    # Optional background LLM distillation into Statement sidecars. It can be
+    # Optional background LLM correction of finished transcripts. It can be
     # toggled live and only handles this session; `huske distill` is the explicit
     # historical backfill. The isolated VPS service builds its own index from
-    # canonical Markdown and does not depend on these derived files.
+    # the polished canonical Markdown.
+    metal_gate = MetalGate()
+
     def _build_distill_worker() -> Any:
         from huske.distill.distiller import build_distiller
         from huske.distill.worker import DistillWorker
@@ -226,7 +242,7 @@ def run_session(
         )
         return DistillWorker(
             cfg.output_root,
-            distiller,
+            GatedDistiller(distiller, metal_gate),
             max_statements_per_passage=cfg.distill_max_statements_per_passage,
         )
 
@@ -236,7 +252,7 @@ def run_session(
             distill_worker = _build_distill_worker()
             distill_worker.start()
             _print(
-                f"[huske] distillation enabled — transcripts distilled to statements "
+                f"[huske] distillation enabled — transcripts corrected for ASR errors "
                 f"({cfg.distill_model} via {cfg.distill_backend})"
             )
         except Exception as exc:
@@ -309,6 +325,11 @@ def run_session(
                     statements=evt.get("statements"),
                     skipped=evt.get("skipped", False),
                 )
+                # Polished `.md` is the published artifact — re-queue Git sync.
+                if not evt.get("skipped") and sync_worker is not None:
+                    polished = evt.get("path")
+                    if polished:
+                        sync_worker.submit(str(polished))
             elif evt.get("unavailable"):
                 # Daemon down / model missing — one sticky warning, not per-chunk spam.
                 detail = str(evt.get("error", "")).splitlines()[0]
@@ -318,6 +339,8 @@ def run_session(
                 on_event("warn", f"distillation failed: {detail}")
 
     def _on_tick() -> None:
+        _pump_asr()
+        _refresh_rss()
         _drain_sync()
         _drain_distill()
 
@@ -336,6 +359,8 @@ def run_session(
     # Wire chunker → worker.
     pending_chunks: set[int] = set()
     pending_lock = threading.Lock()
+    asr_backlog: deque[dict[str, Any]] = deque()
+    gated_seqs: set[int] = set()
 
     def _pending_count() -> int:
         # True in-flight depth (queued + transcribing), thread-safe. Unlike
@@ -344,10 +369,47 @@ def run_session(
         with pending_lock:
             return len(pending_chunks)
 
+    def _pump_asr() -> None:
+        """Move backlog jobs onto the worker when the LLM is not holding Metal."""
+        while True:
+            with pending_lock:
+                has_job = bool(asr_backlog)
+            if not metal_gate.try_begin_asr(has_job):
+                return
+            with pending_lock:
+                job = asr_backlog.popleft()
+                gated_seqs.add(int(job["chunk_seq"]))
+            try:
+                worker.submit(job)
+            except Exception as exc:
+                metal_gate.finish_asr()
+                with pending_lock:
+                    gated_seqs.discard(int(job["chunk_seq"]))
+                    pending_chunks.discard(int(job["chunk_seq"]))
+                on_event("error", f"transcription worker restart failed: {exc}")
+                return
+
+    def _refresh_rss() -> None:
+        parent_pid = os.getpid()
+        pids = [parent_pid]
+        asr_pid = worker.pid
+        distill_pid = distill_worker.pid if distill_worker is not None else None
+        if asr_pid:
+            pids.append(asr_pid)
+        if distill_pid:
+            pids.append(distill_pid)
+        found = rss_bytes_by_pid(pids)
+        state.update(
+            engine_rss_mb=found.get(parent_pid, 0) / (1024 * 1024),
+            asr_rss_mb=found.get(asr_pid or -1, 0) / (1024 * 1024),
+            distill_rss_mb=found.get(distill_pid or -1, 0) / (1024 * 1024),
+        )
+
     def on_finalized(chunk: AudioChunk) -> None:
+        job = chunk_to_job(chunk, cfg)
         with pending_lock:
             pending_chunks.add(chunk.chunk_seq)
-        worker.submit(chunk_to_job(chunk, cfg))
+            asr_backlog.append(job)
         state.update(queue_depth=_pending_count())
         state.push_event(
             "info",
@@ -357,6 +419,10 @@ def run_session(
     def on_result(seq: int) -> None:
         with pending_lock:
             pending_chunks.discard(seq)
+            gated = seq in gated_seqs
+            gated_seqs.discard(seq)
+        if gated:
+            metal_gate.finish_asr()
 
     def on_event(severity: str, message: str) -> None:
         state.push_event(severity, message)  # type: ignore[arg-type]
@@ -748,7 +814,12 @@ def run_session(
             if time.monotonic() >= deadline:
                 on_event("error", "drain timed out")
                 break
+            _pump_asr()
             result = worker.poll_result(timeout=0.1)
+            if result is not None and result.get("event") == "idle_recycle":
+                result = None
+            if result is not None and "chunk_seq" not in result:
+                result = None
             if result is not None:
                 seq = result["chunk_seq"]
                 on_result(seq)
@@ -772,6 +843,10 @@ def run_session(
                         f"chunk {seq:03d} failed: {result['error'].splitlines()[0]}",
                     )
             elif not worker.alive:
+                with pending_lock:
+                    can_respawn = bool(asr_backlog)
+                if can_respawn:
+                    continue
                 on_event("error", "worker exited unexpectedly")
                 break
 
@@ -913,6 +988,10 @@ def _main_loop(
 
         # Worker result drain (non-blocking).
         result = worker.poll_result(timeout=0.0)
+        if result is not None and result.get("event") == "idle_recycle":
+            result = None
+        if result is not None and "chunk_seq" not in result:
+            result = None
         if result is not None:
             seq = result["chunk_seq"]
             on_result(seq)
@@ -990,7 +1069,7 @@ def run_recover(
     logging_setup.configure(log_path, level=cfg.log_level, console=True)
     log = logging_setup.get_logger("huske.recover")
 
-    worker = TranscriptionWorker()
+    worker = _make_asr_worker(cfg)
     worker.start()
     report = RecoveryReport()
     try:

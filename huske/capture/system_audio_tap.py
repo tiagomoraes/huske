@@ -218,7 +218,7 @@ class CoreAudioTapStream:
                     continue
                 channels = max(int(b.mNumberChannels), 1)
                 byte_arr = (ctypes.c_ubyte * int(b.mDataByteSize)).from_address(b.mData)
-                arr = np.frombuffer(byte_arr, dtype=np.float32).copy()  # type: ignore[call-overload]
+                arr = np.frombuffer(byte_arr, dtype=np.float32).copy()
                 if arr.size == 0:
                     continue
                 if channels == 1:

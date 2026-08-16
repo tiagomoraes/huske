@@ -83,16 +83,19 @@ jobs:
           python -m pip install -e "./services/huske_mcp[dev]"
 
       - name: Ruff
-        run: ruff check .
+        run: python -m ruff check .
 
       - name: Mypy
-        run: mypy huske
+        # `python -m` keeps mypy on the setup-python install. A bare
+        # `mypy` on the macos-14 image can pick up /Library/Frameworks
+        # site-packages (numpy 2.5 stubs then fail under python_version 3.11).
+        run: python -m mypy huske
 
       - name: Isolated service quality
         working-directory: services/huske_mcp
         run: |
-          ruff check .
-          mypy huske_mcp
+          python -m ruff check .
+          python -m mypy huske_mcp
 
   swift:
     name: macOS app (Swift)

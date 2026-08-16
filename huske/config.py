@@ -77,9 +77,10 @@ class RuntimeConfig(BaseModel):
     # close on a real pause in speech (see `silence_split_seconds`), so a quiet
     # period no longer wastes a 15-min file and a conversation is no longer cut
     # mid-sentence at a fixed clock tick. The cap still bounds a single chunk's
-    # WAV/transcription memory for an unbroken monologue. With `speech_gated`
+    # WAV/transcription memory for an unbroken monologue (default 15 min so
+    # peak RAM stays bounded even before windowed AEC). With `speech_gated`
     # off, this reverts to the legacy fixed-interval rotation.
-    chunk_minutes: float = Field(default=30.0, gt=0.0, le=60.0)
+    chunk_minutes: float = Field(default=15.0, gt=0.0, le=60.0)
     # Segment audio on speech activity instead of a fixed clock. A chunk opens
     # when speech is first heard and closes after `silence_split_seconds` of
     # continuous silence (or at the `chunk_minutes` cap). Silent gaps between
@@ -147,6 +148,16 @@ class RuntimeConfig(BaseModel):
     # queue-empty/timeout guard that keeps it warm through recovery bursts.
     whisper_idle_unload: bool = True
     whisper_idle_unload_seconds: float = Field(default=120.0, ge=5.0)
+    # After idle-unload, exit the ASR child so macOS can reclaim the Metal
+    # heap. ``mx.clear_cache()`` alone does not shrink Activity Monitor RSS.
+    # The parent respawns (and re-inits Metal) on the next chunk.
+    recycle_idle_process: bool = True
+    # MLX buffer-cache cap in the ASR child (MiB). 0 disables the cache.
+    metal_cache_limit_mb: int = Field(default=512, ge=0, le=65536)
+    # MLX evaluation memory guideline in the ASR child (MiB). The default
+    # without this is ~1.5x the GPU recommended working set (often the whole)
+    # machine). Distill uses a smaller hard-coded cap.
+    metal_memory_limit_mb: int = Field(default=8192, ge=0, le=131072)
 
     keep_audio: bool = False
     # When `keep_audio` is on, the per-chunk WAV is transcoded to this format
@@ -219,38 +230,37 @@ class RuntimeConfig(BaseModel):
     sync_root: Path = Field(default=Path.home() / "huske" / "sync")
     sync_push_timeout_seconds: float = Field(default=60.0, ge=5.0, le=600.0)
 
-    # --- LLM distillation into searchable Statements (opt-in) ---------------
+    # --- LLM correction of ASR transcripts (opt-in) -------------------------
     # See docs/adr/0005-llm-distillation.md. When enabled, each finalized
-    # transcript is distilled by a LOCAL LLM into compact, self-contained
-    # "statements" (a `<name>.statements.json` sidecar). These are optional
-    # derived files; the remote service rebuilds its own retrieval index from
-    # canonical transcript Markdown. Off by default; failures never block
+    # transcript is polished by a tiny LOCAL LLM (typos, obvious ASR
+    # mishears). The raw snapshot stays in `<name>.asr.txt`; the canonical
+    # `.md` is rewritten in place. Off by default; failures never block
     # recording or Git sync.
     distill_enabled: bool = False
     # Where the LLM runs (see DistillBackend). "mlx" is self-contained.
     distill_backend: DistillBackend = "mlx"
     # The model. For the built-in mlx backend this is a Hugging Face repo
-    # (default: Qwen3.5 0.8B 4-bit, ~0.6 GB download, multilingual — the
-    # lightest tier; swap to .../Qwen3.5-2B-4bit for more quality). The known
-    # Ollama tags (`qwen3.5:0.8b`, `:2b`, `:4b`) are auto-mapped to their MLX
-    # builds so pre-0.11 configs keep working. For the ollama backend this is
-    # the daemon's tag (e.g. `qwen3.5:0.8b`, pulled with `ollama pull`).
+    # (default: Qwen3.5 0.8B 4-bit, ~0.6 GB — small enough to only correct
+    # the transcript). 2B / 4B repos stay selectable. The known Ollama tags
+    # (`qwen3.5:0.8b`, `:2b`, `:4b`) are auto-mapped to their MLX builds so
+    # older configs keep working. For the ollama backend this is the daemon's
+    # tag (e.g. `qwen3.5:0.8b`).
     distill_model: str = "mlx-community/Qwen3.5-0.8B-4bit"
     # Loopback endpoint of the local LLM daemon (Ollama's default).
     distill_endpoint: str = "http://127.0.0.1:11434"
-    # Per-call ceiling. A local model is slow; this bounds one passage's distill.
+    # Per-call ceiling. A local model is slow; this bounds one run's correction.
     distill_timeout_seconds: float = Field(default=120.0, gt=0.0)
-    # Upper bound on statements distilled from a single Passage — caps LLM
-    # output and statement-index growth on dense passages.
+    # Kept for config compatibility. Correction is one-in/one-out per run, so
+    # this cap is unused by the current prompt.
     distill_max_statements_per_passage: int = Field(default=8, ge=1, le=50)
     # `huske distill` backfill runs gentle by default (lower CPU priority).
     distill_low_impact: bool = True
     # Distillation runs a NON-reasoning call by default. Thinking-capable models
     # (e.g. Qwen3.5) otherwise spend their budget on a hidden reasoning pass —
-    # slower, and on `/api/generate` it can swallow the whole reply — when claim
-    # extraction needs none. huske distils over Ollama's `/api/chat` with
+    # slower, and on `/api/generate` it can swallow the whole reply — when ASR
+    # correction needs none. huske calls Ollama's `/api/chat` with
     # `think: false`, which the daemon honors for thinking models and ignores for
-    # the rest. Set true only if a model's reasoning measurably helps extraction.
+    # the rest. Set true only if a model's reasoning measurably helps correction.
     distill_think: bool = False
     # Ollama backend only — inert on the default `mlx` backend, which downloads
     # its own model. When distillation is enabled (at launch or via the app /

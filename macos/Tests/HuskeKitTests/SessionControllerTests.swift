@@ -59,6 +59,20 @@ final class SessionControllerTests: XCTestCase {
         XCTAssertEqual(controller.eventLog.map(\.message), ["one", "two"])
     }
 
+    func testEventLogTrimsSeenIDsWithTheCap() {
+        let controller = SessionController()
+        let events = (0..<260).map { i in
+            SessionEvent(
+                rawTimestamp: "2026-07-21T09:00:00-03:00",
+                severity: .info,
+                message: "event-\(i)")
+        }
+        controller.ingest(message: .state(makeSnapshot(events: events)))
+        XCTAssertEqual(controller.eventLog.count, 250)
+        XCTAssertEqual(controller.eventLog.first?.message, "event-10")
+        XCTAssertEqual(controller.eventLog.last?.message, "event-259")
+    }
+
     func testIngestDevices() {
         let controller = SessionController()
         let list = DeviceList(
