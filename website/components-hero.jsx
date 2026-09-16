@@ -60,8 +60,9 @@ const InstallTabs = ({ withApp = true }) => {
         <span className="app-cta-ver">v{HUSKE_VERSION}</span>
       </a>
       <p className="app-fineprint">
-        macOS 14+ · apple silicon · installs the engine on first run · unsigned
-        — approve the first open in <strong>Privacy &amp; Security</strong>
+        macOS 14+ · apple silicon · installs the engine on first run ·{" "}
+        <strong>signed &amp; notarized by Apple</strong> — opens straight from
+        the download
       </p>
       <div className="install-or" aria-hidden="true">
         <span className="line"/>

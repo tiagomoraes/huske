@@ -144,10 +144,13 @@ const InstallDoc = () => (
 
     <InstallTabs />
     <p className="docs-aside">
-      The app build is ad-hoc signed, not notarized: macOS blocks the very
-      first open. Approve it under <strong>System Settings → Privacy &amp;
-      Security → "Open Anyway"</strong> (one time), or build it yourself from
-      source with <code>macos/scripts/build-app.sh</code>.
+      Huske.app is signed with a Developer ID certificate and notarized by
+      Apple, so it opens straight from the download — no right-click, no
+      <strong> "Open Anyway"</strong>. macOS still asks for{" "}
+      <strong>Microphone</strong> and audio-capture permission the first time
+      you record. Building it yourself with{" "}
+      <code>macos/scripts/build-app.sh</code> produces an ad-hoc signed bundle,
+      which macOS does ask you to approve once.
     </p>
 
     <h3>Separate service boundary</h3>

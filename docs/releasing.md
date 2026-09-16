@@ -323,6 +323,133 @@ Publishing the GitHub release triggers `.github/workflows/release.yml`. That
 workflow builds the sdist and wheel, attaches both distributions to the GitHub
 release, and publishes them to PyPI through trusted publishing.
 
+## macOS App Signing and Notarization
+
+`release.yml`'s `build-app` job signs `Huske.app` with the Developer ID
+Application identity, notarizes it with Apple, staples the ticket to the
+bundle, and only then zips it into the `Huske.app.zip` asset the website's
+download button points at. The reasoning — in particular why the app carries
+the `com.apple.security.device.audio-input` entitlement although it never opens
+an audio device — is in
+[`docs/adr/0010-developer-id-signing-and-notarization.md`](adr/0010-developer-id-signing-and-notarization.md).
+
+**The job degrades to the old ad-hoc build when the secrets are missing.** That
+keeps forks and credential-less runs releasable, but it also means a deleted
+secret or an expired certificate ships an unsigned app *silently*. Verify the
+published asset (below) as part of every release.
+
+### GitHub secrets
+
+| Secret | Value |
+| --- | --- |
+| `MACOS_CERTIFICATE_P12` | Base64 of the exported **Developer ID Application** identity (certificate *and* private key), `.p12` format. |
+| `MACOS_CERTIFICATE_PASSWORD` | The password set when exporting that `.p12`. |
+| `APPLE_API_KEY_P8` | Base64 of the App Store Connect API private key, `AuthKey_XXXXXXXXXX.p8`. |
+| `APPLE_API_KEY_ID` | The 10-character Key ID, e.g. `XW6LU2ZW34`. |
+| `APPLE_API_ISSUER_ID` | The team's Issuer ID (a UUID). |
+
+All five are required together. Signing alone is not useful — an app signed
+with Developer ID but not notarized is still blocked by Gatekeeper — so the
+notarize step also checks for the certificate.
+
+### One-time setup: export the Developer ID `.p12`
+
+The private key cannot be exported from the command line, so this is a
+Keychain Access step:
+
+1. Keychain Access → **login** keychain → **My Certificates**.
+2. Select the row named `Developer ID Application: <Name> (<TEAMID>)`. Make
+   sure you select the *identity* row (the one with a disclosure triangle
+   hiding a private key), not a bare certificate — exporting without the key
+   produces a `.p12` that CI imports happily and then cannot sign with.
+3. **File → Export Items…**, format *Personal Information Exchange (.p12)*,
+   and set a password. That password is `MACOS_CERTIFICATE_PASSWORD`.
+4. Base64 it for the secret:
+
+   ```bash
+   base64 -i DeveloperID.p12 | pbcopy
+   ```
+
+5. Delete the `.p12` and forget the password everywhere except the secret
+   store. Never commit either.
+
+Confirm the identity exists first:
+
+```bash
+security find-identity -v -p codesigning | grep "Developer ID Application"
+```
+
+### One-time setup: App Store Connect API key
+
+Notarization uses a **Team** key. Individual (personal) keys are not eligible
+for the Notary API, so the Issuer ID is always required.
+
+1. App Store Connect → **Users and Access** → **Integrations** →
+   **App Store Connect API** → **Team Keys**.
+2. **Generate API Key** with the **Developer** role. Developer is sufficient
+   for notarization; a broader role only widens the blast radius.
+3. Download `AuthKey_XXXXXXXXXX.p8`. **Apple allows exactly one download.**
+   The filename contains the Key ID → `APPLE_API_KEY_ID`.
+4. Copy the **Issuer ID** shown above the key table (a UUID, shared by every
+   key in the team) → `APPLE_API_ISSUER_ID`.
+5. Base64 the key for the secret:
+
+   ```bash
+   base64 -i AuthKey_XXXXXXXXXX.p8 | pbcopy
+   ```
+
+### Notarizing from a maintainer Mac
+
+Useful when the workflow is unavailable, or to test the credentials before
+adding them as secrets. Store them in the keychain once:
+
+```bash
+xcrun notarytool store-credentials huske-notary \
+  --key ~/private_keys/AuthKey_XXXXXXXXXX.p8 \
+  --key-id XXXXXXXXXX \
+  --issuer <issuer-uuid>
+```
+
+Then:
+
+```bash
+./macos/scripts/build-app.sh                                   # signs Developer ID if a cert is present
+./macos/scripts/notarize-app.sh --keychain-profile huske-notary
+```
+
+`build-app.sh` auto-detects the Developer ID Application identity;
+`HUSKE_CODESIGN_IDENTITY=-` forces an ad-hoc build and
+`HUSKE_CODESIGN_IDENTITY=<sha1-or-name>` pins a specific one. `notarize-app.sh`
+zips the bundle, submits it, staples the `.app` (a ticket cannot be stapled to
+a zip), re-zips, and prints `xcrun notarytool log` if Apple rejects it.
+
+### Verify the published asset
+
+After the release workflow finishes, before announcing:
+
+```bash
+VERSION=0.2.0
+cd "$(mktemp -d)"
+gh release download "v$VERSION" --repo tiagomoraes/huske --pattern Huske.app.zip
+ditto -x -k Huske.app.zip .
+codesign -dvvv --entitlements - Huske.app 2>&1 | grep -E "flags|Authority=Developer ID|TeamIdentifier|Timestamp"
+xcrun stapler validate Huske.app
+spctl -a -vvv -t exec Huske.app
+```
+
+Expected: `flags=0x10000(runtime)`, `Authority=Developer ID Application: Tiago
+Moraes (QD5A8CZK76)`, a `Timestamp=`, `The validate action worked!`, and
+`accepted … source=Notarized Developer ID`. Anything else means the asset went
+out unsigned or unnotarized — cut a patch release rather than replacing the
+asset.
+
+### Renewal
+
+Both credentials expire. A Developer ID Application certificate lasts five
+years; App Store Connect keys can be revoked at any time. When either is
+rotated, re-export and update the corresponding secrets — nothing in the
+repository pins a fingerprint, so no code change is needed.
+
 ## PyPI Trusted Publishing
 
 PyPI publishing uses GitHub Actions trusted publishing, so no PyPI API token is
