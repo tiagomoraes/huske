@@ -312,7 +312,7 @@ struct CommandPaletteOverlay: View {
         let snapshot = session.snapshot
 
         // Session
-        if !session.isBusy, !model.binaryMissing, !model.engineOutdated {
+        if !session.isBusy, model.engineReady {
             commands.append(
                 PaletteCommand(
                     id: "session.start",

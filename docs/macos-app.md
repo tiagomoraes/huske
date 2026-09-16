@@ -42,22 +42,80 @@ transcriptions drain before the process exits.
 
 - macOS 14+ (Apple Silicon, same as the engine).
 - The `huske` CLI installed — `uv tool install huske` or
-  `brew install tiagomoraes/huske/huske`. The app auto-detects it in
-  `~/.local/bin`, Homebrew paths, and `PATH`; you can point it at a specific
-  binary in the app's Settings (⌘,).
+  `brew install tiagomoraes/huske/huske`. The app auto-detects it and picks the
+  newest one it finds; see [Which engine the app drives](#which-engine-the-app-drives).
+
+## Which engine the app drives
+
+A Mac accumulates `huske` installs — a `uv tool`, a Homebrew keg, a checkout's
+virtualenv — and they upgrade on different days. The app drives exactly one:
+
+- **Auto-detect (default)** — the *newest* engine among `~/.local/bin`,
+  `/opt/homebrew/bin`, `/usr/local/bin`, and `PATH`. Newest by parsed version,
+  never by string: `0.9.0` does not sort above `0.11.0`.
+- **Pinned** — Settings (⌘,) → *huske engine* → **Choose…**, or **Use** beside
+  any engine the app found. A pin is never second-guessed; **Auto-detect**
+  drops it.
+
+Settings lists every engine found, with its version and origin and which one is
+in use — so "why is Huske running a version I already upgraded past?" has an
+answer on screen instead of in a terminal.
+
+### When the engine is not usable
+
+Three situations, told apart because they need different fixes:
+
+| Screen | What it means | What ends it |
+| --- | --- | --- |
+| *Welcome to huske* | no `huske` anywhere on this Mac | install with uv or Homebrew — one click when either is already present |
+| *Huske can't run this engine* | the selected binary will not execute. Usually a checkout whose virtualenv was rebuilt: the console script survives, its `#!` interpreter does not | switch to another installed engine, drop the pin, or rebuild the checkout |
+| *Your huske engine needs an update* | it runs, and predates `--control-socket` | upgrade with the package manager that owns *that* engine |
+
+The upgrade button appears only when a package manager actually owns the engine
+in use. It used to appear regardless, so `uv tool upgrade huske` was offered for
+engines uv had never seen — the command exits 0 having upgraded a *different*
+install, and the screen the user was staring at never changed. An engine that
+cannot execute now says so, names the missing interpreter, and offers the
+working engines sitting next to it.
+
+## Updates
+
+- **The app** — *Huske → Check for Updates…*, plus a once-a-day background
+  check that puts a quiet `Update vX.Y.Z` chip under the nav rail, linking to
+  the release. It asks GitHub for one release's version number and sends
+  nothing else. Switch it off in Settings → *Updates*, or set
+  `HUSKE_NO_UPDATE_CHECK=1` to silence the app and the engine's PyPI banner
+  together.
+- **The engine** — upgraded by whichever manager installed it
+  (`uv tool upgrade huske`, `brew upgrade huske`). The app runs that command
+  for you when it owns the engine in use.
+
+App and engine version independently, and that is fine: the app feature-probes
+whatever engine it finds, so a newer app with an older engine degrades to a
+clear message instead of a broken session.
 
 ## Building
 
 ```bash
 cd macos
 swift test                # HuskeKit unit tests
-./scripts/build-app.sh    # → macos/dist/Huske.app (ad-hoc signed)
+./scripts/build-app.sh    # → macos/dist/Huske.app (signed; ad-hoc without a cert)
 open dist/Huske.app
 ```
 
 The bundle version is stamped from `pyproject.toml` — the repo's single
 source of truth. The app icon is generated from the brand mark at build time
 and cached under `macos/.cache/`.
+
+The script signs with a `Developer ID Application` identity when one is in the
+keychain and ad-hoc otherwise, so a contributor without a certificate still
+gets a working build. Both paths apply the hardened runtime and
+`macos/Huske.entitlements` — the microphone entitlement is only load-bearing
+under the hardened runtime, and without it TCC denies the engine's mic access
+*without prompting*. Releases are notarized on top of that
+(`macos/scripts/notarize-app.sh`); see
+[ADR 0010](adr/0010-developer-id-signing-and-notarization.md) and
+[releasing.md](releasing.md).
 
 Development conveniences:
 

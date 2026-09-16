@@ -955,7 +955,6 @@ const TIERS = [
     needs: ["macOS 14+ Apple Silicon"],
     steps: [
       <>Download <strong>Huske.app</strong> and open it.</>,
-      <>macOS blocks the first open because the build isn't notarized — go to <strong>System Settings → Privacy &amp; Security</strong> and click <strong>Open Anyway</strong>. Once, ever.</>,
       <>The app installs its engine for you, then asks for <strong>Microphone</strong> and audio-capture permission.</>,
       <>Press record. Transcripts land in <code>~/huske/transcripts/</code>.</>,
     ],

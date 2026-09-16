@@ -31,10 +31,19 @@ struct HuskeApp: App {
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1080, height: 720)
         .commands {
+            // Where macOS users look for it, right under About.
+            CommandGroup(after: .appInfo) {
+                Button(
+                    model.appUpdateChecking ? "Checking for Updates…" : "Check for Updates…"
+                ) {
+                    model.checkForAppUpdatesNow()
+                }
+                .disabled(model.appUpdateChecking)
+            }
             CommandGroup(after: .newItem) {
                 Button("Start Recording") { model.startRecording() }
                     .keyboardShortcut("r", modifiers: [.command])
-                    .disabled(model.session.isBusy || model.binaryMissing || model.engineOutdated)
+                    .disabled(model.session.isBusy || !model.engineReady)
                 Button("Stop Recording") { model.session.requestStop() }
                     .keyboardShortcut(".", modifiers: [.command])
                     .disabled(!model.session.isBusy)

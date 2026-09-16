@@ -109,6 +109,24 @@ huske run
 huske recover
 ```
 
+### Get the app
+
+Huske.app is the UI; the command above installs the engine it drives.
+
+1. Download
+   [`Huske.app.zip`](https://github.com/tiagomoraes/huske/releases/latest/download/Huske.app.zip)
+   from the latest release and drag **Huske** into `/Applications`.
+2. Open it. It finds the engine you just installed — or offers to install one
+   for you, one click, if you skipped step 1.
+
+Staying current: *Huske → Check for Updates…* plus a once-a-day check that
+shows a quiet update chip when a new release lands (turn it off in Settings, or
+set `HUSKE_NO_UPDATE_CHECK=1` to silence the app and the engine's banner
+together). The engine upgrades from the app when a package manager owns it, or
+with `uv tool upgrade huske` / `brew upgrade huske`. Which engine the app
+drives, and what to do when it can't run one, is in
+[docs/macos-app.md](docs/macos-app.md#which-engine-the-app-drives).
+
 Other install options:
 
 ```bash

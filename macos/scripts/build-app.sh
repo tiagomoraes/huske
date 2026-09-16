@@ -3,9 +3,25 @@
 #
 #   macos/scripts/build-app.sh [--debug]
 #
-# Output: macos/dist/Huske.app (ad-hoc signed, ready for `open`).
+# Output: macos/dist/Huske.app.
 # The bundle version is read from pyproject.toml — the repo's single source
 # of truth — so the app and the engine report the same version.
+#
+# Signing. HUSKE_CODESIGN_IDENTITY selects the identity:
+#   unset   auto-detect a "Developer ID Application" identity, ad-hoc if none
+#   "-"     force ad-hoc — what a contributor without a certificate gets
+#   other   used verbatim (common name or SHA-1 hash)
+# HUSKE_CODESIGN_KEYCHAIN pins the keychain to search, which is how CI signs
+# out of a throwaway keychain without touching the default one.
+#
+# Both paths apply the hardened runtime and Huske.entitlements, so a local
+# build hits the same TCC rules as the shipped one. That matters because the
+# audio-input entitlement only becomes load-bearing under `--options runtime`:
+# without it TCC denies the engine's microphone access *without prompting*.
+# See docs/adr/0010-developer-id-signing-and-notarization.md. A secure
+# timestamp needs a real identity, so the ad-hoc path skips it.
+#
+# Notarization is a separate step: macos/scripts/notarize-app.sh.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -17,6 +33,12 @@ fi
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' ../pyproject.toml | head -1)
 if [[ -z "$VERSION" ]]; then
     echo "could not read version from pyproject.toml" >&2
+    exit 1
+fi
+
+ENTITLEMENTS=Huske.entitlements
+if [[ ! -f "$ENTITLEMENTS" ]]; then
+    echo "missing $PWD/$ENTITLEMENTS" >&2
     exit 1
 fi
 
@@ -81,7 +103,67 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-echo "==> codesign (ad-hoc)"
-codesign --force --deep --sign - "$APP"
+# --- signing ---------------------------------------------------------------
+
+KEYCHAIN="${HUSKE_CODESIGN_KEYCHAIN:-}"
+
+IDENTITY="${HUSKE_CODESIGN_IDENTITY:-}"
+if [[ -z "$IDENTITY" ]]; then
+    # `security find-identity` prints `  1) <sha1> "<name>"`. Match the hash
+    # rather than the name so a keychain holding two Developer ID certs still
+    # signs deterministically. Finding none is the normal contributor case.
+    IDENTITY=$(security find-identity -v -p codesigning ${KEYCHAIN:+"$KEYCHAIN"} 2>/dev/null |
+        sed -n 's/^ *[0-9][0-9]*) \([0-9A-F][0-9A-F]*\) "Developer ID Application.*"$/\1/p' |
+        head -1)
+    IDENTITY="${IDENTITY:--}"
+fi
+
+# Nested code is sealed without entitlements: entitlements belong to the
+# executable the system launches, and the font bundle has no executable.
+NESTED_ARGS=(--force --options runtime)
+if [[ -n "$KEYCHAIN" ]]; then
+    NESTED_ARGS+=(--keychain "$KEYCHAIN")
+fi
+if [[ "$IDENTITY" == "-" ]]; then
+    echo "==> codesign (ad-hoc — not distributable)"
+else
+    # Notarization rejects a signature without a secure timestamp.
+    NESTED_ARGS+=(--timestamp)
+    echo "==> codesign ($IDENTITY)"
+fi
+APP_ARGS=("${NESTED_ARGS[@]}" --entitlements "$ENTITLEMENTS")
+
+# Nested *code* only. A resource-only bundle — which is all SwiftPM's
+# `Huske_Huske.bundle` is — carries no Mach-O, so the app's own seal covers it
+# as a resource; signing it separately is meaningless and older codesign
+# refuses outright with "bundle format unrecognized, invalid, or unsuitable".
+# `--deep` skipped these for the same reason, which is why dropping it is what
+# surfaced the problem. CFBundleExecutable is the system's own test for whether
+# a bundle has code to load, and it reads both bundle layouts.
+bundle_has_code() {
+    local plist="$1/Contents/Info.plist"
+    [[ -f "$plist" ]] || plist="$1/Info.plist"
+    [[ -f "$plist" ]] || return 1
+    /usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$plist" >/dev/null 2>&1
+}
+
+# Inside out: the outer seal covers the nested seals, so nested code must be
+# signed first. `-depth` keeps that true if a bundle is ever nested in another.
+# (`--deep` would do this in one call, but Apple deprecated it for signing and
+# it would copy the app's entitlements onto everything it touches.)
+while IFS= read -r -d '' nested; do
+    if ! bundle_has_code "$nested"; then
+        echo "    resources (sealed by the app): ${nested#"$APP"/}"
+        continue
+    fi
+    echo "    nested: ${nested#"$APP"/}"
+    codesign "${NESTED_ARGS[@]}" --sign "$IDENTITY" "$nested"
+done < <(find "$APP/Contents" -depth -name '*.bundle' -type d -print0)
+
+codesign "${APP_ARGS[@]}" --sign "$IDENTITY" "$APP"
+codesign --verify --deep --strict "$APP"
 
 echo "==> done: macos/$APP"
+if [[ "$IDENTITY" != "-" ]]; then
+    echo "    next: macos/scripts/notarize-app.sh"
+fi

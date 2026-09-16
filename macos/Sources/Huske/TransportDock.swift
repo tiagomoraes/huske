@@ -136,20 +136,29 @@ struct TransportDock: View {
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(StopButtonStyle(size: .small))
-            .disabled(model.engineOutdated)
+            .disabled(!model.engineReady)
             .help(
-                model.engineOutdated
-                    ? "Upgrade the engine before recording"
-                    : "Start a recording session (⌘R)")
+                model.engineReady
+                    ? "Start a recording session (⌘R)"
+                    : blockedReason)
         }
     }
 
     /// The input that *would* be captured — more use than restating "idle",
     /// which the pill already says, and short enough not to truncate at 164pt.
     private var idleSubtitle: String {
+        if model.engineUnusable { return "engine can't run" }
         if model.engineOutdated { return "engine needs an upgrade" }
         let device = model.config.string("input_device")
         return device.isEmpty ? "system default input" : device
+    }
+
+    /// Why the transport is inert — the dock is chrome on every pane, so it is
+    /// often the first place a broken engine is noticed.
+    private var blockedReason: String {
+        if model.engineUnusable { return "Huske can't run the selected engine — see Record" }
+        if model.engineOutdated { return "Upgrade the engine before recording" }
+        return "No huske engine found"
     }
 
     private func detailLine(_ text: String) -> some View {
