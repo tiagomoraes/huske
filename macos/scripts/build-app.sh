@@ -133,11 +133,29 @@ else
 fi
 APP_ARGS=("${NESTED_ARGS[@]}" --entitlements "$ENTITLEMENTS")
 
+# Nested *code* only. A resource-only bundle — which is all SwiftPM's
+# `Huske_Huske.bundle` is — carries no Mach-O, so the app's own seal covers it
+# as a resource; signing it separately is meaningless and older codesign
+# refuses outright with "bundle format unrecognized, invalid, or unsuitable".
+# `--deep` skipped these for the same reason, which is why dropping it is what
+# surfaced the problem. CFBundleExecutable is the system's own test for whether
+# a bundle has code to load, and it reads both bundle layouts.
+bundle_has_code() {
+    local plist="$1/Contents/Info.plist"
+    [[ -f "$plist" ]] || plist="$1/Info.plist"
+    [[ -f "$plist" ]] || return 1
+    /usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$plist" >/dev/null 2>&1
+}
+
 # Inside out: the outer seal covers the nested seals, so nested code must be
 # signed first. `-depth` keeps that true if a bundle is ever nested in another.
 # (`--deep` would do this in one call, but Apple deprecated it for signing and
 # it would copy the app's entitlements onto everything it touches.)
 while IFS= read -r -d '' nested; do
+    if ! bundle_has_code "$nested"; then
+        echo "    resources (sealed by the app): ${nested#"$APP"/}"
+        continue
+    fi
     echo "    nested: ${nested#"$APP"/}"
     codesign "${NESTED_ARGS[@]}" --sign "$IDENTITY" "$nested"
 done < <(find "$APP/Contents" -depth -name '*.bundle' -type d -print0)
