@@ -189,6 +189,18 @@ public enum BinaryLocator {
         }
     }
 
+    /// The engine worth offering as a replacement for the one in use: the
+    /// newest *other* candidate that actually reported a version.
+    ///
+    /// Reporting a version is the bar because it is proof the binary executes.
+    /// A candidate that stayed silent is not a fix — it may well be broken in
+    /// exactly the way the user is trying to escape.
+    public static func alternative(
+        among candidates: [EngineCandidate], chosen: URL?
+    ) -> EngineCandidate? {
+        shadowed(among: candidates, chosen: chosen).first { $0.version != nil }
+    }
+
     /// Resolve the engine to use. An explicit override always wins — and an
     /// explicit-but-broken override returns nil rather than silently falling
     /// back to some other engine the user did not choose.

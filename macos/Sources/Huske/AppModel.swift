@@ -13,6 +13,7 @@ import SwiftUI
 final class AppModel {
     static let binaryOverrideKey = "huskeBinaryPath"
     static let autoStartRecordingKey = "huskeAutoStartRecording"
+    static let autoUpdateCheckKey = "huskeCheckForAppUpdates"
 
     /// Current sidebar pane.
     var pane: Pane = .record
@@ -65,6 +66,10 @@ final class AppModel {
 
     private(set) var binaryURL: URL?
     private(set) var binaryVersion: String?
+    /// The user's pinned engine path, mirrored from UserDefaults so the state
+    /// below stays observable. Load-bearing when nothing resolves: a pin that
+    /// went stale is a choice to repair, not a fresh Mac to onboard.
+    private(set) var binaryOverride: String?
     /// Every `huske` found on this machine. Usually one; a Mac with both a uv
     /// tool and a Homebrew install has more, and they drift apart — so the ones
     /// we did *not* pick are worth showing rather than silently ignoring.
@@ -73,13 +78,53 @@ final class AppModel {
     var shadowedEngines: [EngineCandidate] {
         BinaryLocator.shadowed(among: engineCandidates, chosen: binaryURL)
     }
+    /// Engines that are not in use *and* proved they run — the ones the app
+    /// can offer to switch to when the current one cannot be fixed from here.
+    var healthyAlternatives: [EngineCandidate] {
+        shadowedEngines.filter { $0.version != nil }
+    }
     /// nil while probing; set once the CLI has been feature-detected.
     private(set) var capabilities: EngineCapabilities?
-    var binaryMissing: Bool { binaryURL == nil && !isDemo }
-    /// The binary exists but predates the app's control protocol.
+
+    /// The single question every setup screen and transport control asks.
+    var engineState: EngineState {
+        guard !isDemo else { return .ready }
+        return EngineStateResolver.resolve(
+            binary: binaryURL, override: binaryOverride, capabilities: capabilities)
+    }
+
+    var engineReady: Bool { engineState == .ready }
+    var binaryMissing: Bool { engineState == .missing }
+    /// The engine runs, and predates the app's control protocol.
     var engineOutdated: Bool {
-        guard !isDemo, binaryURL != nil, let capabilities else { return false }
-        return !capabilities.controlSocket
+        if case .outdated = engineState { return true }
+        return false
+    }
+    /// The engine cannot run at all — no upgrade reaches this one.
+    var engineUnusable: Bool {
+        if case .unusable = engineState { return true }
+        return false
+    }
+    /// Why the selected engine cannot run, when it cannot.
+    var engineFailureReason: String? {
+        if case .unusable(_, let reason) = engineState { return reason }
+        return nil
+    }
+    /// The path that failing state is about — possibly a pin that no longer
+    /// resolves to anything, which is why it is not just `binaryURL`.
+    var engineFailurePath: String? {
+        if case .unusable(let path, _) = engineState { return path }
+        return nil
+    }
+    /// True between choosing an engine and learning what it can do. Screens
+    /// wait on it rather than flashing an idle state they take straight back —
+    /// every "Check Again" and every engine switch passes through here.
+    var engineProbing: Bool { !isDemo && binaryURL != nil && capabilities == nil }
+
+    /// How the engine in use got here, which decides whether "upgrade" is a
+    /// real offer or a dead end.
+    var engineProvenance: EngineInstaller.Provenance {
+        binaryURL.map { EngineInstaller.provenance(of: $0) } ?? .unknown
     }
 
     // MARK: subsystems
@@ -142,6 +187,9 @@ final class AppModel {
         if autoStartRecording, !session.isBusy, capabilities?.controlSocket == true {
             startRecording()
         }
+        if checkForAppUpdates {
+            checkForAppUpdatesNow(force: false)
+        }
     }
 
     // MARK: binary management
@@ -152,13 +200,28 @@ final class AppModel {
         // candidate costs a `huske --version` subprocess, so don't probe twice.
         let found = BinaryLocator.candidates()
         engineCandidates = found
-        if let override, !override.isEmpty {
-            binaryURL = BinaryLocator.locate(override: override)
+        binaryOverride = (override?.isEmpty == false) ? override : nil
+        if let binaryOverride {
+            binaryURL = BinaryLocator.locate(override: binaryOverride)
         } else {
             binaryURL = BinaryLocator.best(among: found)?.url
         }
         binaryVersion = nil
         capabilities = nil
+    }
+
+    /// Drive this specific engine from now on.
+    ///
+    /// Written as an override rather than left to auto-detection: the user
+    /// picked it, and auto-detection would hand the session back to whichever
+    /// install happens to report the highest version next week.
+    func useEngine(_ candidate: EngineCandidate) {
+        setBinaryOverride(candidate.url.path)
+    }
+
+    /// Drop the pin and go back to "newest installed engine wins".
+    func clearBinaryOverride() {
+        setBinaryOverride(nil)
     }
 
     func setBinaryOverride(_ path: String?) {
@@ -182,6 +245,49 @@ final class AppModel {
                 refreshBinary()
                 await bootstrap()
             }
+        }
+    }
+
+    // MARK: app updates
+
+    /// This bundle's version — stamped from pyproject.toml at build time, so
+    /// it is the same string the engine reports for the same release.
+    var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            ?? "0.0.0"
+    }
+
+    /// Ask GitHub once a day whether a newer Huske.app exists.
+    ///
+    /// On by default, matching the banner the engine has always printed from
+    /// its PyPI check — and honouring the same HUSKE_NO_UPDATE_CHECK opt-out.
+    /// The app is the only surface an app user ever sees, so without this a
+    /// new release is invisible to exactly the people who installed the zip.
+    var checkForAppUpdates: Bool =
+        (UserDefaults.standard.object(forKey: AppModel.autoUpdateCheckKey) as? Bool) ?? true
+    {
+        didSet {
+            UserDefaults.standard.set(checkForAppUpdates, forKey: Self.autoUpdateCheckKey)
+        }
+    }
+
+    private(set) var appUpdate: AppRelease?
+    private(set) var appUpdateChecking = false
+    /// Set once the user has asked in person, so "you're up to date" can be
+    /// said out loud. The daily background check stays silent when there is
+    /// nothing to report.
+    private(set) var appUpdateAsked = false
+
+    /// `force` skips the 24 h cache — what the menu command does, because
+    /// someone who just asked deserves a real answer, not yesterday's.
+    func checkForAppUpdatesNow(force: Bool = true) {
+        guard !appUpdateChecking, !isDemo else { return }
+        appUpdateChecking = true
+        if force { appUpdateAsked = true }
+        Task {
+            self.appUpdate = await AppUpdateCheck.availableUpdate(
+                currentVersion: self.appVersion, force: force)
+            self.appUpdateChecking = false
         }
     }
 

@@ -7,8 +7,12 @@ struct RecordView: View {
     var body: some View {
         let session = model.session
         Group {
-            if model.engineOutdated {
+            if model.engineUnusable {
+                EngineUnusableView()
+            } else if model.engineOutdated {
                 EngineOutdatedView()
+            } else if model.engineProbing, case .idle = session.phase {
+                LaunchingView(status: "checking the huske engine…")
             } else {
                 switch session.phase {
                 case .idle:
@@ -37,32 +41,94 @@ struct EngineOutdatedView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
+        EngineProblemLayout(
+            title: "Your huske engine needs an update",
+            detail: Text(
+                "huske \(model.capabilities?.version ?? "?") at "
+                    + "\(model.binaryURL?.path ?? "?") predates app control."),
+            footnote: "Transcripts and Doctor still work with this engine version."
+        ) {
+            EngineSetupActions(kind: .upgrade)
+                .frame(maxWidth: 480)
+        }
+    }
+}
+
+// MARK: - engine unusable
+
+/// The engine is selected but will not execute — a checkout whose virtualenv
+/// was rebuilt, a half-removed tool install, a pinned path that moved.
+///
+/// This used to render as "needs an update", which sent people to an upgrade
+/// button that upgrades a *different* engine and leaves this screen exactly
+/// where it was. Nothing here offers an upgrade: the only things that end this
+/// state are switching engines, repointing, or repairing the install.
+struct EngineUnusableView: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        EngineProblemLayout(
+            title: "Huske can't run this engine",
+            detail: detail,
+            footnote: footnote
+        ) {
+            EngineRepairActions()
+                .frame(maxWidth: 480)
+        }
+    }
+
+    private var detail: Text {
+        let path = model.engineFailurePath ?? "?"
+        let reason = model.engineFailureReason ?? "It would not start."
+        return Text(path).font(.brandMono(12)) + Text("\n\(reason)")
+    }
+
+    private var footnote: String {
+        switch model.engineProvenance {
+        case .sourceCheckout:
+            return "Rebuild a checkout with `uv pip install -e \".[dev]\"` in the repo, "
+                + "or switch to an installed engine above."
+        case .managed(let manager):
+            return "Reinstalling with \(manager.displayName) also repairs it."
+        case .unknown:
+            return "Install a fresh engine with uv or Homebrew, then Check Again."
+        }
+    }
+}
+
+// MARK: - shared problem layout
+
+/// One frame for every "the engine is not usable yet" screen, so the three of
+/// them cannot drift into three different designs.
+struct EngineProblemLayout<Actions: View>: View {
+    let title: String
+    let detail: Text
+    let footnote: String
+    @ViewBuilder let actions: Actions
+
+    var body: some View {
         VStack(spacing: 22) {
             Spacer()
             LogoMark(size: 60)
             VStack(spacing: 10) {
-                Text("Your huske engine needs an update")
+                Text(title)
                     .font(.brandSans(22, .semibold))
                     .foregroundStyle(Theme.fg)
-                Text(
-                    "huske \(model.binaryVersion ?? "?") at \(model.binaryURL?.path ?? "?") "
-                        + "predates app control. Update it, or point the app at a newer build."
-                )
-                .font(.brandSans(13))
-                .foregroundStyle(Theme.fgMuted)
-                .lineSpacing(3)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 460)
+                detail
+                    .font(.brandSans(13))
+                    .foregroundStyle(Theme.fgMuted)
+                    .lineSpacing(3)
+                    .multilineTextAlignment(.center)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: 480)
             }
-            EngineSetupActions(kind: .upgrade)
-                .frame(maxWidth: 460)
-            Text("Building from source? Point the app at your dev binary in Settings (⌘,) — e.g. <repo>/.venv/bin/huske.")
-                .font(.brandSans(11.5))
-                .foregroundStyle(Theme.fgFaint)
+            actions
             Spacer()
-            Text("Transcripts and Doctor still work with this engine version.")
+            Text(footnote)
                 .font(.brandSans(12))
                 .foregroundStyle(Theme.fgFaint)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 520)
                 .padding(.bottom, 24)
         }
         .padding(32)

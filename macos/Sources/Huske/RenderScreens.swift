@@ -32,6 +32,7 @@ enum ScreenRenderer {
             ("root-record-idle", AnyView(RootView().environment(idleModel))),
             ("onboarding", AnyView(OnboardingView().environment(idleModel))),
             ("engine-outdated", AnyView(EngineOutdatedView().environment(makeOutdatedModel()))),
+            ("engine-unusable", AnyView(EngineUnusableView().environment(makeUnusableModel()))),
         ]
         let transcriptsModel = makeTranscriptsModel()
         transcriptsModel.pane = .transcripts
@@ -159,7 +160,35 @@ enum ScreenRenderer {
         let model = AppModel()
         model._previewInject(
             capabilities: EngineCapabilities(
-                version: "0.10.0", controlSocket: false, configCLI: false, devicesCLI: false))
+                version: "0.10.0", controlSocket: false, configCLI: false, devicesCLI: false),
+            binary: URL(
+                fileURLWithPath: NSHomeDirectory() + "/.local/share/uv/tools/huske/bin/huske"),
+            version: "0.10.0")
+        return model
+    }
+
+    /// The pinned-checkout failure this screen was written for: a console
+    /// script whose virtualenv was rebuilt, with two healthy engines sitting
+    /// beside it. Kept under the headless design review because it is the
+    /// screen a developer machine hits most often.
+    private static func makeUnusableModel() -> AppModel {
+        let model = AppModel()
+        model._previewInject(
+            capabilities: EngineCapabilities(
+                version: nil, controlSocket: false, configCLI: false, devicesCLI: false,
+                failure: "Its interpreter is gone — "
+                    + NSHomeDirectory() + "/code/huske/.venv/bin/python no longer exists, "
+                    + "so the virtualenv behind this binary was deleted or rebuilt."),
+            binary: URL(fileURLWithPath: NSHomeDirectory() + "/code/huske/.venv/bin/huske"),
+            candidates: [
+                EngineCandidate(
+                    url: URL(fileURLWithPath: NSHomeDirectory() + "/.local/bin/huske"),
+                    version: EngineVersion("0.14.0"),
+                    origin: NSHomeDirectory() + "/.local/bin"),
+                EngineCandidate(
+                    url: URL(fileURLWithPath: "/opt/homebrew/bin/huske"),
+                    version: EngineVersion("0.13.0"), origin: "/opt/homebrew/bin"),
+            ])
         return model
     }
 

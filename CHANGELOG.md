@@ -6,6 +6,58 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+### Fixed
+
+- **"Your huske engine needs an update" with no way out.** An engine that
+  cannot *run* — most often a checkout whose virtualenv was rebuilt, leaving a
+  console script whose `#!` interpreter no longer exists — rendered as an
+  engine that was merely old, and the upgrade button on that screen offered
+  `uv tool upgrade huske` for an engine uv had never seen. That command exits 0
+  after upgrading a *different* install, so the screen never changed: an update
+  prompt with no reachable end. Huske now tells "won't run" apart from "too
+  old", names the interpreter that actually went missing, and leads with the
+  working engines already on the Mac. The upgrade button appears only when a
+  package manager owns the engine in use, and an upgrade that finishes without
+  moving that engine now says so instead of looking like nothing happened.
+- **A pinned engine that vanished showed the first-run welcome screen** —
+  "Huske needs its recording engine", on a Mac with two working engines
+  installed. A pin that stopped resolving is a repair, not an onboarding.
+- **Recording controls reflect the real reason they're off.** The transport
+  dock, ⌘K palette, and ⌘R menu item gate on "the engine is usable", not on
+  "the engine is old", and the dock's tooltip names which of the two it is.
+
+### Added
+
+- **Huske.app is signed with a Developer ID certificate and notarized by
+  Apple.** It opens straight from the download — no right-click → Open, no
+  System Settings → "Open Anyway". The ticket is stapled to the bundle, so a
+  first launch works offline. Releases sign and notarize in CI when the Apple
+  credentials are configured and fall back to the previous ad-hoc build when
+  they are not, so forks still build. Local builds sign with a Developer ID
+  identity if the keychain has one, ad-hoc otherwise, and both now apply the
+  hardened runtime plus `macos/Huske.entitlements` — under the hardened
+  runtime TCC denies the engine's microphone *without prompting* unless the
+  responsible app carries `com.apple.security.device.audio-input`. See
+  `docs/adr/0010-developer-id-signing-and-notarization.md`.
+  **Upgrading from an ad-hoc build asks for Microphone and audio-capture
+  permission one more time** — the app's identity changed, so macOS re-asks.
+  After that the grants finally survive updates, which they never did under
+  ad-hoc signing.
+- **The app notices new versions.** *Huske → Check for Updates…*, plus a
+  once-a-day background check that shows a quiet `Update vX.Y.Z` chip under the
+  nav rail, linking to the release. It asks GitHub for one release's version
+  number and sends nothing — no audio, transcript, or identifier. Off with the
+  Settings toggle, or with `HUSKE_NO_UPDATE_CHECK=1`, which already silenced
+  the engine's PyPI banner and now covers both. The engine has warned about its
+  own updates since it shipped, but only on a TTY, which an app user never
+  sees.
+- **An engine picker in Settings (⌘,).** Every `huske` found on the Mac, with
+  its version, where it came from, and which one is in use — switch with one
+  click, or drop the pin and go back to "newest wins". A stale Homebrew keg
+  quietly shadowing a fresh uv tool is now visible instead of inferred.
+- **A "checking the huske engine…" state**, so switching engines or hitting
+  Check Again no longer flashes the idle screen on its way to the answer.
+
 ## 0.14.0 - 2026-08-16
 
 ### Changed
