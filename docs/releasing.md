@@ -354,8 +354,10 @@ notarize step also checks for the certificate.
 
 ### One-time setup: export the Developer ID `.p12`
 
-The private key cannot be exported from the command line, so this is a
-Keychain Access step:
+Do this in Keychain Access. `security export -t identities` also works, but it
+dumps *every* identity in the keychain into one `.p12` and prompts for the
+login password once per key — so the GUI is both fewer prompts and a much
+smaller blast radius in the secret you end up storing:
 
 1. Keychain Access → **login** keychain → **My Certificates**.
 2. Select the row named `Developer ID Application: <Name> (<TEAMID>)`. Make
