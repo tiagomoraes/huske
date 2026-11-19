@@ -1,6 +1,7 @@
 // IBM Plex — the huske brand type (bundled from website/fonts, OFL).
-// Sans carries labels and prose, Mono carries timestamps/ids/dB/eyebrows,
-// and the italic Serif is reserved for the word "huske". Registration is
+// Sans carries the interface, Serif carries what people said (transcripts),
+// Mono carries time and file names only, and the italic Serif is reserved
+// for the word "huske" (DESIGN.md, "Quiet instrument"). Registration is
 // best-effort: if a font fails to load the helpers fall back to the system
 // stacks the website also falls back to.
 
@@ -17,6 +18,8 @@ enum BrandFonts {
         "IBMPlexMono-Medium",
         "IBMPlexMono-SemiBold",
         "IBMPlexSerif-Italic",
+        "IBMPlexSerif-Regular",
+        "IBMPlexSerif-Medium",
     ]
 
     /// Idempotent; call once at app start (before any view renders).
@@ -63,6 +66,14 @@ extension Font {
         default:
             return .custom("IBM Plex Mono", size: size)
         }
+    }
+
+    /// IBM Plex Serif — what people said (transcripts, excerpts).
+    static func brandSerif(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        guard BrandFonts.registered else {
+            return .system(size: size, weight: weight, design: .serif)
+        }
+        return .custom(weight == .medium || weight == .semibold ? "IBM Plex Serif Medium" : "IBM Plex Serif", size: size)
     }
 
     /// IBM Plex Serif Italic — reserved for the word "huske".

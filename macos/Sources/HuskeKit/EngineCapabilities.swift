@@ -20,6 +20,10 @@ public struct EngineCapabilities: Equatable, Sendable {
     public let configCLI: Bool
     /// `huske devices` subcommand exists.
     public let devicesCLI: Bool
+    /// `huske inbox` subcommand exists — the engine can take recordings that
+    /// did not come from live capture (iPhone uploads). Optional: an engine
+    /// without it still records; phone recordings wait until it is upgraded.
+    public let inboxCLI: Bool
     /// Why this binary cannot be used *at all*, in prose fit for the UI.
     /// `nil` when it answered — including when it answered as an old engine.
     public let failure: String?
@@ -29,12 +33,14 @@ public struct EngineCapabilities: Equatable, Sendable {
         controlSocket: Bool,
         configCLI: Bool,
         devicesCLI: Bool,
+        inboxCLI: Bool = false,
         failure: String? = nil
     ) {
         self.version = version
         self.controlSocket = controlSocket
         self.configCLI = configCLI
         self.devicesCLI = devicesCLI
+        self.inboxCLI = inboxCLI
         self.failure = failure
     }
 
@@ -55,7 +61,8 @@ public struct EngineCapabilities: Equatable, Sendable {
             version: version.isEmpty ? nil : version,
             controlSocket: runHelp.contains("--control-socket"),
             configCLI: containsCommand(mainHelp, "config"),
-            devicesCLI: containsCommand(mainHelp, "devices")
+            devicesCLI: containsCommand(mainHelp, "devices"),
+            inboxCLI: containsCommand(mainHelp, "inbox")
         )
     }
 
@@ -113,6 +120,7 @@ public struct EngineCapabilities: Equatable, Sendable {
             controlSocket: caps.controlSocket,
             configCLI: caps.configCLI,
             devicesCLI: caps.devicesCLI,
+            inboxCLI: caps.inboxCLI,
             failure: failure
         )
     }

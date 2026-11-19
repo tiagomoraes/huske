@@ -363,8 +363,15 @@ struct ConfigView: View {
                 }
                 Toggle(isOn: config.boolBinding("echo_cancel", default: true)) {
                     settingLabel(
-                        "Echo suppression",
-                        "Reduces speaker bleed into the mic when not wearing headphones.")
+                        "Echo cancellation",
+                        "Removes what your speakers play from the mic (WebRTC AEC3), so remote voices aren't transcribed twice. No effect with headphones.")
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                Toggle(isOn: config.boolBinding("capture_sync", default: true)) {
+                    settingLabel(
+                        "Record mic and system on one clock",
+                        "Keeps the two channels sample-aligned for echo cancellation. Falls back to separate streams if your mic can't join.")
                 }
                 .toggleStyle(.switch)
                 .controlSize(.small)
