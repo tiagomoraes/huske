@@ -4,6 +4,7 @@ import SwiftUI
 enum Pane: String, CaseIterable, Identifiable {
     case record
     case transcripts
+    case phone
     case connect
     case doctor
     case configuration
@@ -14,6 +15,7 @@ enum Pane: String, CaseIterable, Identifiable {
         switch self {
         case .record: return "Record"
         case .transcripts: return "Transcripts"
+        case .phone: return "iPhone"
         case .connect: return "Cloud sync"
         case .doctor: return "Doctor"
         case .configuration: return "Configuration"
@@ -24,6 +26,7 @@ enum Pane: String, CaseIterable, Identifiable {
         switch self {
         case .record: return "waveform"
         case .transcripts: return "text.document"
+        case .phone: return "iphone"
         case .connect: return "icloud.and.arrow.up"
         case .doctor: return "stethoscope"
         case .configuration: return "slider.horizontal.3"
@@ -34,9 +37,10 @@ enum Pane: String, CaseIterable, Identifiable {
         switch self {
         case .record: return "1"
         case .transcripts: return "2"
-        case .connect: return "3"
-        case .doctor: return "4"
-        case .configuration: return "5"
+        case .phone: return "3"
+        case .connect: return "4"
+        case .doctor: return "5"
+        case .configuration: return "6"
         }
     }
 }
@@ -69,6 +73,14 @@ struct RootView: View {
         .sheet(isPresented: $model.recoverSheetVisible) {
             RecoverSheet()
         }
+        .sheet(
+            isPresented: Binding(
+                get: { model.phoneSync.pairingSheetVisible },
+                set: { visible in if !visible { model.phoneSync.endPairing() } })
+        ) {
+            PairPhoneSheet()
+                .environment(model)
+        }
         .onChange(of: model.session.snapshot?.recording) { _, recording in
             // Recording state at a glance from the Dock, matching the menu bar.
             NSApp.dockTile.badgeLabel = recording == true ? "REC" : nil
@@ -85,6 +97,7 @@ struct RootView: View {
         switch model.pane {
         case .record: RecordView()
         case .transcripts: TranscriptsView()
+        case .phone: PhoneView()
         case .connect: ConnectView()
         case .doctor: DoctorView()
         case .configuration: ConfigView()

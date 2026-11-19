@@ -86,6 +86,19 @@ huske_version: 0.5.0
 | `language` | string | The *configured* language (ISO 639-1), or `auto` when none was set. Note this records intent, not a detection: only the `whisper` engine can be pinned to a language: Parakeet infers one per decode window, does not report it, and can disagree with this field on code-switched speech. |
 | `incomplete` | boolean | `true` if produced from recovery, graceful-stop short chunk, or partial transcription. |
 | `huske_version` | string | Semver of the producing huske binary. |
+| `origin` | string, optional | Imported recordings only: `phone` (handed over by Huske.app from the iPhone) or `file` (`huske import`, `huske inbox add`). |
+| `device` | string, optional | Imported recordings only, when known: the recording device's name. |
+| `title` | string, optional | Imported recordings only, when given: the recording's title. |
+| `import_id` | string, optional | Imported recordings only: the engine-inbox item id the transcript came from. |
+
+The four optional keys appear only on transcripts of **imported recordings**
+(the engine inbox, `specs/002-phone-sync/contracts/inbox.md`), after
+`huske_version`; live-capture transcripts never carry them. An import is split
+into pieces of at most `chunk_minutes` at quiet points, so it produces one
+transcript per piece exactly like live chunks: `session_id` is deterministic
+for the item (`<started_at local YYYYMMDDTHHMMSS>_<first 8 hex of sha1(import_id)>`),
+`chunk_seq` runs 1…N, `audio_sources` is `[microphone]`, and a retry rewrites
+the same filenames.
 
 > **Chunk boundaries (v0.9+).** By default huske segments on *speech activity*,
 > not a fixed clock: a chunk opens when speech is first heard and closes after a
@@ -96,15 +109,16 @@ huske_version: 0.5.0
 > fixed-interval rotation. Filenames, frontmatter keys, and sort order are
 > unchanged.
 >
-> **Echo handling (v0.9+).** When mic + system audio are recorded on speakers,
-> the system output that bleeds into the mic is handled in two stages so it is
-> not transcribed a second time on the `mic` side: coherence-based echo
-> *suppression* (`echo_cancel`, default on) attenuates the bleed in the mic
-> audio before transcription, and a transcript-level dedup (`echo_dedup`,
-> default `drop`) removes any residual mic run — whole line or partial fragment —
-> that duplicates a near-simultaneous system run. In `annotate` mode a surviving
-> mic echo is tagged `mic · echo` (see Body). The dedup is one-way: the local
-> voice and the clean system line are never removed.
+> **Echo handling (v0.9+, AEC3 since v0.15).** When mic + system audio are
+> recorded on speakers, the system output that bleeds into the mic is handled in
+> two stages so it is not transcribed a second time on the `mic` side: acoustic
+> echo *cancellation* (`echo_cancel`, default on — WebRTC AEC3 against the
+> system channel, with both channels captured on one clock) removes the bleed
+> from the mic audio before transcription, and a transcript-level dedup
+> (`echo_dedup`, default `drop`) removes any residual mic run — whole line or
+> partial fragment — that duplicates a near-simultaneous system run. In
+> `annotate` mode a surviving mic echo is tagged `mic · echo` (see Body). The
+> dedup is one-way: the local voice and the clean system line are never removed.
 
 ### Body
 

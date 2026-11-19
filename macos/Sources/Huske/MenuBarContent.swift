@@ -10,6 +10,9 @@ struct MenuBarContent: View {
     var body: some View {
         Group {
             statusLine
+            if let phoneLine {
+                Text(phoneLine)
+            }
             Divider()
             if model.session.isBusy, let snap = model.session.snapshot {
                 Button(snap.paused ? "Resume Recording" : "Pause Recording") {
@@ -49,6 +52,24 @@ struct MenuBarContent: View {
                 NSApp.terminate(nil)
             }
         }
+    }
+
+    /// "iPhone: 1 recording transcribing" while phone recordings are moving.
+    private var phoneLine: String? {
+        let active = model.phoneSync.activeRecordings
+        guard !active.isEmpty else { return nil }
+        let noun = active.count == 1 ? "recording" : "recordings"
+        let verb: String
+        if active.contains(where: { $0.state == .receiving }) {
+            verb = "arriving"
+        } else if active.contains(where: { $0.state == .transcribing }) {
+            verb = "transcribing"
+        } else if active.contains(where: { $0.state == .received }) {
+            verb = "waiting for the engine"
+        } else {
+            verb = "queued"
+        }
+        return "iPhone: \(active.count) \(noun) \(verb)"
     }
 
     @ViewBuilder

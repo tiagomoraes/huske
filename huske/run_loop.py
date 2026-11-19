@@ -25,6 +25,7 @@ from huske.capture.devices import (
 from huske.chunker.rotator import ChunkRotator
 from huske.config import RuntimeConfig, load_config, update_user_config
 from huske.control import Command, CommandChannel
+from huske.inbox.processor import InboxProcessor, is_inbox_job_id
 from huske.ipc import ControlServer
 from huske.ipc.protocol import ControlSnapshot, DeviceList, InputDeviceEntry
 from huske.mlx_runtime import GatedDistiller, MetalGate, rss_bytes_by_pid
@@ -339,6 +340,7 @@ def run_session(
                 on_event("warn", f"distillation failed: {detail}")
 
     def _on_tick() -> None:
+        _pump_inbox()
         _pump_asr()
         _refresh_rss()
         _drain_sync()
@@ -360,7 +362,19 @@ def run_session(
     pending_chunks: set[int] = set()
     pending_lock = threading.Lock()
     asr_backlog: deque[dict[str, Any]] = deque()
-    gated_seqs: set[int] = set()
+    # Jobs holding the Metal gate, keyed by live `chunk_seq` (int) or by an
+    # inbox job's `job_id` (str) — import chunk_seqs restart at 1 and would
+    # collide with live ones.
+    gated_seqs: set[int | str] = set()
+    # The engine inbox (phone recordings, `huske import`): set up below once
+    # `on_event` exists. Its jobs share this backlog and the Metal gate.
+    inbox: InboxProcessor | None = None
+
+    def _job_key(job: dict[str, Any]) -> int | str:
+        job_id = job.get("job_id")
+        if isinstance(job_id, str) and is_inbox_job_id(job_id):
+            return job_id
+        return int(job["chunk_seq"])
 
     def _pending_count() -> int:
         # True in-flight depth (queued + transcribing), thread-safe. Unlike
@@ -378,16 +392,22 @@ def run_session(
                 return
             with pending_lock:
                 job = asr_backlog.popleft()
-                gated_seqs.add(int(job["chunk_seq"]))
+                key = _job_key(job)
+                gated_seqs.add(key)
             try:
                 worker.submit(job)
             except Exception as exc:
                 metal_gate.finish_asr()
                 with pending_lock:
-                    gated_seqs.discard(int(job["chunk_seq"]))
-                    pending_chunks.discard(int(job["chunk_seq"]))
+                    gated_seqs.discard(key)
+                    if isinstance(key, int):
+                        pending_chunks.discard(key)
+                if isinstance(key, str) and inbox is not None:
+                    inbox.job_failed(key, f"transcription worker restart failed: {exc}")
                 on_event("error", f"transcription worker restart failed: {exc}")
                 return
+            if isinstance(key, str) and inbox is not None:
+                inbox.mark_submitted(key)
 
     def _refresh_rss() -> None:
         parent_pid = os.getpid()
@@ -427,6 +447,69 @@ def run_session(
     def on_event(severity: str, message: str) -> None:
         state.push_event(severity, message)  # type: ignore[arg-type]
         log.info("capture_event", severity=severity, message=message)
+
+    # Engine inbox. Take its lock now if free (a one-shot `huske inbox process`
+    # may hold it; `_pump_inbox` retries every scan). Never fatal: recording
+    # does not depend on it.
+    try:
+        inbox = InboxProcessor(cfg, background=True, on_event=on_event)
+        if inbox.try_acquire():
+            log.info("inbox_lock_acquired", inbox_root=str(cfg.inbox_root))
+    except Exception as exc:
+        log.warning("inbox_unavailable", error=str(exc))
+        inbox = None
+
+    def _release_inbox_gate(job_id: str) -> None:
+        with pending_lock:
+            gated = job_id in gated_seqs
+            gated_seqs.discard(job_id)
+        if gated:
+            metal_gate.finish_asr()
+
+    def _pump_inbox() -> None:
+        """Queue the next inbox piece behind live chunks; detect lost jobs."""
+        if inbox is None or stop_flag.is_set():
+            return
+        try:
+            jobs = inbox.poll()
+            for lost in inbox.check_worker(worker.alive):
+                _release_inbox_gate(lost)
+        except Exception as exc:
+            log.warning("inbox_poll_failed", error=str(exc))
+            return
+        if jobs:
+            with pending_lock:
+                asr_backlog.extend(jobs)
+
+    def _route_result(result: dict[str, Any]) -> bool:
+        """Consume a worker result that belongs to the inbox, not live capture.
+
+        Live `pending_chunks` / `on_result` never see these, so a colliding
+        import chunk_seq cannot clear a live chunk's accounting.
+        """
+        job_id = result.get("job_id")
+        if not is_inbox_job_id(job_id):
+            return False
+        assert isinstance(job_id, str)
+        _release_inbox_gate(job_id)
+        if inbox is None:
+            return True
+        try:
+            written = inbox.handle_result(result)
+        except Exception as exc:
+            log.warning("inbox_result_failed", error=str(exc))
+            return True
+        for tp in written:
+            state.update(last_saved=tp)
+            _on_written(tp)
+        return True
+
+    def _drop_inbox_backlog() -> None:
+        """Stopping: unsubmitted inbox jobs must not hold up the drain."""
+        with pending_lock:
+            live = [j for j in asr_backlog if not is_inbox_job_id(j.get("job_id"))]
+            asr_backlog.clear()
+            asr_backlog.extend(live)
 
     rotator = ChunkRotator(
         cfg=cfg,
@@ -786,6 +869,7 @@ def run_session(
             on_tick=_on_tick,
             pending_count=_pending_count,
             mic_fallback=device_resolution.fallback_used,
+            route_result=_route_result,
         )
 
         # Phase 2: stopping. Keep publishing state while we drain so the app
@@ -800,6 +884,10 @@ def run_session(
             _sync_screenshot_state()
             on_event("info", f"screenshots saved: {screenshotter.captures}")
         rotator.finalize_current()
+        # Inbox work is resumable (its item goes back to `queued` on release),
+        # so the drain waits only for live chunks — at most one inbox piece can
+        # already be in the worker ahead of them.
+        _drop_inbox_backlog()
 
         pending_count = _pending_count()
         on_event("info", f"draining {pending_count} transcription(s)…")
@@ -817,6 +905,8 @@ def run_session(
             _pump_asr()
             result = worker.poll_result(timeout=0.1)
             if result is not None and result.get("event") == "idle_recycle":
+                result = None
+            if result is not None and _route_result(result):
                 result = None
             if result is not None and "chunk_seq" not in result:
                 result = None
@@ -885,6 +975,12 @@ def run_session(
         if sync_worker is not None:
             sync_worker.stop(drain_timeout=10.0)
         worker.stop(drain_timeout=5.0)
+        if inbox is not None:
+            # Requeue any in-progress item for the next run, then unlock.
+            try:
+                inbox.release()
+            except Exception as exc:
+                log.warning("inbox_release_failed", error=str(exc))
         session.release_lock()
         cleanup_session_dir(session.audio_root)
         session.state = SessionState.STOPPED
@@ -909,9 +1005,14 @@ def _main_loop(
     on_tick: Callable[[], None] | None = None,
     pending_count: Callable[[], int] | None = None,
     mic_fallback: bool = False,
+    route_result: Callable[[dict[str, Any]], bool] | None = None,
 ) -> None:
     """Run the asyncio-free main loop: poll worker results, refresh state,
-    publish control-plane snapshots, watch the capture heartbeat."""
+    publish control-plane snapshots, watch the capture heartbeat.
+
+    ``route_result`` sees every worker result first and returns True when it
+    consumed it (engine-inbox jobs); only the rest are live chunks.
+    """
 
     def _depth() -> int:
         return pending_count() if pending_count is not None else worker.queue_depth
@@ -989,6 +1090,8 @@ def _main_loop(
         # Worker result drain (non-blocking).
         result = worker.poll_result(timeout=0.0)
         if result is not None and result.get("event") == "idle_recycle":
+            result = None
+        if result is not None and route_result is not None and route_result(result):
             result = None
         if result is not None and "chunk_seq" not in result:
             result = None
