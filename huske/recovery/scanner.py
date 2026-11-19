@@ -95,7 +95,9 @@ def scan_orphans(cfg: RuntimeConfig) -> list[OrphanSession]:
     for entry in sorted(cfg.audio_root.iterdir()):
         if not entry.is_dir():
             continue
-        if entry.name == "incomplete":
+        # Not capture sessions: quarantined chunks and the engine inbox's
+        # retained originals (`keep_audio` on imported recordings).
+        if entry.name in {"incomplete", "imported"}:
             continue
 
         lock = entry / ".lock"

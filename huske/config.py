@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import platform
+import sys
 import tomllib
 from pathlib import Path
 from typing import Any, Literal
@@ -22,6 +23,7 @@ ASREngine = Literal["parakeet", "whisper"]
 # segment (speaker bleed when not wearing headphones): drop it, keep it but tag
 # it `· echo`, or skip the de-duplication entirely.
 EchoDedup = Literal["drop", "annotate", "off"]
+EchoCanceller = Literal["auto", "webrtc", "coherence"]
 # Kept for back-compat with existing config files. `compute_type` and `device`
 # were CTranslate2 knobs; the mlx-whisper backend always runs fp16 on Metal.
 # We accept and store them but the worker only honors `float32` to opt out of fp16.
@@ -101,6 +103,12 @@ class RuntimeConfig(BaseModel):
     # this directory only if you accept plaintext transcripts leaving the machine
     # — see docs/integrations.md.
     export_root: Path = Field(default=Path.home() / "huske" / "export")
+    # The engine inbox: recordings that did not come from live capture (an
+    # iPhone recording handed over by Huske.app, `huske import FILE`) wait here
+    # until whichever process holds `inbox_root/.lock` — the live `huske run`
+    # engine, or a one-shot `huske inbox process` — transcribes them into
+    # ordinary transcripts. See specs/002-phone-sync/contracts/inbox.md.
+    inbox_root: Path = Field(default=Path.home() / "huske" / "inbox")
 
     # Transcription backend. Parakeet by default (silence-robust, multilingual,
     # MLX-accelerated); `whisper` keeps the legacy mlx-whisper path.
@@ -123,14 +131,20 @@ class RuntimeConfig(BaseModel):
     language: str | None = None
     # When recording mic + system audio on speakers (no headphones), the system
     # output is played acoustically and re-captured by the mic. `echo_cancel`
-    # *reduces* it before transcription via coherence-based echo suppression
-    # (it attenuates the mic content coherent with the clean system channel).
-    # Self-gating — with headphones there is no echo and the mic is untouched —
-    # and it cannot remove the local voice (incoherent with the system). Audio
-    # capture uses independent clocks (PortAudio mic, Core Audio system tap), so
-    # sample-precise cancellation is infeasible; this suppresses rather than
-    # eliminates, and `echo_dedup` below removes the residual at the text level.
+    # removes it from the mic before transcription with WebRTC AEC3, using the
+    # clean system channel as the reference (ADR 0012). Self-gating — with
+    # headphones there is no echo path and the mic passes through — and it keeps
+    # the local voice, including when both sides talk at once.
     echo_cancel: bool = True
+    # Which canceller `echo_cancel` uses: `auto` (WebRTC AEC3, falling back to
+    # coherence suppression if the binding is unavailable), `webrtc`, or
+    # `coherence` (the pre-0.15 suppressor; reduces rather than removes).
+    echo_canceller: EchoCanceller = "auto"
+    # Record mic + system audio from one Core Audio aggregate device so both
+    # channels share one clock and stay sample-aligned for the whole session
+    # (what echo cancellation and mic/system timestamps need). Falls back to
+    # independent streams when the aggregate cannot be built.
+    capture_sync: bool = True
     # Primary removal of the duplicate: a mic run that echoes a near-simultaneous
     # system run (full or partial) is dropped (default), tagged (`· echo`), or
     # kept. One-way, so the local voice and the clean system line are never lost.
@@ -278,6 +292,7 @@ class RuntimeConfig(BaseModel):
         "logs_root",
         "screenshots_root",
         "export_root",
+        "inbox_root",
         "sync_root",
         mode="before",
     )
@@ -387,6 +402,31 @@ def without_retired_config(values: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in values.items() if key not in _RETIRED_CONFIG_KEYS}
 
 
+_warned_unknown: set[str] = set()
+
+
+def _without_unknown_keys(values: dict[str, Any], source: Path) -> dict[str, Any]:
+    """Drop config-file keys this engine doesn't know, with one warning.
+
+    Several engines share one config file (a uv tool, a Homebrew keg, a branch
+    checkout), and they upgrade at different times. A key written by a newer
+    or different engine (e.g. `diarize`) must not stop this one from starting.
+    Typos are still caught: `huske config set` validates keys before writing,
+    and the warning names what was ignored.
+    """
+    known = set(RuntimeConfig.model_fields)
+    unknown = sorted(k for k in values if k not in known)
+    fresh = [k for k in unknown if k not in _warned_unknown]
+    if fresh:
+        _warned_unknown.update(fresh)
+        print(
+            f"huske: ignoring config key(s) this version doesn't know in {source}: "
+            + ", ".join(fresh),
+            file=sys.stderr,
+        )
+    return {k: v for k, v in values.items() if k in known}
+
+
 def default_user_config_path() -> Path:
     return Path.home() / ".config" / "huske" / "config.toml"
 
@@ -408,6 +448,7 @@ def load_config(
 
     file_path = config_path or default_user_config_path()
     file_data = without_retired_config(_read_toml(file_path)) if file_path.exists() else {}
+    file_data = _without_unknown_keys(file_data, file_path)
     overrides = {k: v for k, v in (cli_overrides or {}).items() if v is not None}
     merged = {**file_data, **overrides}
     return RuntimeConfig(**merged)

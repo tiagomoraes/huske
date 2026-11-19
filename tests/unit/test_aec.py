@@ -197,3 +197,136 @@ def test_empty_inputs_are_safe() -> None:
     near = _rng_speech(1.0, 8)
     out = cancel_echo(near, empty, SR)
     assert out.size == near.size
+
+
+# --- WebRTC AEC3 -------------------------------------------------------------
+
+import pytest  # noqa: E402
+
+from huske.transcribe.aec import (  # noqa: E402
+    cancel_echo_webrtc,
+    remove_echo,
+    webrtc_aec_available,
+)
+
+needs_webrtc = pytest.mark.skipif(
+    not webrtc_aec_available(), reason="livekit (WebRTC AEC3) not installed"
+)
+
+
+def _speaker_echo(system: np.ndarray, gain: float = 0.5, delay_ms: float = 30.0) -> np.ndarray:
+    """System audio as the mic hears it from the laptop speakers."""
+    echo = fftconvolve(np.tanh(3 * system) / 3, _rir(gain))[: len(system)].astype(np.float32)
+    d = int(delay_ms * SR / 1000)
+    return np.concatenate([np.zeros(d, dtype=np.float32), echo])[: len(system)]
+
+
+def _corr(a: np.ndarray, b: np.ndarray) -> float:
+    n = min(len(a), len(b))
+    return float(np.dot(a[:n], b[:n]) / (np.linalg.norm(a[:n]) * np.linalg.norm(b[:n]) + 1e-9))
+
+
+@needs_webrtc
+def test_webrtc_removes_echo_only() -> None:
+    """Remote voice on speakers with nobody talking locally: the mic copy goes."""
+    system = _rng_speech(8.0, seed=21)
+    echo = _speaker_echo(system)
+    cleaned = cancel_echo_webrtc(echo, system, SR)
+    assert cleaned.shape == echo.shape
+    # Skip the first second of convergence.
+    assert erle_db(echo[SR:], cleaned[SR:]) > 20.0
+
+
+@needs_webrtc
+def test_webrtc_is_transparent_with_headphones() -> None:
+    """No echo path: the local voice passes, time-aligned, at full level."""
+    near = _rng_speech(6.0, seed=22)
+    system = _rng_speech(6.0, seed=23)
+    cleaned = cancel_echo_webrtc(near, system, SR)
+    level_db = 10 * np.log10(np.mean(cleaned**2) / np.mean(near**2))
+    assert abs(level_db) < 3.0
+    # Same time base as the input (the canceller's 8 ms latency is undone).
+    c = np.correlate(cleaned[SR : 3 * SR], near[SR : 3 * SR], mode="full")
+    lag = int(np.argmax(np.abs(c))) - (2 * SR - 1)
+    assert abs(lag) <= 2
+
+
+@needs_webrtc
+def test_webrtc_double_talk_keeps_local_voice() -> None:
+    near = np.concatenate([np.zeros(3 * SR, np.float32), _rng_speech(5.0, seed=24)])
+    system = _rng_speech(8.0, seed=25)
+    echo = _speaker_echo(system)
+    mic = near + echo
+    cleaned = cancel_echo_webrtc(mic, system, SR)
+    # Echo-only stretch (after convergence) is removed …
+    assert erle_db(mic[SR : 3 * SR], cleaned[SR : 3 * SR]) > 15.0
+    # … while the double-talk stretch keeps the local voice's energy and shape.
+    dt = slice(3 * SR, 8 * SR)
+    level_db = 10 * np.log10(np.mean(cleaned[dt] ** 2) / np.mean(near[dt] ** 2))
+    assert level_db > -6.0
+    assert _corr(cleaned[dt], near[dt]) > _corr(cleaned[dt], echo[dt])
+
+
+@needs_webrtc
+@pytest.mark.parametrize("ref_offset_ms", [-300.0, 600.0])
+def test_webrtc_realigns_late_or_early_reference(ref_offset_ms: float) -> None:
+    """Independent-clock captures: the saved reference can be late or early."""
+    system = _rng_speech(8.0, seed=26)
+    echo = _speaker_echo(system)
+    s = int(abs(ref_offset_ms) * SR / 1000)
+    if ref_offset_ms < 0:  # reference saved late
+        ref = np.concatenate([np.zeros(s, np.float32), system])[: len(system)]
+    else:  # reference saved early
+        ref = np.concatenate([system[s:], np.zeros(s, np.float32)])
+    cleaned = cancel_echo_webrtc(echo, ref, SR)
+    assert erle_db(echo[SR:], cleaned[SR:]) > 15.0
+
+
+@needs_webrtc
+def test_webrtc_tracks_a_mid_chunk_offset_jump() -> None:
+    """An offset that jumps mid-chunk is re-aligned per window."""
+    system = _rng_speech(40.0, seed=27)
+    echo = _speaker_echo(system)
+    jump = int(0.25 * SR)
+    half = len(system) // 2
+    ref = np.concatenate(
+        [system[:half], np.zeros(jump, np.float32), system[half:]]
+    )[: len(system)]
+    cleaned = cancel_echo_webrtc(echo, ref, SR, window_seconds=10.0)
+    for part in (slice(SR, half), slice(half + 5 * SR, len(system))):
+        assert erle_db(echo[part], cleaned[part]) > 12.0
+
+
+@needs_webrtc
+@pytest.mark.parametrize("n", [0, 1, 50, 159, 161, 16_001])
+def test_webrtc_odd_lengths_are_safe(n: int) -> None:
+    """Never hand AEC3 a non-10 ms frame (it would abort the process)."""
+    near = _rng_speech(max(n, 1) / SR, seed=28)[:n]
+    system = _rng_speech(max(n, 1) / SR, seed=29)[:n]
+    out = cancel_echo_webrtc(near, system, SR)
+    assert out.shape == near.shape
+
+
+@needs_webrtc
+def test_webrtc_silent_reference_passes_through() -> None:
+    near = _rng_speech(2.0, seed=30)
+    out = cancel_echo_webrtc(near, np.zeros_like(near), SR)
+    assert np.array_equal(out, near)
+
+
+def test_remove_echo_falls_back_to_coherence(monkeypatch: pytest.MonkeyPatch) -> None:
+    import huske.transcribe.aec as aec
+
+    def boom(*_a: object, **_k: object) -> np.ndarray:
+        raise ImportError("no livekit")
+
+    monkeypatch.setattr(aec, "cancel_echo_webrtc", boom)
+    system = _rng_speech(4.0, seed=31)
+    echo = fftconvolve(system, _rir(0.7))[: len(system)].astype(np.float32)
+    cleaned, method = remove_echo(echo, system, SR)
+    assert method == "coherence"
+    assert cleaned.shape == echo.shape
+    with pytest.raises(ImportError):
+        remove_echo(echo, system, SR, method="webrtc")
+    _, method = remove_echo(echo, system, SR, method="coherence")
+    assert method == "coherence"

@@ -149,3 +149,50 @@ def test_update_user_config_clears_with_none(tmp_path: Path) -> None:
     cfg = load_config(config_path=target)
     assert cfg.input_device is None
     assert cfg.model == "small"
+
+
+def test_run_does_not_override_config_keep_audio(monkeypatch, tmp_path) -> None:
+    """`keep_audio = true` in the config survives `huske run` without flags."""
+    from typer.testing import CliRunner
+
+    import huske.cli as cli
+    import huske.run_loop as run_loop
+
+    seen: dict[str, object] = {}
+
+    def fake_run_session(*args: object, **kwargs: object) -> int:
+        from huske.config import load_config
+
+        cfg = load_config(kwargs.get("config_path"), kwargs.get("cli_overrides"))  # type: ignore[arg-type]
+        seen["keep_audio"] = cfg.keep_audio
+        return 0
+
+    monkeypatch.setattr(run_loop, "run_session", fake_run_session)
+    monkeypatch.setattr("huske.update_check.notify_if_outdated", lambda: None)
+    config = tmp_path / "config.toml"
+    config.write_text("keep_audio = true\n")
+    result = CliRunner().invoke(cli.app, ["run", "--config", str(config)])
+    assert result.exit_code == 0, result.output
+    assert seen["keep_audio"] is True
+
+
+def test_unknown_file_keys_are_ignored_with_a_warning(tmp_path, capsys) -> None:
+    """A key from another engine version (e.g. `diarize`) must not brick this one."""
+    from huske.config import load_config
+
+    config = tmp_path / "config.toml"
+    config.write_text('diarize = true\nchunk_minutes = 5.0\nsome_future_key = "x"\n')
+    cfg = load_config(config)
+    assert cfg.chunk_minutes == 5.0
+    err = capsys.readouterr().err
+    assert "diarize" in err and "some_future_key" in err
+
+
+def test_unknown_cli_override_still_fails() -> None:
+    import pytest
+    from pydantic import ValidationError
+
+    from huske.config import load_config
+
+    with pytest.raises(ValidationError):
+        load_config(None, {"no_such_option": 1})

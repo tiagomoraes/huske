@@ -40,23 +40,32 @@ def render_transcript(t: Transcript) -> str:
         "incomplete": bool(t.incomplete),
         "huske_version": t.huske_version,
     }
+    # Additive keys (imported recordings only). Never shadow a core key, and
+    # drop empty values so an absent title/device leaves no `null` behind.
+    for key, value in (t.extra_frontmatter or {}).items():
+        if key in front or value is None or value == "":
+            continue
+        front[key] = value
     body = t.body.strip() if t.body and t.body.strip() else "_(no speech detected)_"
 
     fm = yaml.safe_dump(front, sort_keys=False, allow_unicode=True).rstrip("\n")
     return f"---\n{fm}\n---\n\n{_heading(t)}\n\n{body}\n"
 
 
-def write_transcript(t: Transcript, target: Path) -> Path:
+def write_transcript(t: Transcript, target: Path, *, overwrite: bool = False) -> Path:
     """Atomically write the rendered transcript at ``target``.
 
-    Returns the actual path written (may differ from ``target`` if
-    a collision was detected — we never overwrite).
+    Returns the actual path written. By default this may differ from
+    ``target`` if a collision was detected — live chunks never overwrite.
+    ``overwrite=True`` replaces ``target`` instead: imported recordings have a
+    deterministic session id, so a retry must rewrite the same files rather
+    than leave disambiguated duplicates behind.
     """
 
     from huske.paths import disambiguate_if_collides  # local import dodges cycle
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    final = disambiguate_if_collides(target)
+    final = target if overwrite else disambiguate_if_collides(target)
     rendered = render_transcript(t)
 
     tmp = final.with_suffix(final.suffix + ".tmp")
@@ -65,7 +74,9 @@ def write_transcript(t: Transcript, target: Path) -> Path:
     return final
 
 
-def write_transcript_if_nonempty(t: Transcript, target: Path) -> Path | None:
+def write_transcript_if_nonempty(
+    t: Transcript, target: Path, *, overwrite: bool = False
+) -> Path | None:
     """Write ``t`` only when it contains substantive transcript text.
 
     The renderer still understands empty transcripts for compatibility with
@@ -74,7 +85,7 @@ def write_transcript_if_nonempty(t: Transcript, target: Path) -> Path | None:
     """
     if not t.body or not t.body.strip():
         return None
-    return write_transcript(t, target)
+    return write_transcript(t, target, overwrite=overwrite)
 
 
 def build_transcript_from_segments(
@@ -92,6 +103,7 @@ def build_transcript_from_segments(
     incomplete: bool,
     text: str,
     segments: list[dict[str, Any]] | None = None,
+    extra_frontmatter: dict[str, str | int | float | bool] | None = None,
 ) -> Transcript:
     return Transcript(
         session_id=session_id,
@@ -108,6 +120,7 @@ def build_transcript_from_segments(
         body=text,
         huske_version=__version__,
         segments=segments,
+        extra_frontmatter=extra_frontmatter or None,
     )
 
 

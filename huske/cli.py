@@ -93,9 +93,9 @@ def run(
     echo_cancel: bool | None = typer.Option(
         None,
         "--echo-cancel/--no-echo-cancel",
-        help="Suppress system audio that bleeds into the mic over speakers "
-        "(coherence-based echo suppression) before transcription. On by "
-        "default; self-gating (no effect with headphones).",
+        help="Cancel system audio that bleeds into the mic over speakers "
+        "(WebRTC AEC3 against the system channel) before transcription. On "
+        "by default; self-gating (no effect with headphones).",
     ),
     echo_dedup: str | None = typer.Option(
         None,
@@ -108,7 +108,9 @@ def run(
     device: str | None = typer.Option(None, "--device"),
     language: str | None = typer.Option(None, "--language"),
     input_device: str | None = typer.Option(None, "--input-device"),
-    keep_audio: bool = typer.Option(False, "--keep-audio/--no-keep-audio"),
+    # None = "not given": a False default here would always override a
+    # `keep_audio = true` in the config file.
+    keep_audio: bool | None = typer.Option(None, "--keep-audio/--no-keep-audio"),
     keep_audio_format: str | None = typer.Option(
         None,
         "--keep-audio-format",
@@ -315,6 +317,53 @@ def doctor(
     )
 
 
+@app.command("echo-test")
+def echo_test(
+    input_device: str | None = typer.Option(
+        None, "--input-device", help="Microphone to test (default: system default)."
+    ),
+    canceller: str = typer.Option(
+        "auto", "--canceller", help="auto (WebRTC AEC3), webrtc, or coherence."
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Play a short phrase on the speakers and measure echo cancellation.
+
+    Captures mic + system audio the way `huske run` does, runs the same echo
+    canceller the transcriber uses, and reports how much speaker bleed it
+    removed. Nothing is saved. Needs Microphone + System Audio Recording access.
+    """
+    import json as _json
+
+    from huske.capture.echo_test import run_echo_test
+
+    if canceller not in ("auto", "webrtc", "coherence"):
+        typer.secho(f"invalid --canceller: {canceller!r}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+    if not json_output:
+        typer.echo("Playing a short phrase through your speakers (~8 s)…")
+    try:
+        result = run_echo_test(mic_name=input_device, method=canceller)
+    except Exception as exc:
+        if json_output:
+            typer.echo(_json.dumps({"ok": False, "error": str(exc)}))
+        else:
+            typer.secho(f"echo test failed: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
+    if json_output:
+        typer.echo(_json.dumps({"ok": True, **result.to_json()}))
+        return
+    typer.echo(f"  output      {result.output_device or '?'}")
+    typer.echo(f"  microphone  {result.mic_device or 'default'}")
+    typer.echo(f"  capture     {result.capture_mode} · canceller {result.method}")
+    if result.echo_present:
+        typer.echo(
+            f"  echo        {result.mic_level_db:.1f} dB → {result.residual_level_db:.1f} dB"
+            f"  (delay {result.echo_delay_ms} ms)"
+        )
+    typer.secho(f"  {result.verdict}", fg=typer.colors.GREEN if result.erle_db >= 15 or not result.echo_present else typer.colors.YELLOW)
+
+
 @app.command()
 def devices(
     json_output: bool = typer.Option(False, "--json"),
@@ -471,6 +520,129 @@ def sync(
 
     overrides = _collect_overrides(output_root=output_root)
     raise typer.Exit(run_sync(config_path=config_path, cli_overrides=overrides))
+
+
+# ---------------------------------------------------------------------------
+# Engine inbox: external recordings (iPhone, audio files) → transcripts
+# ---------------------------------------------------------------------------
+
+inbox_app = typer.Typer(
+    name="inbox",
+    help="Hand recordings that did not come from live capture to the engine "
+    "for transcription (see `huske import` for the one-step version).",
+    no_args_is_help=True,
+    add_completion=False,
+)
+app.add_typer(inbox_app)
+
+
+@inbox_app.command("add")
+def inbox_add(
+    file: Path = typer.Argument(..., help="Audio file (m4a, caf, wav, flac, mp3, aiff, ogg, …)."),
+    item_id: str | None = typer.Option(
+        None,
+        "--id",
+        help="Stable id (1-64 of A-Z a-z 0-9 . _ -). Re-adding an id is a no-op. "
+        "Default: a hash of the file's contents.",
+    ),
+    title: str | None = typer.Option(None, "--title", help="Recorded in the transcripts."),
+    device: str | None = typer.Option(None, "--device", help="Recording device name."),
+    origin: str = typer.Option("file", "--origin", help="phone or file (default)."),
+    started_at: str | None = typer.Option(
+        None,
+        "--started-at",
+        help="ISO 8601 recording start. Default: the file's modification time "
+        "minus its duration.",
+    ),
+    duration: float | None = typer.Option(
+        None, "--duration", help="Duration in seconds, if known (probed otherwise)."
+    ),
+    move: bool = typer.Option(False, "--move", help="Move FILE into the inbox instead of copying it."),
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Stage FILE as an inbox item and print its status."""
+    from huske.inbox.runner import run_inbox_add
+
+    raise typer.Exit(
+        run_inbox_add(
+            file,
+            item_id=item_id,
+            title=title,
+            device=device,
+            origin=origin,
+            started_at=started_at,
+            duration=duration,
+            move=move,
+            json_output=json_output,
+            config_path=config_path,
+        )
+    )
+
+
+@inbox_app.command("process")
+def inbox_process(
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Transcribe every queued (or retryable failed) item now, then exit.
+
+    Returns immediately with deferred_to_engine when a running `huske run`
+    holds the inbox: it transcribes the queue itself.
+    """
+    from huske.inbox.runner import run_inbox_process
+
+    raise typer.Exit(run_inbox_process(json_output=json_output, config_path=config_path))
+
+
+@inbox_app.command("status")
+def inbox_status(
+    ids: list[str] | None = typer.Argument(None, help="Item ids (default: every item)."),
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Show inbox items, newest first."""
+    from huske.inbox.runner import run_inbox_status
+
+    raise typer.Exit(
+        run_inbox_status(ids or None, json_output=json_output, config_path=config_path)
+    )
+
+
+@inbox_app.command("retry")
+def inbox_retry(
+    ids: list[str] = typer.Argument(..., help="Failed item ids to re-queue."),
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Re-queue failed items (resets their 3-attempt budget)."""
+    from huske.inbox.runner import run_inbox_retry
+
+    raise typer.Exit(run_inbox_retry(ids, json_output=json_output, config_path=config_path))
+
+
+@app.command("import")
+def import_cmd(
+    files: list[Path] = typer.Argument(..., help="Audio files to transcribe."),
+    title: str | None = typer.Option(None, "--title"),
+    started_at: str | None = typer.Option(
+        None, "--started-at", help="ISO 8601 recording start (default: from the file)."
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Transcribe audio files into ordinary transcripts (inbox add + process)."""
+    from huske.inbox.runner import run_import
+
+    raise typer.Exit(
+        run_import(
+            list(files),
+            title=title,
+            started_at=started_at,
+            json_output=json_output,
+            config_path=config_path,
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
