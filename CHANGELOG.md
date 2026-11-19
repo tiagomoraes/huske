@@ -8,6 +8,34 @@ This project uses semantic versioning after the first public release.
 
 ### Fixed
 
+- **An engine no longer refuses to start over a config key it doesn't
+  know.** Several engines (a uv tool, a Homebrew keg, a checkout) share one
+  `~/.config/huske/config.toml` and upgrade at different times; a key written
+  by a newer or different one (e.g. `diarize`) used to stop the others cold.
+  Unknown keys in the file are now ignored with a one-line warning naming
+  them; `huske config set` still rejects typos.
+- **`keep_audio = true` in the config file is honored by `huske run`.** The
+  run command's `--keep-audio` flag defaulted to off and silently overrode the
+  config, so chunk audio was deleted anyway.
+- **Remote voices no longer show up twice when you're on speakers.** The
+  meeting audio your speakers play leaks into the microphone. Huske used to
+  only *attenuate* that leak, and the attenuated copy still transcribed, so
+  remote lines kept reappearing as `mic` lines. Huske now *cancels* it with
+  WebRTC AEC3, the echo canceller Chrome and Meet use, against the clean system
+  channel before transcription. On a MacBook Pro's own speakers and mic, a
+  remote monologue that the old suppressor still let through word for word
+  (55 of 55 words) now leaks 2. Your own voice is kept, even
+  when both sides talk at once, and with headphones nothing changes.
+  - **Mic and system now share one clock.** Both are recorded from one Core
+    Audio aggregate device, so they stay sample-aligned for the whole session.
+    Before, an underrun could permanently shift the system channel later than
+    the mic, which also skewed the `system` timestamps in transcripts.
+  - **New config keys.** `echo_canceller = auto | webrtc | coherence` and
+    `capture_sync` (both on by default). If the aggregate cannot be built,
+    capture falls back to independent streams, and the canceller still
+    re-aligns them.
+  - See `docs/adr/0012-webrtc-aec3-and-single-clock-capture.md`.
+
 - **"Your huske engine needs an update" with no way out.** An engine that
   cannot *run* — most often a checkout whose virtualenv was rebuilt, leaving a
   console script whose `#!` interpreter no longer exists — rendered as an
@@ -28,6 +56,35 @@ This project uses semantic versioning after the first public release.
 
 ### Added
 
+- **Huske for iPhone: record anywhere, transcribe on your Mac.** A new iPhone
+  app (`ios/`) is a simple recorder with Voice Memos ergonomics. It keeps
+  recording in the background, with a Live Activity on the Lock Screen and in
+  the Dynamic Island that has pause/resume and stop buttons. When a recording
+  stops, it syncs to *your* Mac and enters the normal transcription queue there.
+  The transcript then comes back and is readable on the phone. No cloud, no
+  account.
+  - **Pairing** is one QR code: *Huske.app → iPhone → Pair iPhone*, then point
+    the iPhone camera at it.
+  - **Transfer** is direct and encrypted (TLS with a per-phone key) over your
+    Wi-Fi, or over peer-to-peer Wi-Fi when the two devices are merely near each
+    other. It is resumable, and idempotent, so nothing is transcribed twice.
+  - **On the Mac**, the new **iPhone** pane lists paired phones and each
+    recording's progress (receiving → queued → transcribing → transcribed).
+  - Phone transcripts are ordinary transcripts, tagged `origin: phone`,
+    `device`, `title`.
+  - See `docs/adr/0011-iphone-recorder-and-mac-sync.md` and
+    `specs/002-phone-sync/`.
+- **`huske import FILE…`** transcribes any audio file (m4a, caf, wav, flac,
+  mp3, …) into ordinary transcripts dated from the recording.
+  - It goes through a new engine inbox (`inbox_root`, default `~/huske/inbox`;
+    `huske inbox add|process|status|retry`). A running `huske run` picks inbox
+    items up with its own worker, so no second model is loaded; otherwise a
+    one-shot process transcribes them.
+  - AAC is decoded with macOS's built-in `afconvert`, so there is still no
+    ffmpeg dependency.
+- **`huske echo-test`** plays a short phrase on your speakers and reports how
+  much of the bleed into the mic the echo canceller removes on *your* hardware.
+  Nothing is saved.
 - **Huske.app is signed with a Developer ID certificate and notarized by
   Apple.** It opens straight from the download — no right-click → Open, no
   System Settings → "Open Anyway". The ticket is stapled to the bundle, so a

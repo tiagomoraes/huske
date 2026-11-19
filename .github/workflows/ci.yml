@@ -97,6 +97,34 @@ jobs:
           python -m ruff check .
           python -m mypy huske_mcp
 
+  ios:
+    name: iPhone app (Swift)
+    runs-on: macos-15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      # The .xcodeproj is generated (and git-ignored); the wrapper stamps the
+      # app version from pyproject.toml.
+      - name: Generate the Xcode project
+        run: ./scripts/generate.sh
+        working-directory: ios
+
+      # Simulator names change with every Xcode, so pick any available iPhone.
+      - name: Build and unit-test on a simulator
+        working-directory: ios
+        run: |
+          SIM=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          print(next(d["udid"] for runtime, ds in devices.items() if "iOS" in runtime
+                     for d in ds if d["name"].startswith("iPhone")))')
+          xcodebuild test -project Huske.xcodeproj -scheme Huske \
+            -destination "id=$SIM" CODE_SIGNING_ALLOWED=NO
+
   swift:
     name: macOS app (Swift)
     runs-on: macos-15
