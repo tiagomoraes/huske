@@ -79,6 +79,16 @@ final class RecorderController {
 
     static let levelHistory = 48
     nonisolated static let sampleRate: Double = 48_000
+
+    /// Bluetooth headset mics (AirPods). The iOS 26 SDK renamed the option;
+    /// both spell the same HFP route, so older Xcodes (CI) still build.
+    nonisolated static var bluetoothMicOption: AVAudioSession.CategoryOptions {
+        #if compiler(>=6.2)
+        return .allowBluetoothHFP
+        #else
+        return .allowBluetooth
+        #endif
+    }
     nonisolated static let channels = 1
 
     /// Called on the main actor after a recording is saved (sync hook).
@@ -507,7 +517,7 @@ enum AudioStarter {
                     let session = AVAudioSession.sharedInstance()
                     try session.setCategory(
                         .playAndRecord, mode: .default,
-                        options: [.allowBluetoothHFP, .defaultToSpeaker])
+                        options: [RecorderController.bluetoothMicOption, .defaultToSpeaker])
                     try? session.setPreferredSampleRate(RecorderController.sampleRate)
                     try session.setActive(true)
                     let recorder = try AVAudioRecorder(url: url, settings: settings)
