@@ -26,6 +26,26 @@ The canonical Markdown-plus-YAML-frontmatter file written for one Chunk under
 **Source**:
 The audio origin: `mic` or `system`. Huske does not perform speaker diarization.
 
+**Model** and **Family**:
+A Family is one transcription runtime (Parakeet, Whisper) registered in
+`huske/transcribe/engines/`; it declares whether it pins the language and how
+it uses the Dictionary. A Model is a set of weights a Family loads — a catalog
+entry in `huske/transcribe/models.toml`, or any compatible repo/folder set as
+`asr_model`.
+
+**Dictionary** (a.k.a. **Vocabulary**):
+The user's preferred spellings (`vocabulary`) plus "heard as → write as"
+replacements (`vocabulary_replacements`). Applied deterministically to every
+Transcript; also biases the ASR engine and Cleanup.
+
+**Cleanup**:
+The optional LLM pass over a finished Transcript (config keys `distill_*`,
+command `huske distill`). It rewrites the canonical `.md` after snapshotting the
+**raw transcript** to `<name>.asr.txt`, and marks the result with
+`postprocessed_by`. Runs on a **Backend**: on-device (`apple`, `mlx`), a local
+server (`ollama`, `openai_compatible`), or a cloud provider. Text leaves the Mac
+only for a host named in `distill_cloud_consent`.
+
 ## Publication and replication
 
 **GitPublisher**:

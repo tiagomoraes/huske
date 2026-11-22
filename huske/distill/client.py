@@ -15,27 +15,65 @@ import json
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
 
 _CHAT_PATH = "/api/chat"
 _TAGS_PATH = "/api/tags"
 _PULL_PATH = "/api/pull"
 
 
-class DistillError(RuntimeError):
-    """An LLM call failed. ``status`` is the HTTP code when there was a response."""
+#: Why an LLM call failed, as the post-processing loop needs to branch on it:
+#:
+#: * ``context`` / ``truncated`` — the request or reply did not fit; the loop
+#:   splits the batch and tries again.
+#: * ``refused`` — the model declined this text; keep it raw, carry on.
+#: * ``transport`` / ``timeout`` / ``rate_limited`` / ``unavailable`` —
+#:   transient; the whole transcript stays raw and is retried later.
+#: * ``auth`` / ``consent`` / ``config`` — needs the user; one sticky warning.
+#: * ``http`` — any other HTTP error (retryable when 5xx).
+ErrorKind = Literal[
+    "transport",
+    "timeout",
+    "rate_limited",
+    "unavailable",
+    "auth",
+    "consent",
+    "config",
+    "context",
+    "truncated",
+    "refused",
+    "http",
+]
 
-    def __init__(self, message: str, *, status: int | None = None) -> None:
+_RETRYABLE_KINDS = {"transport", "timeout", "rate_limited", "unavailable"}
+_FINAL_KINDS = {"auth", "consent", "config", "context", "truncated", "refused"}
+
+
+class DistillError(RuntimeError):
+    """An LLM call failed. ``status`` is the HTTP code when there was a response.
+
+    The message is safe to show and log: callers never put API keys or
+    transcript text in it.
+    """
+
+    def __init__(
+        self, message: str, *, status: int | None = None, kind: ErrorKind | None = None
+    ) -> None:
         super().__init__(message)
         self.status = status
+        self.kind: ErrorKind | None = kind
 
     @property
     def retryable(self) -> bool:
-        # A daemon that's down/starting (network error) or a 5xx may recover; a
-        # 4xx (bad model name, malformed request) will not.
+        if self.kind in _RETRYABLE_KINDS:
+            return True
+        if self.kind in _FINAL_KINDS:
+            return False
+        # A daemon that's down/starting (network error), a 429 or a 5xx may
+        # recover; any other 4xx (bad model name, malformed request) will not.
         if self.status is None:
             return True
-        return self.status >= 500
+        return self.status >= 500 or self.status == 429
 
 
 class OllamaClient:
@@ -53,6 +91,7 @@ class OllamaClient:
         json_format: bool = True,
         think: bool = False,
         options: dict[str, Any] | None = None,
+        system: str | None = None,
     ) -> str:
         """Run one non-streaming chat turn; return the assistant ``content`` text.
 
@@ -66,7 +105,10 @@ class OllamaClient:
         """
         payload: dict[str, Any] = {
             "model": model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": (
+                [{"role": "system", "content": system}] if system else []
+            )
+            + [{"role": "user", "content": prompt}],
             "stream": False,
             "think": think,
         }

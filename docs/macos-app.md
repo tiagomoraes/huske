@@ -11,14 +11,17 @@ it never re-implements recording or transcription logic (see
 - **Record** — start/stop/pause sessions with live microphone + system-audio
   level meters (peak hold), current chunk and elapsed time, transcription
   queue state, warnings, and a live activity feed. Toggle periodic
-  screenshots and LLM distillation mid-session, and switch the microphone
+  screenshots and transcript cleanup mid-session, and switch the microphone
   without restarting.
 - **Attach** — if a session is already recording (started by `huske run` in a
   terminal or by the login LaunchAgent), the app finds its control socket and
   becomes a remote control for it.
 - **Transcripts** — a day-grouped browser over `~/huske/transcripts` with
   per-run rendering (mic / system / echo badges and timestamps), full-text
-  search, raw-Markdown view, Reveal in Finder, and open-in-editor.
+  search, raw-Markdown view, Reveal in Finder, and open-in-editor. A
+  cleaned-up transcript says which model cleaned it ("Cleaned up with Apple
+  Intelligence") and has a "Show original" switch that shows the untouched
+  transcript from the sibling `.asr.txt`.
 - **Cloud sync** — configures a private Git repository, branch, and automatic
   transcript publishing without requiring a terminal. “Sync now” invokes the
   same `huske sync` path used by the recording engine. The pane also links to
@@ -28,7 +31,9 @@ it never re-implements recording or transcription logic (see
   fix-it hint, plus the input-device inventory.
 - **Configuration** — edits `~/.config/huske/config.toml` through
   `huske config set`, so every change is validated by the engine itself.
-  Explicitly-set keys are marked with an amber dot.
+  Explicitly-set keys are marked with an amber dot. Three sections serve
+  transcript quality (see [Transcript quality](#transcript-quality)):
+  **Language**, **Dictionary**, and **Transcript cleanup**.
 - **Menu bar extra** — recording state at a glance with quick actions; the
   window can be closed while recording continues.
 - **Recovery** — streams `huske recover` output for orphaned chunks after a
@@ -37,6 +42,51 @@ it never re-implements recording or transcription logic (see
 Quitting the app while it owns a recording performs the same graceful stop as
 Ctrl+C in the terminal: the current chunk is finalized and pending
 transcriptions drain before the process exits.
+
+## Transcript quality
+
+All of these live in Configuration and write ordinary config keys; the app
+adds no logic of its own (ADR 0006, ADR 0013, ADR 0014).
+
+- **Model** — the Transcription card shows the model in use, what it's good
+  at, and one line of facts (does it lock the language, how many languages,
+  size, downloaded or not). "Change…" opens the list from `huske models
+  --json`: each model with its summary, facts and measured speed; models that
+  don't cover your language are dimmed and say so. Download with progress
+  (and cancel), "Try on this Mac" (`huske models try`: speed and a sample
+  transcript), or "Use". "Another model" takes any Hugging Face repo or
+  folder — new Parakeet and Whisper models work without an app update; the
+  engine checks the repo's format before accepting it, and for a Whisper
+  fine-tune in the `transformers` layout (most language fine-tunes) it offers
+  "Convert and use" (`huske models convert`). The choice applies
+  from the next recording. See [transcription-models.md](transcription-models.md).
+- **Language** — pick the spoken language. The line under it says what the
+  engine will do with it: Whisper transcribes in that language only; Parakeet
+  can't be told the language, so Huske uses it to catch stretches that slip
+  into English, and the app suggests Whisper large-v3-turbo when the language
+  must be locked.
+- **Dictionary** — "Words" (one per line, most important first → `vocabulary`)
+  and "Corrections" (heard as → write as → `vocabulary_replacements`).
+  Corrections apply to every transcript. With Parakeet, a switch lets it
+  listen for the words while transcribing (`parakeet_word_boost`; slower).
+- **Transcript cleanup** — turn it on, then pick where it runs: Apple
+  Intelligence, the built-in model, Ollama, an OpenAI-compatible server (LM
+  Studio and others), or OpenAI / Anthropic / OpenRouter. The status line comes
+  from `huske llm status --json` and explains in plain words what's missing
+  (Apple Intelligence turned off, no API key, a server not answering…).
+  - **API keys** go straight to your Keychain through `huske llm key set`
+    (piped on stdin); the app never stores or shows them again.
+  - **Cloud providers** show what will be sent and to which host; nothing
+    leaves your Mac until you press "Allow sending to …"
+    (`huske llm allow-cloud`). "Stop sending" revokes it.
+  - **Try it** cleans up two made-up lines with the chosen model
+    (`huske llm test`) — nothing from your transcripts.
+
+Apple Intelligence runs through a helper inside the app bundle
+(`Huske.app/Contents/Helpers/huske-apple-llm`); the app tells the engine where
+it is (`HUSKE_APPLE_LLM_HELPER`). The engine also finds it in `/Applications`
+when it runs on its own (e.g. from the login LaunchAgent). Engines without
+`huske llm` keep the older cleanup card and a note to update.
 
 ## Requirements
 
@@ -105,7 +155,13 @@ open dist/Huske.app
 
 The bundle version is stamped from `pyproject.toml` — the repo's single
 source of truth. The app icon is generated from the brand mark at build time
-and cached under `macos/.cache/`.
+and cached under `macos/.cache/`. The script also builds `huske-apple-llm`
+into `Contents/Helpers` and signs it before the app (hardened runtime, no
+entitlements). It needs an SDK with FoundationModels (Xcode 26+); with an
+older SDK the helper still builds, reports `not_built`, and the script warns —
+or fails, with `HUSKE_REQUIRE_APPLE_LLM=1`, which releases set. The release
+job builds on the `macos-26` runner with the newest stable Xcode ≥ 26
+(`macos/scripts/select-xcode.sh`), and a CI job does the same on every PR.
 
 The script signs with a `Developer ID Application` identity when one is in the
 keychain and ad-hoc otherwise, so a contributor without a certificate still
@@ -150,4 +206,5 @@ The protocol is the same one the bundled menu bar helper uses
 scans `~/Library/Application Support/huske/control-*.sock` for engine-owned
 sessions. Transcripts, config, doctor, devices, and recovery go through the
 documented `.md` contract and the `huske config show/set/unset`,
-`huske doctor --json`, `huske devices --json`, and `huske recover` commands.
+`huske doctor --json`, `huske devices --json`, `huske models … --json`,
+`huske llm … --json`, `huske languages --json`, and `huske recover` commands.

@@ -459,10 +459,34 @@ struct TranscriptDetailView: View {
     let entry: TranscriptEntry
 
     @State private var document: TranscriptDocument?
+    /// The untouched ASR output beside a cleaned-up transcript, when present.
+    @State private var original: TranscriptDocument?
+    @State private var showOriginal = false
     @State private var loadFailed = false
     @State private var showRaw = false
     @State private var copied = false
     @State private var copyResetTask: Task<Void, Never>?
+    @Environment(\.transcriptPreviewShowsOriginal) private var previewShowsOriginal
+    @Environment(\.screenRendering) private var screenRendering
+
+    /// Offscreen renders run no tasks; their detail pane reads these, keyed
+    /// by path (the transcript and its raw sibling).
+    nonisolated(unsafe) static var previewDocuments: [String: TranscriptDocument] = [:]
+
+    init(entry: TranscriptEntry) {
+        self.entry = entry
+        let seed = Self.previewDocuments[entry.url.path]
+        _document = State(initialValue: seed)
+        if let raw = seed?.meta.rawTranscript,
+           let url = TranscriptParser.rawSiblingURL(for: entry.url, rawName: raw)
+        {
+            _original = State(initialValue: Self.previewDocuments[url.path])
+        }
+    }
+
+    private var displayingOriginal: Bool {
+        original != nil && (showOriginal || previewShowsOriginal)
+    }
 
     var body: some View {
         Group {
@@ -483,18 +507,32 @@ struct TranscriptDetailView: View {
         }
         .task(id: entry.url) {
             document = nil
+            original = nil
+            showOriginal = false
             loadFailed = false
             if let doc = await model.transcripts.loadDocument(at: entry.url) {
                 document = doc
+                original = await loadOriginal(of: doc)
             } else {
                 loadFailed = true
             }
         }
     }
 
-    private func loaded(_ document: TranscriptDocument) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            detailHeader(document)
+    /// The raw sibling named by `raw_transcript` — only a plain file next to
+    /// this one; anything else (or nothing on disk) hides "Show original".
+    private func loadOriginal(of doc: TranscriptDocument) async -> TranscriptDocument? {
+        guard let raw = doc.meta.rawTranscript,
+              let url = TranscriptParser.rawSiblingURL(for: entry.url, rawName: raw),
+              FileManager.default.fileExists(atPath: url.path)
+        else { return nil }
+        return await model.transcripts.loadDocument(at: url)
+    }
+
+    private func loaded(_ cleaned: TranscriptDocument) -> some View {
+        let document = displayingOriginal ? (original ?? cleaned) : cleaned
+        return VStack(alignment: .leading, spacing: 0) {
+            detailHeader(cleaned, shown: document)
             Rectangle().fill(Theme.divider).frame(height: 1)
             if showRaw {
                 ScrollView {
@@ -515,6 +553,16 @@ struct TranscriptDetailView: View {
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
+            } else if screenRendering {
+                // ImageRenderer skips ScrollView content.
+                VStack(alignment: .leading, spacing: 16) {
+                    ForEach(document.runs) { run in
+                        RunRow(run: run)
+                    }
+                }
+                .padding(20)
+                .frame(maxWidth: 720, alignment: .leading)
+                Spacer(minLength: 0)
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
@@ -529,7 +577,7 @@ struct TranscriptDetailView: View {
         }
     }
 
-    private func detailHeader(_ document: TranscriptDocument) -> some View {
+    private func detailHeader(_ document: TranscriptDocument, shown: TranscriptDocument) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 Text(document.heading ?? entry.filename)
@@ -542,7 +590,7 @@ struct TranscriptDetailView: View {
                         symbol: copied ? "checkmark" : "doc.on.doc",
                         help: "Copy the transcript Markdown",
                         tint: copied ? Theme.ok : nil
-                    ) { copyTranscript(document) }
+                    ) { copyTranscript(shown) }
                     IconAction(
                         symbol: "chevron.left.forwardslash.chevron.right",
                         help: "Show the raw Markdown",
@@ -574,10 +622,37 @@ struct TranscriptDetailView: View {
                 }
                 Spacer()
             }
+            if let by = document.meta.postprocessedBy {
+                cleanupLine(by)
+            }
         }
         .padding(.top, 30)
         .padding(.horizontal, 20)
         .padding(.bottom, 14)
+    }
+
+    /// One quiet line: who cleaned this up, and the way back to what was
+    /// actually heard.
+    private func cleanupLine(_ postprocessedBy: String) -> some View {
+        HStack(spacing: 10) {
+            Text(
+                displayingOriginal
+                    ? "Showing the original, before cleanup"
+                    : "Cleaned up with \(CleanupWords.provenance(postprocessedBy: postprocessedBy))"
+            )
+            .font(.brandSans(12))
+            .foregroundStyle(Theme.fgMuted)
+            if original != nil {
+                Button(displayingOriginal ? "Show cleaned up" : "Show original") {
+                    showOriginal = !displayingOriginal
+                }
+                .buttonStyle(LinkButtonStyle(fontSize: 12, tint: Theme.fgMuted, hoverTint: Theme.fg))
+                .help(
+                    displayingOriginal
+                        ? "Back to the cleaned-up transcript"
+                        : "What the transcriber wrote, before the language model cleaned it up")
+            }
+        }
     }
 
     private func copyTranscript(_ document: TranscriptDocument) {
@@ -696,5 +771,20 @@ struct RunRow: View {
         case .micEcho: return Theme.fgFaint
         case .unknown: return Theme.fgFaint
         }
+    }
+}
+
+// MARK: - render support
+
+/// Lets the offscreen renderer draw a cleaned-up transcript with its original
+/// showing (`Huske --render-screens`).
+private struct TranscriptPreviewShowsOriginalKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var transcriptPreviewShowsOriginal: Bool {
+        get { self[TranscriptPreviewShowsOriginalKey.self] }
+        set { self[TranscriptPreviewShowsOriginalKey.self] = newValue }
     }
 }

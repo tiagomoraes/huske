@@ -112,6 +112,7 @@ def _add_one(
     started_at: str | None,
     duration: float | None,
     move: bool,
+    language: str | None = None,
 ) -> tuple[InboxItem, bool]:
     when = parse_timestamp(started_at) if started_at else None
     return store.add(
@@ -123,6 +124,7 @@ def _add_one(
         started_at=when,
         duration_seconds=duration,
         move=move,
+        language=language,
     )
 
 
@@ -136,6 +138,7 @@ def run_inbox_add(
     started_at: str | None = None,
     duration: float | None = None,
     move: bool = False,
+    language: str | None = None,
     json_output: bool = False,
     config_path: Path | None = None,
 ) -> int:
@@ -154,6 +157,7 @@ def run_inbox_add(
             started_at=started_at,
             duration=duration,
             move=move,
+            language=language,
         )
     except (InboxError, OSError) as exc:
         if json_output:
@@ -216,9 +220,45 @@ def _process(
                 break
         items = [i for i in (processor.store.get(x) for x in processor.processed) if i]
         written = [p for i in items for p in i.status.get("transcripts") or []]
+        if written and cfg.distill_enabled:
+            _clean_up(cfg, [Path(p) for p in written], emit)
         if written and cfg.sync_enabled and cfg.sync_remote:
             _publish(cfg, emit)
     return deferred, items
+
+
+def _clean_up(cfg: RuntimeConfig, paths: list[Path], emit: Callable[[str, str], None]) -> None:
+    """Optional LLM post-processing of freshly written transcripts.
+
+    The live engine does this in its background worker; a one-shot run does it
+    here, after transcription and before publishing, so a phone recording gets
+    the same treatment either way. Best-effort: a failure leaves the raw
+    transcripts exactly as written and the run still succeeds.
+    """
+    from huske.distill.client import DistillError
+    from huske.distill.distiller import build_distiller, distill_transcript
+    from huske.distill.sidecar import write_sidecar
+
+    try:
+        corrector = build_distiller(cfg)
+    except DistillError as exc:
+        emit("warn", f"cleanup skipped, raw transcripts kept: {exc}")
+        return
+    try:
+        cleaned = 0
+        for path in paths:
+            try:
+                write_sidecar(path, distill_transcript(path, corrector))
+                cleaned += 1
+            except DistillError as exc:
+                emit("warn", f"cleanup stopped, raw transcripts kept: {exc}")
+                return
+            except Exception as exc:  # one bad file must not stop the run
+                emit("warn", f"cleanup failed for {path.name}: {exc}")
+        if cleaned:
+            emit("info", f"cleaned up {cleaned} transcript(s) with {corrector.label}")
+    finally:
+        corrector.close()
 
 
 def _publish(cfg: RuntimeConfig, emit: Callable[[str, str], None]) -> None:
@@ -343,6 +383,7 @@ def run_import(
     *,
     title: str | None = None,
     started_at: str | None = None,
+    language: str | None = None,
     json_output: bool = False,
     config_path: Path | None = None,
     worker_factory: Callable[[RuntimeConfig], AsrWorker] | None = None,
@@ -365,6 +406,7 @@ def run_import(
                 started_at=started_at,
                 duration=None,
                 move=False,
+                language=language,
             )
         except (InboxError, OSError) as exc:
             errors.append({"file": str(file), "error": str(exc)})

@@ -6,6 +6,87 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+### Added
+
+- **Choose the transcription model from a catalog.** `huske models` lists the
+  models with what matters for choosing: whether a model locks the language,
+  the languages it covers, its download size, whether it's downloaded, and
+  how fast it ran on a reference Mac.
+  - `huske models use` switches (or offers a numbered list), `download`
+    fetches ahead of time with progress, and `try` transcribes a sample and
+    shows the speed on your Mac.
+  - The new `asr_model` key takes a catalog id, any compatible Hugging Face
+    repo, or a local folder, so a model released today can be used today.
+    `asr_engine` / `parakeet_model` / `model` keep working.
+  - New in the catalog: Whisper large-v3 turbo in 4-bit (same accuracy in a
+    third of the memory), Whisper small 4-bit, and Parakeet 110M for English.
+  - Huske.app shows the models as a list with download progress and a "try
+    it" check.
+  - `huske models convert <repo>` converts a Whisper fine-tune published in
+    the `transformers` layout (most language fine-tunes, including every
+    Brazilian Portuguese one) to run in Huske, without PyTorch. Huske.app
+    offers "Convert and use" for such a repo.
+    - On synthetic tests the PT-BR fine-tune lost English jargon
+      ("Cubernets"), so turbo stays the recommendation for mixed-language
+      meetings.
+  - Engines are now families in a registry, and models are data in
+    `huske/transcribe/models.toml`. Adding a model is one catalog entry, and a
+    new runtime is one module.
+  - See `docs/transcription-models.md` and
+    `docs/adr/0014-transcription-model-catalog.md`.
+
+- **Choose the spoken language — and know what it does.** `language` is
+  normalized (`pt-BR` and `Portuguese` become `pt`) and checked, so a typo is
+  caught by `huske config set` instead of failing a chunk. `huske languages`
+  lists the codes and what each engine does with them. Whisper pins the
+  language; Parakeet can't be told one (the model has no language input, so
+  the setting only guards against windows that slip into English), and the
+  CLI, the app and the docs now say so. An imported recording can carry its
+  own language: `huske import --language pt`, `huske inbox add --language`.
+- **A custom dictionary.** `vocabulary` lists names, products and jargon in
+  your spelling; `vocabulary_replacements` maps what the engine wrote to what
+  it should have written.
+  - Corrections apply to every transcript, live and imported, on every
+    engine (case-insensitive, whole words), and distinctive casing like `OKR`
+    or `GitHub` is restored.
+  - Whisper hears the words as its prompt, now carried to every 30-second
+    window instead of only the first: on a synthetic Portuguese meeting it
+    spelled 11 of 12 jargon terms right instead of 8.
+  - Parakeet can listen for them with `parakeet_word_boost` (beam search with
+    word boosting; 12 of 14 terms instead of 8, at about 4–5× the decoding
+    time, so it's off by default).
+- **Transcript cleanup with the model you choose.** The opt-in LLM pass
+  (`distill_enabled`) now runs on Apple Intelligence (on-device, through a
+  small helper inside Huske.app), the built-in model, Ollama, any
+  OpenAI-compatible server (LM Studio, llama.cpp, vLLM), or OpenAI, Anthropic
+  and OpenRouter with your own API key.
+  - The raw transcript is always written first and kept as `<name>.asr.txt`.
+    The cleaned one records `postprocessed_by`, `postprocessed_at` and
+    `raw_transcript` in its frontmatter.
+  - Any failure or timeout leaves the raw transcript in place.
+  - Text is sent in small, line-numbered batches that timestamps never enter,
+    so a model can't damage them, and each returned line is checked on its
+    own.
+  - API keys are stored in the macOS Keychain (`huske llm key set`), never in
+    the config, logs or app state.
+  - Nothing is sent off your Mac until you allow that exact host (`huske llm
+    allow-cloud`); switching provider asks again.
+  - `huske llm status|models|test` check the setup without sending
+    transcripts.
+  - One-shot `huske inbox process` now cleans up iPhone recordings too.
+  - See `docs/adr/0013-transcript-quality-language-dictionary-llm-cleanup.md`.
+
+### Changed
+
+- **Transcript cleanup prompts and batching.** Cleanup sends a few runs per
+  request as numbered lines instead of one JSON request per run (about 7×
+  faster on the built-in model), with an editor's brief tuned on Apple's
+  on-device model. `distill_model` and `distill_endpoint` are now unset by
+  default and resolve per backend; existing values keep working.
+- **Huske.app: "Distillation" is now "Transcript cleanup"**, with provider,
+  key, consent and a "Try it" check in Configuration, a Dictionary section,
+  and a "Show original" switch on cleaned-up transcripts.
+
 ### Fixed
 
 - **An engine no longer refuses to start over a config key it doesn't

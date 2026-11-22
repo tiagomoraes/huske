@@ -132,6 +132,10 @@ final class AppModel {
     let session = SessionController()
     let transcripts = TranscriptStore()
     let config = ConfigStore()
+    /// Transcript cleanup status, models, keys and consent (`huske llm`).
+    let cleanup = CleanupStore()
+    /// The transcription-model catalog, downloads and Try runs (`huske models`).
+    let models = ModelsStore()
     /// Receives recordings from paired iPhones (specs/002-phone-sync).
     let phoneSync = PhoneSyncCoordinator()
 
@@ -414,7 +418,10 @@ final class AppModel {
         switch error {
         case ConfigBridgeError.commandFailed(let message),
             DoctorBridgeError.commandFailed(let message),
-            DevicesBridgeError.commandFailed(let message):
+            DevicesBridgeError.commandFailed(let message),
+            LLMBridgeError.badOutput(let message),
+            ModelsBridgeError.badOutput(let message),
+            ModelsBridgeError.failed(let message):
             return message
         default:
             return error.localizedDescription
@@ -424,6 +431,29 @@ final class AppModel {
 
 // MARK: - engine configuration store
 
+/// One step of a config write: what the engine is told, in order.
+enum ConfigOp: Equatable {
+    case set(String, JSONValue)
+    /// A whole-number key (written without the float `.0`).
+    case setInt(String, Int)
+    case unset(String)
+
+    var key: String {
+        switch self {
+        case .set(let key, _), .setInt(let key, _), .unset(let key): return key
+        }
+    }
+
+    /// What the UI shows until the engine has answered; `.null` = default.
+    var optimistic: JSONValue {
+        switch self {
+        case .set(_, let value): return value
+        case .setInt(_, let value): return .number(Double(value))
+        case .unset: return .null
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class ConfigStore {
@@ -431,12 +461,22 @@ final class ConfigStore {
     private(set) var loadError: String?
     private(set) var writeError: String?
     private(set) var loading = false
-    /// Optimistic values for keys with an in-flight write.
+    /// Writes sent to the engine and not yet answered.
+    private(set) var pendingWrites = 0
+    /// Optimistic values for keys with an in-flight write (`.null` = unset).
     private var overrides: [String: JSONValue] = [:]
 
     @ObservationIgnored private var binary: URL?
+    /// Each `huske config set` is a read-modify-write of one TOML file, so two
+    /// at once could lose one. Writes run one after another, in order.
+    @ObservationIgnored private var writeChain: Task<Void, Never>?
 
     func reload(binary: URL?) async {
+        await load(binary: binary)
+        overrides = [:]
+    }
+
+    private func load(binary: URL?) async {
         self.binary = binary
         guard let binary else {
             snapshot = nil
@@ -447,7 +487,6 @@ final class ConfigStore {
         do {
             snapshot = try await ConfigBridge.load(binary: binary)
             loadError = nil
-            overrides = [:]
         } catch {
             loadError = AppModel.describe(error)
         }
@@ -462,19 +501,49 @@ final class ConfigStore {
 
     // MARK: typed accessors (override-aware)
 
+    /// The value the UI should show: an in-flight write, else the engine's.
+    func value(_ key: String) -> JSONValue? {
+        if let pending = overrides[key] {
+            return pending == .null ? nil : pending
+        }
+        return snapshot?.effective[key]
+    }
+
+    /// True while `key` waits for an unset to land (show the default).
+    private func pendingUnset(_ key: String) -> Bool { overrides[key] == .null }
+
     func string(_ key: String, default fallback: String = "") -> String {
         if case .string(let s)? = overrides[key] { return s }
+        if pendingUnset(key) { return fallback }
         return snapshot?.string(key) ?? fallback
     }
 
     func bool(_ key: String, default fallback: Bool = false) -> Bool {
         if case .bool(let b)? = overrides[key] { return b }
+        if pendingUnset(key) { return fallback }
         return snapshot?.bool(key) ?? fallback
     }
 
     func double(_ key: String, default fallback: Double = 0) -> Double {
         if case .number(let n)? = overrides[key] { return n }
+        if pendingUnset(key) { return fallback }
         return snapshot?.double(key) ?? fallback
+    }
+
+    func stringList(_ key: String) -> [String] {
+        if case .array(let items)? = overrides[key] {
+            return items.compactMap { if case .string(let s) = $0 { return s } else { return nil } }
+        }
+        if pendingUnset(key) { return [] }
+        return snapshot?.stringList(key) ?? []
+    }
+
+    func stringMap(_ key: String) -> [String: String] {
+        if case .object(let table)? = overrides[key] {
+            return table.compactMapValues { if case .string(let s) = $0 { return s } else { return nil } }
+        }
+        if pendingUnset(key) { return [:] }
+        return snapshot?.stringMap(key) ?? [:]
     }
 
     func isExplicit(_ key: String) -> Bool {
@@ -484,48 +553,65 @@ final class ConfigStore {
     // MARK: writes
 
     func set(_ key: String, to value: JSONValue) {
-        overrides[key] = value
-        let literal: String
-        switch value {
-        case .string(let s): literal = s
-        case .bool(let b): literal = b ? "true" : "false"
-        case .number(let n):
-            literal = n == n.rounded() && abs(n) < 1e15
-                ? String(format: "%.1f", n)
-                : String(n)
-        default: return
-        }
-        write(key: key, literal: literal)
+        apply([.set(key, value)])
     }
 
     func setInt(_ key: String, to value: Int) {
-        overrides[key] = .number(Double(value))
-        write(key: key, literal: String(value))
+        apply([.setInt(key, value)])
     }
 
     func unset(_ key: String) {
-        guard let binary else { return }
-        overrides.removeValue(forKey: key)
-        Task {
-            do {
-                try await ConfigBridge.unset(binary: binary, key: key)
-            } catch {
-                self.writeError = AppModel.describe(error)
+        apply([.unset(key)])
+    }
+
+    /// Run several writes in order as one step (switching the cleanup
+    /// provider clears its model and endpoint first), then reload once.
+    /// `completion` runs after the reload, on the main actor.
+    func apply(_ ops: [ConfigOp], completion: (@MainActor () -> Void)? = nil) {
+        guard let binary, !ops.isEmpty else { return }
+        for op in ops {
+            overrides[op.key] = op.optimistic
+        }
+        pendingWrites += 1
+        let previous = writeChain
+        writeChain = Task {
+            await previous?.value
+            var failed = false
+            for op in ops {
+                do {
+                    switch op {
+                    case .set(let key, let value):
+                        guard let literal = ConfigLiteral.encode(value) else { continue }
+                        try await ConfigBridge.set(binary: binary, key: key, value: literal)
+                    case .setInt(let key, let value):
+                        try await ConfigBridge.set(binary: binary, key: key, value: String(value))
+                    case .unset(let key):
+                        try await ConfigBridge.unset(binary: binary, key: key)
+                    }
+                } catch {
+                    self.writeError = AppModel.describe(error)
+                    failed = true
+                    break
+                }
             }
-            await self.reload(binary: binary)
+            if !failed { self.writeError = nil }
+            await self.load(binary: binary)
+            // Drop only this step's optimistic values, and only if a later
+            // write has not replaced them meanwhile.
+            for op in ops where self.overrides[op.key] == op.optimistic {
+                self.overrides.removeValue(forKey: op.key)
+            }
+            self.pendingWrites -= 1
+            completion?()
         }
     }
 
-    private func write(key: String, literal: String) {
-        guard let binary else { return }
+    /// Run after every write queued so far has landed.
+    func afterPendingWrites(_ body: @escaping @MainActor () async -> Void) {
+        let previous = writeChain
         Task {
-            do {
-                try await ConfigBridge.set(binary: binary, key: key, value: literal)
-                self.writeError = nil
-            } catch {
-                self.writeError = AppModel.describe(error)
-            }
-            await self.reload(binary: binary)
+            await previous?.value
+            await body()
         }
     }
 

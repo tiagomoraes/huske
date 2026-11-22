@@ -221,3 +221,38 @@ def test_retry_requeues_a_failed_item(env: dict[str, Any]) -> None:
     # A done item is not retried.
     code, payload = _invoke(env, "inbox", "retry", "rec", "--json")
     assert code == 1 and payload["items"][0]["retried"] is False
+
+
+def test_import_language_overrides_the_config_for_that_recording(env: dict[str, Any]) -> None:
+    code, payload = _invoke(
+        env, "import", str(env["clip"]), "--language", "pt-BR", "--started-at", STARTED, "--json"
+    )
+    assert code == 0
+    assert payload["items"][0]["language"] == "pt"
+    assert env["engine"].options and env["engine"].options[-1]["language"] == "pt"
+    [transcript] = (env["tmp"] / "transcripts").rglob("*_001.md")
+    assert "language: pt" in transcript.read_text(encoding="utf-8")
+
+
+def test_import_rejects_an_unknown_language(env: dict[str, Any]) -> None:
+    code, payload = _invoke(env, "import", str(env["clip"]), "--language", "klingon", "--json")
+    assert code == 1
+    assert "unknown language" in payload["errors"][0]["error"]
+
+
+def test_one_shot_processing_cleans_up_and_keeps_the_raw(env: dict[str, Any]) -> None:
+    config = Path(env["config"])
+    config.write_text(
+        config.read_text()
+        + 'distill_enabled = true\ndistill_model = "heuristic"\n'
+        + 'vocabulary_replacements = { "speech" = "Speech" }\n'
+    )
+    _invoke(env, "inbox", "add", str(env["clip"]), "--id", "rec", "--started-at", STARTED, "--json")
+    code, payload = _invoke(env, "inbox", "process", "--json")
+    assert code == 0
+    transcript = Path(payload["items"][0]["transcripts"][0])
+    text = transcript.read_text(encoding="utf-8")
+    assert "postprocessed_by: fake:heuristic" in text
+    assert "Speech for" in text
+    raw = transcript.with_name(transcript.stem + ".asr.txt")
+    assert raw.exists() and "postprocessed_by" not in raw.read_text(encoding="utf-8")

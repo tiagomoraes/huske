@@ -23,6 +23,18 @@ from huske.config import (
     without_retired_config,
 )
 
+#: Keys whose validators normalize the value; `config set` stores the result.
+_NORMALIZED_KEYS = frozenset(
+    {
+        "language",
+        "vocabulary",
+        "vocabulary_replacements",
+        "distill_endpoint",
+        "distill_cloud_consent",
+        "distill_instructions",
+    }
+)
+
 
 def _print(msg: str) -> None:
     print(msg, flush=True)
@@ -95,12 +107,20 @@ def set_config_value(
     target = _config_file(config_path)
     merged = {**without_retired_config(_read_toml(target)), key: value}
     try:
-        RuntimeConfig(**merged)
+        validated = RuntimeConfig(**merged)
     except ValidationError as exc:
         first = exc.errors()[0]
         loc = ".".join(str(p) for p in first.get("loc", ())) or key
         _print(f"[error] {loc}: {first.get('msg', 'invalid value')}")
         return 2
+    if key in _NORMALIZED_KEYS:
+        # Store what the engine will use ("pt-BR" -> "pt", trimmed lists),
+        # so the file and `config show` agree.
+        value = getattr(validated, key)
+        if value is None:
+            written = update_user_config({key: None}, config_path=config_path)
+            _print(f"{key} unset  → {written}")
+            return 0
     written = update_user_config({key: value}, config_path=config_path)
     _print(f"{key} = {value!r}  → {written}")
     return 0

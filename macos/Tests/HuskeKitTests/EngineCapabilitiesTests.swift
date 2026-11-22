@@ -63,4 +63,63 @@ final class EngineCapabilitiesTests: XCTestCase {
             cleaned,
             "Usage: huske run [OPTIONS]\nNo such option: --control-socket")
     }
+
+    func testCleanupAndLanguagesCommandsAreDetected() {
+        let caps = EngineCapabilities.parse(
+            versionOutput: "huske 0.15.0",
+            runHelp: "--control-socket",
+            mainHelp: """
+                ╭─ Commands ───────────────────────────────────────────╮
+                │ run        Start a headless recording session        │
+                │ devices    List microphone input devices             │
+                │ languages  Language codes for `language`, and what   │
+                │            each engine does with them.               │
+                │ config     Inspect and edit the huske config file    │
+                │ llm        Set up transcript cleanup with a language │
+                │            model: Apple Intelligence, a local model, │
+                ╰──────────────────────────────────────────────────────╯
+                """
+        )
+        XCTAssertTrue(caps.llmCLI)
+        XCTAssertTrue(caps.languagesCLI)
+    }
+
+    func testEnginesBeforeCleanupLackIt() {
+        let caps = EngineCapabilities.parse(
+            versionOutput: "huske 0.14.0",
+            runHelp: "--control-socket",
+            mainHelp: """
+                │ run       Start a session                                   │
+                │ distill   Correct ASR errors in transcripts with a tiny llm │
+                │ config    Inspect config                                    │
+                """
+        )
+        XCTAssertFalse(caps.llmCLI, "'llm' inside a description is not the command")
+        XCTAssertFalse(caps.languagesCLI)
+        XCTAssertTrue(caps.configCLI)
+        XCTAssertFalse(caps.modelsCLI)
+    }
+
+    func testModelsCommandIsDetected() {
+        // The engine's real `--help` rows.
+        let caps = EngineCapabilities.parse(
+            versionOutput: "huske 0.15.0",
+            runHelp: "--control-socket",
+            mainHelp: """
+                │ languages  Language codes for `language`, and what each engine does with     │
+                │ llm        Set up transcript cleanup with a language model: Apple            │
+                │ models     See, choose, download and try transcription models. Without a     │
+                """
+        )
+        XCTAssertTrue(caps.modelsCLI)
+        let older = EngineCapabilities.parse(
+            versionOutput: "huske 0.14.0",
+            runHelp: "--control-socket",
+            mainHelp: """
+                │ llm        Set up transcript cleanup with a language model: Apple            │
+                │            models, a local server, or a cloud provider.                       │
+                """
+        )
+        XCTAssertFalse(older.modelsCLI, "'models' wrapped inside a description is not the command")
+    }
 }
