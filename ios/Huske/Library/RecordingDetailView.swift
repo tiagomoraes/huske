@@ -81,7 +81,9 @@ struct RecordingDetailView: View {
                         ShareLink(item: markdown) {
                             Label("Share Transcript", systemImage: "text.quote")
                         }
-                        Button("Copy Transcript", systemImage: "doc.on.doc") {
+                        // The Copy button above the transcript copies just the
+                        // words; this keeps the times and sources.
+                        Button("Copy with Timestamps", systemImage: "clock") {
                             UIPasteboard.general.string = markdown
                         }
                     }
@@ -300,9 +302,23 @@ private struct TranscriptSection: View {
     let badge: SyncBadge
     let macName: String
 
+    /// What Copy puts on the clipboard: the words, ready to paste — the full
+    /// transcript, or the parts the Mac did transcribe.
+    private var copyableText: String? {
+        if let markdown = recording.transcript?.markdown, !markdown.isEmpty { return TranscriptText.plain(markdown) }
+        if let parts = recording.partialTranscript, !parts.markdown.isEmpty { return TranscriptText.plain(parts.markdown) }
+        return nil
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Rectangle().fill(Brand.divider).frame(height: 1)
+            // The rule that opens the transcript carries its one action.
+            HStack(spacing: 4) {
+                Rectangle().fill(Brand.divider).frame(height: 1)
+                if let text = copyableText {
+                    CopyTranscriptButton(text: text)
+                }
+            }
             if let markdown = recording.transcript?.markdown, !markdown.isEmpty {
                 TranscriptView(blocks: TranscriptParser.parse(markdown))
             } else if recording.transcript != nil {
@@ -333,6 +349,43 @@ private struct TranscriptSection: View {
             .foregroundStyle(Brand.fgFaint)
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// One tap puts the whole transcript on the clipboard. It answers in place,
+/// "Copied" with a check for a moment, plus a tap you can feel. No toast.
+private struct CopyTranscriptButton: View {
+    let text: String
+    @State private var copied = false
+
+    var body: some View {
+        Button {
+            // Answer first: a long transcript (or the simulator's pasteboard
+            // sync) can take a moment to write, and the main thread must not
+            // wait for it. UIPasteboard is safe to use off the main thread.
+            copied = true
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            let words = text
+            DispatchQueue.global(qos: .userInitiated).async { UIPasteboard.general.string = words }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 15, weight: .medium))
+                Text(copied ? "Copied" : "Copy")
+                    .font(.plexSans(15, .medium, relativeTo: .subheadline))
+            }
+            .foregroundStyle(copied ? Brand.ok : Brand.amber)
+            .padding(.leading, 10)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(copied ? "Transcript copied" : "Copy transcript")
+        .task(id: copied) {
+            guard copied else { return }
+            try? await Task.sleep(for: .seconds(1.6))
+            copied = false
+        }
     }
 }
 

@@ -234,6 +234,11 @@ This project uses semantic versioning after the first public release.
   such as "Office" in **Name**. Only this iPhone uses it, and the Mac's own
   name stays visible underneath. Pairing the same Mac again keeps the name.
   Clear the field to go back to the Mac's own name.
+- **Copy a transcript on the iPhone in one tap.** **Copy** sits above every
+  transcript, including partial ones, and puts just what was said on the
+  clipboard, without times or sources, ready to paste. It answers in place
+  with "Copied". The **…** menu now has **Copy with Timestamps** for the
+  full Markdown version.
 - **Uploads are faster on slow links.** Each piece of a recording waits for
   the Mac's answer before the next is sent, so on a slow link most of the time
   went to waiting. The iPhone now sends larger pieces (up to 1 MB) while the

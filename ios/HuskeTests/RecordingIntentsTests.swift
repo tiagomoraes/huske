@@ -68,6 +68,12 @@ final class RecordingIntentsTests: XCTestCase {
         XCTAssertEqual(text, "Olá, vamos começar.\n\nHoje queria revisar o roadmap.")
     }
 
+    /// What the Copy button above a transcript puts on the clipboard.
+    func testCopyGivesOnlyWhatWasSaid() {
+        XCTAssertEqual(TranscriptText.plain(markdown), "Olá, vamos começar.\n\nHoje queria revisar o roadmap.")
+        XCTAssertEqual(TranscriptText.plain("just a note"), "just a note", "nothing parses as speech: keep it as is")
+    }
+
     func testMarkdownFormatIsTheMacTranscript() {
         XCTAssertEqual(TranscriptText.render(recording(transcript: markdown), as: .markdown), markdown)
     }

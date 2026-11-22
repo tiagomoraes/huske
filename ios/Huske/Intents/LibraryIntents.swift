@@ -106,15 +106,22 @@ enum TranscriptText {
         case .markdown:
             return markdown
         case .text:
-            let spoken = TranscriptParser.parse(markdown).compactMap { block -> String? in
-                switch block {
-                case let .run(_, _, text): return text.isEmpty ? nil : text
-                case let .paragraph(text): return text.hasPrefix("_(") ? nil : text
-                case .heading: return nil
-                }
-            }
-            return spoken.isEmpty ? markdown : spoken.joined(separator: "\n\n")
+            return plain(markdown)
         }
+    }
+
+    /// Only what was said, one paragraph per run: no headings, timecodes or
+    /// sources. What the transcript's Copy button and "as text" give. Falls
+    /// back to the Markdown itself if nothing in it parses as speech.
+    static func plain(_ markdown: String) -> String {
+        let spoken = TranscriptParser.parse(markdown).compactMap { block -> String? in
+            switch block {
+            case let .run(_, _, text): return text.isEmpty ? nil : text
+            case let .paragraph(text): return text.hasPrefix("_(") ? nil : text
+            case .heading: return nil
+            }
+        }
+        return spoken.isEmpty ? markdown : spoken.joined(separator: "\n\n")
     }
 
     /// Why a recording has no transcript, in the user's terms.
