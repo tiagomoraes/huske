@@ -107,7 +107,7 @@ final class RecorderController {
     @ObservationIgnored private var lastPersistedElapsed: TimeInterval = 0
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
-    @ObservationIgnored private var isAppActive = true
+    @ObservationIgnored private var isAppActive = UIApplication.shared.applicationState != .background
     #if DEBUG
     @ObservationIgnored fileprivate var demoTimer: Timer?
     @ObservationIgnored fileprivate var demoPhase = 0.0
@@ -136,11 +136,21 @@ final class RecorderController {
         }
     }
 
-    func start() async {
+    /// Starts a new recording, named `requestedTitle` if given. Also the path
+    /// of a background start (Action button, Shortcuts): the Live Activity is
+    /// requested *before* the microphone, since iOS only keeps a background
+    /// recording alive while one is showing.
+    func start(title requestedTitle: String? = nil) async {
         guard phase == .idle, !isStarting else { return }
         isStarting = true
         defer { isStarting = false }
         log.info("start requested")
+        if AVAudioApplication.shared.recordPermission == .undetermined,
+           UIApplication.shared.applicationState == .background {
+            // The permission prompt needs the app on screen.
+            problem = .couldNotStart("Open Huske once and allow the microphone, then try again.")
+            return
+        }
         guard await ensureMicrophonePermission() else {
             log.error("microphone permission denied")
             problem = .microphoneDenied
@@ -150,18 +160,31 @@ final class RecorderController {
         let id = UUID().uuidString
         let startedAt = Date()
         let (fileName, url) = library.newAudioFile(id: id)
-        let newTitle = RecordingTitle.makeDefault(startedAt: startedAt, existing: library.titles)
+        let newTitle = requestedTitle.flatMap(RecordingTitle.normalized)
+            ?? RecordingTitle.makeDefault(startedAt: startedAt, existing: library.titles)
 
         // Persist first: if we crash after this line, recovery finds the entry.
         library.insert(Recording(
             id: id, title: newTitle, startedAt: startedAt, fileName: fileName,
             inputName: inputName, capture: .inProgress))
 
+        let showing = liveActivity.start(recordingID: id, title: newTitle, startedAt: startedAt)
+        if !showing, UIApplication.shared.applicationState == .background {
+            // iOS ends a background recording that has no Live Activity.
+            library.delete(id)
+            problem = .couldNotStart(
+                "Turn on Live Activities for Huske (Settings › Huske) to record without opening the app.")
+            return
+        }
+
         let recorder: AVAudioRecorder
         do {
-            recorder = try await AudioStarter.start(url: url, timeout: 6)
+            let background = UIApplication.shared.applicationState == .background
+            recorder = try await AudioStarter.start(url: url, timeout: 6, mixable: background)
         } catch {
-            log.error("recorder failed to start: \(error.localizedDescription, privacy: .public)")
+            let code = (error as NSError).code
+            log.error("recorder failed to start (background: \(UIApplication.shared.applicationState == .background, privacy: .public), \((error as NSError).domain, privacy: .public) \(code, privacy: .public) \(FourCC.text(code), privacy: .public)): \(error.localizedDescription, privacy: .public)")
+            liveActivity.cancel()
             library.delete(id)
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             problem = .couldNotStart(error.localizedDescription)
@@ -182,7 +205,6 @@ final class RecorderController {
         phase = .recording
         log.info("recording \(id, privacy: .public) started on \(self.inputName, privacy: .public)")
         startTicker()
-        liveActivity.start(recordingID: id, title: newTitle, startedAt: startedAt)
         pushLiveActivity()
     }
 
@@ -250,15 +272,39 @@ final class RecorderController {
         pushLiveActivity()
     }
 
-    /// Handles a Live Activity / App Intent command.
-    func handle(_ command: RecordingCommand) async {
+    /// Handles a Live Activity / App Intent command (Shortcuts, Siri, the
+    /// Action button, Control Center) and says what happened.
+    func handle(_ command: RecordingCommand) async -> RecordingCommandOutcome {
         switch command {
-        case .start:
-            await start()
+        case let .start(requestedTitle):
+            if let id = recordingID { return .alreadyRecording(recordingID: id) }
+            if isStarting { return .alreadyRecording(recordingID: "") }
+            problem = nil
+            await start(title: requestedTitle)
+            if let id = recordingID { return .started(recordingID: id) }
+            return .failed(problem?.message ?? "Huske couldn't start recording.")
+        case .toggleRecording:
+            // A second press while the microphone is still spinning up is a
+            // double press, not "stop".
+            if isStarting { return .alreadyRecording(recordingID: "") }
+            if recordingID != nil { return await handle(.stop(recordingID: nil)) }
+            return await handle(.start(title: nil))
         case let .togglePause(id):
-            if id == recordingID { togglePause() } else { await liveActivity.endStale(keeping: recordingID) }
+            guard let current = recordingID, id == nil || id == current else {
+                await liveActivity.endStale(keeping: recordingID)
+                return .notRecording
+            }
+            togglePause()
+            if case .paused = phase { return .paused }
+            if phase == .recording { return .resumed }
+            return .failed(problem?.message ?? "Huske couldn't resume.")
         case let .stop(id):
-            if id == recordingID { stop() } else { await liveActivity.endStale(keeping: recordingID) }
+            guard let current = recordingID, id == nil || id == current else {
+                await liveActivity.endStale(keeping: recordingID)
+                return .notRecording
+            }
+            stop()
+            return .stopped(recordingID: current)
         }
     }
 
@@ -351,7 +397,7 @@ final class RecorderController {
             }
         }
         if elapsed - lastPersistedElapsed >= 10 { persistProgress() }
-        liveActivity.updateLevel(CoarseLevel.from(dBFS: phase == .recording ? power : -160))
+        liveActivity.refreshForElapsedTime()
     }
 
     /// dBFS → 0…1 on a perceptual-ish curve (−55 dB floor).
@@ -380,8 +426,7 @@ final class RecorderController {
             title: title,
             timerStart: now.addingTimeInterval(-current),
             pausedAt: pausedAt,
-            pauseReason: reason,
-            level: phase == .recording ? CoarseLevel.from(dBFS: power) : 0))
+            pauseReason: reason))
     }
 
     // MARK: microphone permission
@@ -500,6 +545,16 @@ final class RecorderController {
 /// is wedged it can block for a long time, and it must never freeze the UI.
 /// After `timeout` the caller gets an error; a recorder that starts later
 /// anyway is stopped and its file removed.
+/// AVAudioSession errors are four-character codes ('!rec', '!int', '!pri').
+enum FourCC {
+    static func text(_ code: Int) -> String {
+        let value = UInt32(truncatingIfNeeded: code)
+        let bytes = [24, 16, 8, 0].map { UInt8((value >> $0) & 0xFF) }
+        guard bytes.allSatisfy({ (32...126).contains($0) }) else { return "-" }
+        return "'" + String(decoding: bytes, as: UTF8.self) + "'"
+    }
+}
+
 enum AudioStarter {
     static let settings: [String: Any] = [
         AVFormatIDKey: kAudioFormatMPEG4AAC,
@@ -509,15 +564,19 @@ enum AudioStarter {
         AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
     ]
 
-    static func start(url: URL, timeout: TimeInterval) async throws -> AVAudioRecorder {
+    /// `mixable` is for a start from the background (Action button, Shortcuts):
+    /// iOS refuses to activate an exclusive session there ("Session activation
+    /// failed"), while a session that mixes with other audio is allowed. In the
+    /// foreground the session stays exclusive, so music stops, as in Voice Memos.
+    static func start(url: URL, timeout: TimeInterval, mixable: Bool = false) async throws -> AVAudioRecorder {
         let gate = OnceGate()
         let result: RecorderBox = try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     let session = AVAudioSession.sharedInstance()
-                    try session.setCategory(
-                        .playAndRecord, mode: .default,
-                        options: [RecorderController.bluetoothMicOption, .defaultToSpeaker])
+                    var options: AVAudioSession.CategoryOptions = [RecorderController.bluetoothMicOption, .defaultToSpeaker]
+                    if mixable { options.insert(.mixWithOthers) }
+                    try session.setCategory(.playAndRecord, mode: .default, options: options)
                     try? session.setPreferredSampleRate(RecorderController.sampleRate)
                     try session.setActive(true)
                     let recorder = try AVAudioRecorder(url: url, settings: settings)
@@ -614,7 +673,7 @@ extension RecorderController {
         power = Float(-55 + level * 47)
         levels.removeFirst()
         levels.append(Self.normalize(power))
-        liveActivity.updateLevel(CoarseLevel.from(dBFS: power))
+        liveActivity.refreshForElapsedTime()
     }
 
     private func toggleDemoPause() {

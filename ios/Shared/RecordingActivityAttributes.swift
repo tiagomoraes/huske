@@ -26,12 +26,18 @@ struct RecordingActivityAttributes: ActivityAttributes {
         var pausedAt: Date?
         /// Why it paused, in a few words ("Phone call"), or nil for a user pause.
         var pauseReason: String?
-        /// Coarse input level, 0…4, for the mini meter. Updated sparingly.
-        var level: Int
 
         var elapsed: TimeInterval {
             (pausedAt ?? Date()).timeIntervalSince(timerStart)
         }
+
+        /// From just before the hour the timer reads "1:02:03" instead of
+        /// "12:34", so the compact island needs a wider slot. The app pushes an
+        /// update when this flips (`LiveActivityController.refreshForElapsedTime`).
+        var needsHourWidth: Bool { elapsed >= 59 * 60 + 30 }
+
+        /// Width of the compact island timer (Plex Sans Medium 14, tabular).
+        var compactTimerWidth: CGFloat { needsHourWidth ? 54 : 41 }
 
         var timerRange: ClosedRange<Date> {
             // The upper bound only has to be far enough away to never be reached.
@@ -41,17 +47,4 @@ struct RecordingActivityAttributes: ActivityAttributes {
 
     var recordingID: String
     var startedAt: Date
-}
-
-/// Maps a dBFS power reading to the coarse 0…4 level the Live Activity shows.
-enum CoarseLevel {
-    static func from(dBFS power: Float) -> Int {
-        switch power {
-        case ..<(-50): return 0
-        case ..<(-38): return 1
-        case ..<(-28): return 2
-        case ..<(-18): return 3
-        default: return 4
-        }
-    }
 }

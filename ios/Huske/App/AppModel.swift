@@ -84,7 +84,7 @@ final class AppModel {
 
         recorder.onRecordingSaved = { [weak sync] id in sync?.recordingSaved(id) }
         RecordingCommandCenter.register { [weak recorder] command in
-            await recorder?.handle(command)
+            await recorder?.handle(command) ?? .unavailable
         }
         // Activities from a previous run (killed while recording) are stale.
         Task { await liveActivity.endStale(keeping: nil) }
