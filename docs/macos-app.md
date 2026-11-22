@@ -24,6 +24,20 @@ it never re-implements recording or transcription logic (see
   same `huske sync` path used by the recording engine. The pane also links to
   the separate `huske-mcp` VPS deployment guide; the app never starts an MCP
   server itself.
+- **iPhone** — pairs an iPhone with a QR code, receives its recordings and
+  follows each one to its transcript (`docs/adr/0011-iphone-recorder-and-mac-sync.md`).
+  The pane answers "why isn't it syncing": whether your iPhone can reach this
+  Mac right now (and what to do when it can't, e.g. turn on Local Network
+  access), when each paired iPhone was last in contact, and what looks like
+  an earlier pairing left behind by an iPhone that paired again. **Copy details** copies that
+  state with the recent log; **Show log** reveals
+  `~/Library/Application Support/Huske/PhoneSync/sync.log` — a small rotating
+  log (under 400 KB) of states, recording IDs, sizes and errors, never titles,
+  audio or transcript text. An iPhone can only reach the Mac while Huske runs,
+  so once one is paired the app offers to open at login (it never turns that on
+  by itself), and it keeps the Mac from idle-sleeping only while a recording is
+  arriving, being handed to the transcriber, or being transcribed by the app's
+  own `huske inbox process` pass.
 - **Doctor** — runs `huske doctor --json` and renders every check with its
   fix-it hint, plus the input-device inventory.
 - **Configuration** — edits `~/.config/huske/config.toml` through

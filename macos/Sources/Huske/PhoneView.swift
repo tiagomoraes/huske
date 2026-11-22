@@ -11,6 +11,7 @@ import SwiftUI
 struct PhoneView: View {
     @Environment(AppModel.self) private var model
     @State private var confirmingRemoval: PairedDevice?
+    @State private var detailsCopied = false
 
     var body: some View {
         @Bindable var phone = model.phoneSync
@@ -27,7 +28,10 @@ struct PhoneView: View {
                     }
                     .buttonStyle(PrimaryButtonStyle())
                     .disabled(!phone.enabled || !phone.isListening)
-                    .help(phone.isListening ? "Show a pairing code" : "Turn on receiving first")
+                    .help(
+                        phone.isListening
+                            ? "Show a pairing code"
+                            : (phone.enabled ? "Receiving isn't ready yet" : "Turn on receiving first"))
                 }
                 .padding(.top, 30)
 
@@ -46,6 +50,12 @@ struct PhoneView: View {
             .frame(maxWidth: .infinity)
         }
         .background(Theme.bg)
+        // Looking at the pane is a reason to check now, not at the next
+        // backoff step (e.g. back from System Settings › Local Network).
+        .task { phone.recheckReachability() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            phone.recheckReachability()
+        }
         .confirmationDialog(
             "Remove \(confirmingRemoval?.name ?? "this iPhone")?",
             isPresented: Binding(
@@ -56,8 +66,13 @@ struct PhoneView: View {
             Button("Remove", role: .destructive) {
                 phone.removeDevice(device.deviceID)
             }
-        } message: { _ in
-            Text("It will stop sending recordings until you pair it again. Recordings already on this Mac stay.")
+        } message: { device in
+            Text(
+                phone.supersededDeviceIDs.contains(device.deviceID)
+                    ? "This looks like an earlier pairing of an iPhone that has paired again since: same name "
+                        + "and model, and no contact from it after that. If so, removing it only retires the "
+                        + "old key. If it is a different iPhone, that one will have to pair again."
+                    : "It will stop sending recordings until you pair it again. Recordings already on this Mac stay.")
         }
     }
 
@@ -80,14 +95,11 @@ struct PhoneView: View {
                 .toggleStyle(.switch)
                 .controlSize(.small)
 
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(listenColor(phone))
-                        .frame(width: 7, height: 7)
-                    Text(listenText(phone))
-                        .font(.brandSans(12))
-                        .foregroundStyle(phone.listenerError == nil ? Theme.fgMuted : Theme.err)
-                        .textSelection(.enabled)
+                reachabilityRow(phone)
+
+                if phone.shouldOfferOpenAtLogin {
+                    Rectangle().fill(Theme.divider).frame(height: 1)
+                    LoginOfferRow()
                 }
 
                 Rectangle().fill(Theme.divider).frame(height: 1)
@@ -107,15 +119,55 @@ struct PhoneView: View {
         }
     }
 
-    private func listenColor(_ phone: PhoneSyncCoordinator) -> Color {
-        if phone.listenerError != nil { return Theme.err }
-        return phone.enabled && phone.isListening ? Theme.ok : Theme.fgFaint
+    /// Can a paired iPhone reach this Mac right now — and if not, why, and
+    /// what to do. The words come from `PhoneReachability` (HuskeKit).
+    private func reachabilityRow(_ phone: PhoneSyncCoordinator) -> some View {
+        let line = phone.reachability
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Circle()
+                    .fill(Self.color(for: line.tone))
+                    .frame(width: 7, height: 7)
+                    .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+                Text(line.text)
+                    .font(.brandSans(12))
+                    .foregroundStyle(line.tone == .problem ? Theme.err : Theme.fgMuted)
+                    .textSelection(.enabled)
+                Spacer(minLength: 12)
+                Button(detailsCopied ? "Copied" : "Copy details") {
+                    phone.copyDiagnostics()
+                    detailsCopied = true
+                    Task {
+                        try? await Task.sleep(nanoseconds: 1_500_000_000)
+                        detailsCopied = false
+                    }
+                }
+                .buttonStyle(LinkButtonStyle(fontSize: 12, tint: Theme.fgMuted, hoverTint: Theme.fg))
+                .help("Copy what Huske knows about receiving from your iPhone, with its recent log")
+                Button("Show log") { phone.showLog() }
+                    .buttonStyle(LinkButtonStyle(fontSize: 12, tint: Theme.fgMuted, hoverTint: Theme.fg))
+                    .help("Show the sync log in the Finder")
+            }
+            if let detail = line.detail {
+                Text(detail)
+                    .font(.brandSans(11.5))
+                    .foregroundStyle(Theme.fgMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .padding(.leading, 15)
+            }
+        }
     }
 
-    private func listenText(_ phone: PhoneSyncCoordinator) -> String {
-        if let error = phone.listenerError { return error }
-        if !phone.enabled { return "off" }
-        return phone.isListening ? "Ready — your iPhone sees this Mac as “\(phone.macName)”" : "Starting…"
+    /// Spruce = reachable, amber = getting there by itself, err = it will
+    /// not get there without something changing, faint = off.
+    private static func color(for tone: PhoneReachability.Tone) -> Color {
+        switch tone {
+        case .ok: return Theme.ok
+        case .working: return Theme.amber
+        case .problem: return Theme.err
+        case .off: return Theme.fgFaint
+        }
     }
 
     private var engineNotice: some View {
@@ -146,6 +198,7 @@ struct PhoneView: View {
 
     private func devicesCard(_ phone: PhoneSyncCoordinator) -> some View {
         let devices = phone.pairedDevices
+        let superseded = phone.supersededDeviceIDs
         return Card(padding: 0) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
@@ -182,7 +235,11 @@ struct PhoneView: View {
                         if index > 0 {
                             Rectangle().fill(Theme.divider).frame(height: 1).padding(.leading, 50)
                         }
-                        PairedDeviceRow(device: device) { confirmingRemoval = device }
+                        PairedDeviceRow(
+                            device: device,
+                            connected: phone.connectedDeviceIDs.contains(device.deviceID),
+                            superseded: superseded.contains(device.deviceID)
+                        ) { confirmingRemoval = device }
                     }
                     .padding(.bottom, 6)
                 }
@@ -225,7 +282,12 @@ struct PhoneView: View {
                         if index > 0 {
                             Rectangle().fill(Theme.divider).frame(height: 1).padding(.leading, 50)
                         }
-                        PhoneRecordingRow(recording: recording) {
+                        PhoneRecordingRow(
+                            recording: recording,
+                            canRetry: phone.engineCanTakeRecordings,
+                            retrying: phone.retrying.contains(recording.id),
+                            onRetry: { phone.retry(recording) }
+                        ) {
                             phone.revealTranscript(recording)
                         }
                     }
@@ -240,7 +302,13 @@ struct PhoneView: View {
 
 struct PairedDeviceRow: View {
     let device: PairedDevice
+    /// It has a connection open right now.
+    var connected = false
+    /// Looks like an earlier pairing of a phone that has paired again since
+    /// (`PhoneContact.supersededPairings`): said so, next to Remove.
+    var superseded = false
     let onRemove: () -> Void
+    @Environment(\.screenRendering) private var rendering
 
     var body: some View {
         HStack(spacing: 12) {
@@ -252,33 +320,79 @@ struct PairedDeviceRow: View {
                 Text(device.name ?? "iPhone")
                     .font(.brandSans(13, .semibold))
                     .foregroundStyle(Theme.fg)
-                Text(device.model ?? "Paired")
+                Text(
+                    superseded
+                        ? "Looks like an earlier pairing, not used since this iPhone paired again"
+                        : (device.model ?? "Paired"))
                     .font(.brandSans(11.5))
-                    .foregroundStyle(Theme.fgFaint)
+                    .foregroundStyle(superseded ? Theme.fgMuted : Theme.fgFaint)
             }
             Spacer(minLength: 12)
-            Text(lastSeen)
-                .font(.brandSans(11.5))
-                .foregroundStyle(Theme.fgFaint)
+            // "2 minutes ago" goes stale by itself; the offscreen renderer
+            // cannot host a timeline.
+            if rendering {
+                contact(now: Date())
+            } else {
+                TimelineView(.periodic(from: .now, by: 30)) { context in
+                    contact(now: context.date)
+                }
+            }
             Button("Remove", action: onRemove)
                 .buttonStyle(LinkButtonStyle(fontSize: 12, tint: Theme.fgMuted, hoverTint: Theme.err))
-                .help("Forget this iPhone")
+                .help(superseded ? "Remove this earlier pairing" : "Forget this iPhone")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 9)
     }
 
-    private var lastSeen: String {
-        guard let seen = device.lastSeenAt else { return "never connected" }
-        if Date().timeIntervalSince(seen) < 60 { return "seen just now" }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .full
-        return "seen " + formatter.localizedString(for: seen, relativeTo: Date())
+    /// "Connected", "Last seen 2 minutes ago", "Never connected".
+    private func contact(now: Date) -> some View {
+        Text(PhoneContact.line(lastSeen: device.lastSeenAt, connected: connected, now: now))
+            .font(.brandSans(11.5))
+            .foregroundStyle(connected ? Theme.fgMuted : Theme.fgFaint)
+            .monospacedDigit()
+    }
+}
+
+/// "Open Huske at login so your iPhone can always reach this Mac." An offer
+/// the user takes or turns down — never switched on for them, and gone for
+/// good once it is on or they said no.
+struct LoginOfferRow: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let phone = model.phoneSync
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Open Huske at login so your iPhone can always reach this Mac.")
+                .font(.brandSans(12))
+                .foregroundStyle(Theme.fg)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Your iPhone can only send recordings while Huske is running.")
+                .font(.brandSans(11.5))
+                .foregroundStyle(Theme.fgMuted)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 16) {
+                Button("Open at login") { phone.acceptOpenAtLogin() }
+                    .buttonStyle(LinkButtonStyle(fontSize: 12))
+                Button("No thanks") { phone.declineOpenAtLogin() }
+                    .buttonStyle(LinkButtonStyle(fontSize: 12, tint: Theme.fgMuted, hoverTint: Theme.fg))
+            }
+            if let error = model.loginItemError {
+                Text(error)
+                    .font(.brandSans(11.5))
+                    .foregroundStyle(Theme.err)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
 struct PhoneRecordingRow: View {
     let recording: PhoneSyncCoordinator.Recording
+    var canRetry = false
+    var retrying = false
+    var onRetry: () -> Void = {}
     let onReveal: () -> Void
 
     var body: some View {
@@ -305,12 +419,31 @@ struct PhoneRecordingRow: View {
                     if let status {
                         Text("  ·  ").foregroundStyle(Theme.fgFaint)
                         Text(status)
-                            .foregroundStyle(recording.state == .failed ? Theme.err : Theme.fgMuted)
+                            // Partly transcribed is something to read, not
+                            // an alarm; the reason below keeps the colour.
+                            .foregroundStyle(
+                                recording.state == .failed && !recording.isPartlyTranscribed
+                                    ? Theme.err : Theme.fgMuted)
                     }
                     Spacer(minLength: 12)
-                    if recording.state == .transcribed, !recording.transcripts.isEmpty {
-                        Button("Open transcript", action: onReveal)
-                            .buttonStyle(LinkButtonStyle(fontSize: 12))
+                    HStack(spacing: 14) {
+                        // What was transcribed can be opened, also when that
+                        // is only part of the recording.
+                        if recording.state == .transcribed || recording.isPartlyTranscribed,
+                            !recording.transcripts.isEmpty
+                        {
+                            Button("Open transcript", action: onReveal)
+                                .buttonStyle(LinkButtonStyle(fontSize: 12))
+                                .help(
+                                    recording.isPartlyTranscribed
+                                        ? "Show the parts that were transcribed" : "Show the transcript")
+                        }
+                        if recording.state == .failed, canRetry {
+                            Button(retrying ? "Retrying…" : "Try again", action: onRetry)
+                                .buttonStyle(LinkButtonStyle(fontSize: 12))
+                                .disabled(retrying)
+                                .help("Transcribe this recording again")
+                        }
                     }
                 }
                 .font(.brandSans(12))
@@ -348,21 +481,26 @@ struct PhoneRecordingRow: View {
     private var status: String? {
         switch recording.state {
         case .receiving:
-            if let progress = recording.progress { return "Receiving · \(Int(progress * 100))%" }
-            return "Receiving"
+            // Nothing is arriving: the Mac holds part of it and waits.
+            let verb = recording.stalled == true ? "Waiting for iPhone" : "Receiving"
+            if let progress = recording.progress { return "\(verb) · \(Int(progress * 100))%" }
+            return verb
         case .received: return "Received"
         case .queued: return "Queued"
         case .transcribing:
             if let progress = recording.progress { return "Transcribing · \(Int(progress * 100))%" }
             return "Transcribing"
         case .transcribed: return nil
-        case .failed: return "Couldn't transcribe"
+        case .failed:
+            // "Partly transcribed · 2 of 3 parts" when some of it made it.
+            return PhoneRecordingWords.failed(partsDone: recording.partsDone, partsTotal: recording.partsTotal)
         case .unknown: return nil
         }
     }
 
     private var ring: StateRing.Kind {
         switch recording.state {
+        case .receiving where recording.stalled == true: return .held
         case .receiving, .transcribing: return .progress(recording.progress)
         case .received, .queued: return .held
         case .transcribed: return .done
@@ -507,9 +645,17 @@ struct PairPhoneSheet: View {
     @ViewBuilder
     private func statusLine(invite: PairingInvite, paired: PairedDevice?) -> some View {
         if let paired {
-            Text("Paired with \(paired.name ?? "your iPhone") ✓")
-                .font(.brandSans(13.5, .semibold))
-                .foregroundStyle(Theme.ok)
+            VStack(spacing: 14) {
+                Text("Paired with \(paired.name ?? "your iPhone") ✓")
+                    .font(.brandSans(13.5, .semibold))
+                    .foregroundStyle(Theme.ok)
+                // The moment it matters: this iPhone can only reach the Mac
+                // while Huske runs. Offered, never switched on for them.
+                if model.phoneSync.shouldOfferOpenAtLogin {
+                    Rectangle().fill(Theme.divider).frame(height: 1)
+                    LoginOfferRow()
+                }
+            }
         } else if rendering {
             waitingRow(remaining: invite.expiresAt.timeIntervalSinceNow)
         } else {
