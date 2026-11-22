@@ -323,6 +323,7 @@ const ADVANCED_CONFIG = [
   { key: "screenshots_jpeg_quality", def: "60", desc: "JPEG quality for screenshots, 1–100 (re-encoded via sips).", flag: "--screenshot-quality" },
   { key: "sync_enabled", def: "false", desc: "Publish new canonical transcripts after each finalized chunk.", flag: "" },
   { key: "sync_provider", def: "git", desc: "Storage provider boundary; Git is the first implementation.", flag: "" },
+  { key: "sync_auth", def: "git", desc: "git uses this Mac's own Git sign-in; github-app uses the Huske Sync app (Connect GitHub).", flag: "" },
   { key: "sync_remote", def: "unset", desc: "Private Git repository SSH or HTTPS remote.", flag: "" },
   { key: "sync_branch", def: "main", desc: "Branch used for the transcript replica.", flag: "" },
   { key: "sync_root", def: "~/huske/sync", desc: "Managed Git checkout; commits are the durable retry queue.", flag: "" },
@@ -368,20 +369,27 @@ const ConfigDoc = () => (
 const SearchDoc = () => (
   <DocsSection id="search" num="05" title="Cloud sync">
     <p className="docs-lead">
-      Huske.app can publish each finalized transcript to a private Git
-      repository. GitHub is the first supported storage provider; Huske uses
-      your existing SSH agent or Git credential helper and never stores a token.
+      Huske.app can publish each finalized transcript to a private GitHub
+      repository. Connect GitHub signs in with the Huske Sync app: no SSH key,
+      and access only to the contents of the repository you share with it.
     </p>
     <ol className="docs-steps">
-      <li>Create an empty <strong>private</strong> repository dedicated to transcript data.</li>
-      <li>Open <strong>Cloud sync</strong> in Huske.app and paste its SSH URL.</li>
-      <li>Press <strong>Sync now</strong>, then enable automatic sync.</li>
+      <li>Open <strong>Cloud sync</strong> in Huske.app and choose <strong>Connect GitHub</strong>. Enter the code on GitHub and approve Huske Sync.</li>
+      <li>Create a <strong>private</strong> repository (Huske opens the form prefilled) and share only it with Huske Sync.</li>
+      <li>Choose <strong>Publish here</strong>. Huske publishes once, then every new transcript automatically.</li>
     </ol>
     <DocsTerminal>
-      <DocsCmd cmd="huske config set sync_remote git@github.com:you/huske-transcripts.git" />
-      <DocsCmd cmd="huske config set sync_enabled true" />
+      <DocsCmd cmd="huske sync login" note="enter the code on GitHub" />
+      <DocsCmd cmd="huske sync use you/huske-transcripts" />
       <DocsCmd cmd="huske sync" note="initial publish or manual reconciliation" />
     </DocsTerminal>
+    <p>
+      Huske Sync cannot create, delete, or reconfigure repositories. Its token
+      lasts eight hours, renews itself, and stays in your macOS Keychain. Prefer
+      your own Git sign-in? Choose <em>Use an SSH key instead</em>, or set{" "}
+      <code>sync_remote</code> to the repository's SSH URL; Huske then stores no
+      token at all.
+    </p>
     <p>
       Only <code>transcripts/YYYY-MM-DD/*.md</code> enters the repository, plus
       a <code>README.md</code> and <code>AGENTS.md</code> that explain the layout

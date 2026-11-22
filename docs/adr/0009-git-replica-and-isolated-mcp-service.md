@@ -145,3 +145,57 @@ so an agent connected through its own GitHub integration can navigate the
 archive. A file without Huske's marker line is never overwritten. The VPS
 service reads only `transcripts/`, and its index already re-indexes a path
 whose SHA-256 changed.
+
+## Amendment (2026-11) — Connect GitHub with the Huske Sync app
+
+Setting up Git over SSH was where new users failed. They needed a key on
+GitHub, an agent that could unlock it without a terminal, and a trusted host
+key, and every one of those failures surfaced the same opaque Git message. It
+was also more access than the job needs: an account SSH key can push to every
+repository the user can write to. The research behind this is in
+`docs/research/transcript-sync-options.md`.
+
+Sync can now authenticate with **Huske Sync**, a GitHub App registered for
+the project. This is `sync_auth = "github-app"`; the default stays
+`sync_auth = "git"`, which uses the Mac's own Git sign-in and stores nothing,
+so existing setups are unchanged.
+
+- **Least privilege.** The app requests only repository *Contents*
+  (read/write) and the mandatory *Metadata* (read). It has no
+  *Administration* (it cannot delete or reconfigure repositories), no
+  repository creation, and no webhooks. The user creates the private
+  repository from a prefilled form and shares only it with the app ("Only
+  select repositories").
+- **No secret.** Sign-in is the OAuth device flow. Huske is a public client,
+  and GitHub issues and refreshes the user access token without a client
+  secret. Access tokens last 8 hours; refresh tokens rotate and last about six
+  months.
+- **The engine owns the sign-in** (`huske sync login | logout | status |
+  repos | use`). Huske.app renders the same flow from their `--json` output
+  (ADR 0006).
+- **Storage.** The token set lives in the macOS login Keychain, written
+  through `/usr/bin/security -i` over standard input, so the secret never
+  appears in a process argument. Items created by `security` are readable by
+  `security` without a prompt, which is what lets the launchd engine use them.
+  `HUSKE_SYNC_KEYCHAIN` points at a throwaway keychain for development.
+- **Git** receives the token only through the environment of each command
+  (`GIT_CONFIG_*`), through a one-shot credential helper. Every other
+  helper is reset for that command, including github.com-specific ones such as
+  `gh auth setup-git` writes. The token is never written to `.git/config`,
+  logs, or Huske's configuration.
+- **Renewal under the sync lock.** A refresh invalidates the previous access
+  token immediately (observed against GitHub), so renewal happens only while
+  holding the cross-process sync lock. That guarantees no other Huske process
+  is mid-push with the old token.
+- `huske sync use` refuses a public repository, and a repository not shared
+  with the app.
+
+Consequences:
+
+- A leaked access token reaches the shared repository for at most 8 hours. A
+  leaked refresh token is renewable until it is revoked
+  (github.com/settings/apps/authorizations) or the app is uninstalled.
+- The project keeps the app registration. The client ID is public and lives in
+  `huske/sync/github.py`; forks point at their own app with
+  `HUSKE_GITHUB_APP_CLIENT_ID` and `HUSKE_GITHUB_APP_SLUG`. The app must be
+  made public before a release that ships this flow.

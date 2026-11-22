@@ -44,6 +44,13 @@ Deferred:
 - A `huske doctor` sync check.
 - L2–L5.
 
+Follow-up the same day: after a prototype against the real API, the user also
+approved L1 in its least-privilege form. The **Huske Sync** GitHub App
+requests Contents and Metadata only, with no repository creation and no
+Administration. Sign-in uses the device flow, and the token is kept in the
+Keychain. See the ADR 0009 amendment "Connect GitHub with the Huske Sync
+app".
+
 Section 1 describes `develop` at `9555022`, before the fix.
 
 ## Summary

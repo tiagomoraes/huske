@@ -44,6 +44,10 @@ huske config set sync_enabled true
 huske sync
 ```
 
+Or, without SSH, use the Huske Sync GitHub App: **Cloud sync → Connect GitHub**
+in Huske.app, or `huske sync login` then `huske sync use you/huske-transcripts`.
+The VPS still reads the repository with its own read-only deploy key.
+
 The managed checkout is `~/huske/sync` by default. Only canonical transcript
 Markdown is copied to `transcripts/YYYY-MM-DD/*.md`, plus a Huske-managed
 `README.md` and `AGENTS.md` at the repository root. Huske replaces a transcript

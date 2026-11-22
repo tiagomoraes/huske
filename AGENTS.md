@@ -41,7 +41,13 @@ surface is `huske/sync/`, which publishes transcript Markdown through Git.
   repository is not published again unless the user passes `--republish`
   (ADR 0009, 2026-11 amendment).
 - Keep the recording callback non-blocking; Git work belongs in the sync thread.
-- Do not persist GitHub credentials. Reuse Git/SSH credential infrastructure.
+- With `sync_auth = "git"`, Huske stores no credential and reuses the Mac's
+  Git/SSH sign-in. With `sync_auth = "github-app"` (Huske Sync), the token
+  lives only in the macOS Keychain, written over `security -i` stdin. It
+  reaches Git only through per-command environment, is renewed only under the
+  sync lock, and is never printed, logged, or written to config or
+  `.git/config`. Never add permissions to the Huske Sync app beyond Contents
+  and Metadata.
 
 The permanent read surface lives in the independent
 `services/huske_mcp/` distribution (ADR 0009).

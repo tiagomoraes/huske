@@ -57,6 +57,17 @@ This project uses semantic versioning after the first public release.
 
 ### Added
 
+- **Connect GitHub — cloud sync without SSH keys.** In Cloud sync, choose
+  Connect GitHub, enter the code Huske shows on GitHub, and approve the
+  Huske Sync app. Then create a private repository (Huske opens GitHub's form
+  prefilled) and choose Publish here. Huske Sync can read and write the
+  contents of the repositories you share with it and nothing else: it cannot
+  create, delete, or reconfigure repositories. Its token lasts eight hours,
+  renews itself, and is kept in the macOS Keychain, never in a file or a Git
+  config. The terminal equivalent is `huske sync login`, `huske sync repos`,
+  `huske sync use OWNER/REPO`, `huske sync status`, and `huske sync logout`.
+  The SSH setup still works and stays the default for existing configurations.
+
 - **The transcript repository explains itself to agents.** Huske maintains a
   `README.md` and an `AGENTS.md` at the repository root (and an `AGENTS.md`
   beside the local transcripts), covering the layout, the frontmatter, and
