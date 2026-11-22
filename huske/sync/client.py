@@ -83,6 +83,42 @@ class TranscriptPublisher(Protocol):
     def sync(self) -> SyncResult: ...
 
 
+class CredentialProvider(Protocol):
+    """Supplies environment that authenticates Git for one sync run.
+
+    Called once per run while the sync lock is held, so a provider may renew
+    a token without racing another Huske process that is using it.
+    """
+
+    def git_env(self) -> dict[str, str]: ...
+
+
+def sync_lock_path(checkout_root: Path) -> Path:
+    """The cross-process lock shared by every Huske process using a checkout."""
+    root = checkout_root.expanduser().resolve()
+    return root.with_name(f".{root.name}.lock")
+
+
+@contextlib.contextmanager
+def exclusive_lock(lock_path: Path, timeout: float) -> Iterator[None]:
+    """Hold ``lock_path`` exclusively, waiting up to ``timeout`` seconds."""
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a") as handle:
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise SyncError("another Huske sync is already running") from None
+                time.sleep(0.1)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 @dataclass
 class _Reconciliation:
     added: int = 0
@@ -132,6 +168,7 @@ class GitPublisher:
         branch: str = "main",
         timeout: float = 60.0,
         republish: Iterable[str] = (),
+        credentials: CredentialProvider | None = None,
     ) -> None:
         self.output_root = output_root.expanduser().resolve()
         self.checkout_root = checkout_root.expanduser().resolve()
@@ -141,6 +178,10 @@ class GitPublisher:
         # Paths the user explicitly asked to publish again from this Mac, even
         # though the repository copy differs or was deleted there.
         self.republish = frozenset(_transcript_rel(path) for path in republish)
+        # ``None`` means Git uses this Mac's own sign-in (SSH key or credential
+        # helper); otherwise the provider's environment authenticates Git.
+        self.credentials = credentials
+        self._auth_env: dict[str, str] = {}
         if not self.remote:
             raise ValueError("sync remote cannot be empty")
         if self.remote.startswith("-") or any(
@@ -161,7 +202,8 @@ class GitPublisher:
         One publisher runs at a time per checkout, across processes (the
         engine's worker and ``huske sync`` from the app share the checkout).
         """
-        with self._exclusive():
+        with exclusive_lock(sync_lock_path(self.checkout_root), self.timeout):
+            self._auth_env = self._credentials_env()
             notes: list[str] = []
             moved = self._ensure_checkout()
             if moved is not None:
@@ -206,27 +248,15 @@ class GitPublisher:
 
     # -- checkout lifecycle -------------------------------------------------
 
-    @contextlib.contextmanager
-    def _exclusive(self) -> Iterator[None]:
-        """Hold a cross-process lock beside the checkout for one sync run."""
-        lock_path = self.checkout_root.with_name(f".{self.checkout_root.name}.lock")
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with lock_path.open("a") as handle:
-            deadline = time.monotonic() + self.timeout
-            while True:
-                try:
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    break
-                except BlockingIOError:
-                    if time.monotonic() >= deadline:
-                        raise SyncError(
-                            "another Huske sync is already running"
-                        ) from None
-                    time.sleep(0.1)
-            try:
-                yield
-            finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    def _credentials_env(self) -> dict[str, str]:
+        if self.credentials is None:
+            return {}
+        from huske.sync.credentials import CredentialError
+
+        try:
+            return dict(self.credentials.git_env())
+        except CredentialError as exc:
+            raise SyncError(str(exc), retryable=exc.retryable) from exc
 
     def _ensure_checkout(self) -> Path | None:
         """Clone on first use. Returns where an old checkout was moved, if any."""
@@ -489,6 +519,7 @@ class GitPublisher:
     ) -> subprocess.CompletedProcess[str]:
         env = {
             **os.environ,
+            **self._auth_env,
             "GIT_TERMINAL_PROMPT": "0",
             "LC_ALL": "C",
         }
@@ -513,9 +544,12 @@ class GitPublisher:
             raise self._command_error(result)
         return result
 
-    @staticmethod
-    def _command_error(result: subprocess.CompletedProcess[str]) -> SyncError:
-        return describe_git_failure(result.stderr or result.stdout, result.returncode)
+    def _command_error(self, result: subprocess.CompletedProcess[str]) -> SyncError:
+        return describe_git_failure(
+            result.stderr or result.stdout,
+            result.returncode,
+            github_app=self.credentials is not None,
+        )
 
 
 # Known Git/SSH failure lines → (plain-language cause, retryable). Matched
@@ -604,6 +638,23 @@ _FAILURES: tuple[tuple[str, str, bool], ...] = (
     ),
 )
 
+# With the Huske Sync GitHub App the fix is never "check your SSH key": these
+# take precedence over the generic causes above.
+_RECONNECT = "GitHub no longer accepts Huske's sign-in — choose Connect GitHub in Huske → Cloud sync"
+_NOT_SHARED = (
+    "this repository isn't shared with Huske Sync, or it no longer exists — "
+    "choose it again in Huske → Cloud sync"
+)
+_APP_FAILURES: tuple[tuple[str, str, bool], ...] = (
+    ("repository not found", _NOT_SHARED, False),
+    ("does not appear to be a git repository", _NOT_SHARED, False),
+    ("denied to", _NOT_SHARED, False),
+    ("the requested url returned error: 403", _NOT_SHARED, False),
+    ("invalid username or token", _RECONNECT, False),
+    ("authentication failed", _RECONNECT, False),
+    ("terminal prompts disabled", _RECONNECT, False),
+)
+
 # Git's generic tail after an SSH failure; never the informative line.
 _BOILERPLATE = (
     "please make sure you have the correct access rights",
@@ -612,14 +663,17 @@ _BOILERPLATE = (
 )
 
 
-def describe_git_failure(output: str, returncode: int = 1) -> SyncError:
+def describe_git_failure(
+    output: str, returncode: int = 1, *, github_app: bool = False
+) -> SyncError:
     """Turn Git's stderr into one actionable, correctly classified error."""
     lines = [
         _redact_remote(line.strip()) for line in output.splitlines() if line.strip()
     ]
+    failures = (*_APP_FAILURES, *_FAILURES) if github_app else _FAILURES
     for line in lines:
         lower = line.lower()
-        for marker, cause, retryable in _FAILURES:
+        for marker, cause, retryable in failures:
             if marker in lower:
                 return SyncError(f"{cause} (git: {line})", retryable=retryable)
     informative = [
@@ -686,6 +740,11 @@ def build_publisher(
     if config.sync_provider == "git":
         if not config.sync_remote:
             raise ValueError("sync_remote is required for the Git sync provider")
+        credentials: CredentialProvider | None = None
+        if config.sync_auth == "github-app":
+            from huske.sync.credentials import GitHubAppCredentials, default_token_store
+
+            credentials = GitHubAppCredentials(default_token_store())
         return GitPublisher(
             output_root=config.output_root,
             checkout_root=config.sync_root,
@@ -693,5 +752,6 @@ def build_publisher(
             branch=config.sync_branch,
             timeout=config.sync_push_timeout_seconds,
             republish=republish,
+            credentials=credentials,
         )
     raise ValueError(f"unsupported sync provider: {config.sync_provider}")

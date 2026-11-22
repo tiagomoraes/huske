@@ -461,8 +461,20 @@ def export_cmd(
     )
 
 
-@app.command()
+sync_app = typer.Typer(
+    name="sync",
+    help=(
+        "Publish transcripts to the private Git repository. With no subcommand, "
+        "publishes new and updated transcripts now."
+    ),
+    add_completion=False,
+)
+app.add_typer(sync_app)
+
+
+@sync_app.callback(invoke_without_command=True)
 def sync(
+    ctx: typer.Context,
     output_root: Path | None = typer.Option(None, "--output-root"),
     config_path: Path | None = typer.Option(None, "--config"),
     republish: list[str] = typer.Option(
@@ -477,6 +489,8 @@ def sync(
     ),
 ) -> None:
     """Publish new and updated transcripts to the configured Git repository."""
+    if ctx.invoked_subcommand is not None:
+        return
     from huske.sync.runner import run_sync
 
     overrides = _collect_overrides(output_root=output_root)
@@ -487,6 +501,62 @@ def sync(
             republish=tuple(republish),
         )
     )
+
+
+@sync_app.command("login")
+def sync_login(
+    json_output: bool = typer.Option(False, "--json", help="One JSON object per line."),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Connect GitHub with the Huske Sync app (enter a code in your browser)."""
+    from huske.sync.account import run_login
+
+    raise typer.Exit(run_login(config_path, json_output=json_output))
+
+
+@sync_app.command("logout")
+def sync_logout(
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Forget the GitHub sign-in on this Mac."""
+    from huske.sync.account import run_logout
+
+    raise typer.Exit(run_logout(config_path, json_output=json_output))
+
+
+@sync_app.command("status")
+def sync_status(
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Show how sync signs in to GitHub and where it publishes (no network)."""
+    from huske.sync.account import run_status
+
+    raise typer.Exit(run_status(config_path, json_output=json_output))
+
+
+@sync_app.command("repos")
+def sync_repos(
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """List the repositories shared with the Huske Sync app."""
+    from huske.sync.account import run_repos
+
+    raise typer.Exit(run_repos(config_path, json_output=json_output))
+
+
+@sync_app.command("use")
+def sync_use(
+    repository: str = typer.Argument(..., help="OWNER/REPO, shared with Huske Sync."),
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Publish to this private repository with the Huske Sync sign-in."""
+    from huske.sync.account import run_use
+
+    raise typer.Exit(run_use(repository, config_path, json_output=json_output))
 
 
 # ---------------------------------------------------------------------------

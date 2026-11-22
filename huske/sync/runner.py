@@ -37,8 +37,8 @@ def run_sync(
 
     if not cfg.sync_remote:
         _print(
-            "[error] no sync_remote configured. Create a private GitHub repository "
-            "and paste its SSH URL in Huske → Cloud sync."
+            "[error] no repository configured. In Huske → Cloud sync choose Connect "
+            "GitHub, or run `huske sync login` and then `huske sync use OWNER/REPO`."
         )
         return 2
 

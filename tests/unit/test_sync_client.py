@@ -415,3 +415,65 @@ def test_remote_rejects_option_injection_and_redacts_http_credentials(
         redact_remote("https://secret-token@github.com/example/private.git")
         == "https://***@github.com/example/private.git"
     )
+
+
+class FakeCredentials:
+    def __init__(self, env: dict[str, str] | None = None, error: Exception | None = None) -> None:
+        self.env = env or {}
+        self.error = error
+        self.calls = 0
+
+    def git_env(self) -> dict[str, str]:
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        return self.env
+
+
+def test_credential_environment_reaches_every_git_command(tmp_path: Path) -> None:
+    remote, output, checkout = _setup(tmp_path)
+    _write(output, NAME, "hello")
+    provider = FakeCredentials({"GIT_AUTHOR_NAME": "from-credentials"})
+    _publisher(output, checkout, remote, credentials=provider).sync()
+    assert provider.calls == 1
+    author = _git(tmp_path, "--git-dir", str(remote), "log", "-1", "--format=%an", "main")
+    assert author == "from-credentials"
+
+
+def test_missing_sign_in_stops_sync_before_git_runs(tmp_path: Path) -> None:
+    from huske.sync.credentials import CredentialError
+
+    remote, output, checkout = _setup(tmp_path)
+    provider = FakeCredentials(error=CredentialError("Huske isn't connected to GitHub"))
+    with pytest.raises(SyncError, match="isn't connected") as excinfo:
+        _publisher(output, checkout, remote, credentials=provider).sync()
+    assert not excinfo.value.retryable
+    assert not checkout.exists()
+
+
+@pytest.mark.parametrize(
+    ("stderr", "expected"),
+    [
+        (
+            "remote: Repository not found.\n"
+            "fatal: repository 'https://github.com/octo/t.git/' not found\n",
+            "isn't shared with Huske Sync",
+        ),
+        (
+            "remote: Invalid username or token. Password authentication is not supported.\n"
+            "fatal: Authentication failed for 'https://github.com/octo/t.git/'\n",
+            "Connect GitHub",
+        ),
+        (
+            "remote: Permission to octo/t.git denied to octo.\n"
+            "fatal: unable to access 'https://github.com/octo/t.git/': "
+            "The requested URL returned error: 403\n",
+            "isn't shared with Huske Sync",
+        ),
+    ],
+)
+def test_github_app_failures_point_at_the_app(stderr: str, expected: str) -> None:
+    error = describe_git_failure(stderr, github_app=True)
+    assert expected in str(error)
+    assert "SSH" not in str(error)
+    assert not error.retryable
