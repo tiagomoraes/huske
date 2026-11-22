@@ -38,6 +38,7 @@ from huske.recovery.scanner import (
 )
 from huske.screenshots import ScreenshotCapturer
 from huske.session import RecordingSession
+from huske.sync.worker import SyncStatus
 from huske.transcribe.worker import TranscriptionWorker, chunk_to_job
 
 _HEARTBEAT_TIMEOUT_SECONDS = 5.0
@@ -285,6 +286,8 @@ def run_session(
         if distill_worker is not None:
             distill_worker.submit(str(path))
 
+    sync_status = SyncStatus()
+
     def _drain_sync() -> None:
         if sync_worker is None:
             return
@@ -292,17 +295,31 @@ def run_session(
             evt = sync_worker.poll_event(timeout=0.0)
             if evt is None:
                 break
-            if not evt.get("ok"):
-                on_event("warn", f"cloud sync: {evt.get('error', 'push failed')}")
+            # A failure (or a transcript the repository holds a different copy
+            # of) stays on screen as a sticky warning until a clean run clears
+            # it; the activity feed gets one line per distinct problem.
+            notice = sync_status.apply(evt)
+            if notice.warning is None:
+                state.clear_warning("sync")
             else:
-                changed = int(evt.get("changed", 0))
-                if changed:
-                    on_event("info", f"cloud sync: published {changed} transcript(s)")
+                state.set_warning("sync", notice.warning)
+            if notice.event is not None:
+                on_event(*notice.event)
+            if evt.get("ok"):
                 log.info(
                     "cloud_sync",
-                    changed=changed,
+                    changed=int(evt.get("changed", 0)),
+                    updated=int(evt.get("updated", 0)),
+                    conflicts=len(evt.get("conflicts") or []),
                     commit=evt.get("commit"),
                     pushed=evt.get("pushed"),
+                )
+            else:
+                log.warning(
+                    "cloud_sync_failed",
+                    error=evt.get("error"),
+                    attempts=evt.get("attempts"),
+                    retryable=evt.get("retryable"),
                 )
 
     def _drain_distill() -> None:

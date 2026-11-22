@@ -465,12 +465,28 @@ def export_cmd(
 def sync(
     output_root: Path | None = typer.Option(None, "--output-root"),
     config_path: Path | None = typer.Option(None, "--config"),
+    republish: list[str] = typer.Option(
+        [],
+        "--republish",
+        help=(
+            "Publish this Mac's copy of a transcript path again, replacing a copy "
+            "that was changed in the repository or re-adding one deleted there. "
+            "Repeatable."
+        ),
+        metavar="PATH",
+    ),
 ) -> None:
-    """Publish every transcript not yet present in the configured Git repository."""
+    """Publish new and updated transcripts to the configured Git repository."""
     from huske.sync.runner import run_sync
 
     overrides = _collect_overrides(output_root=output_root)
-    raise typer.Exit(run_sync(config_path=config_path, cli_overrides=overrides))
+    raise typer.Exit(
+        run_sync(
+            config_path=config_path,
+            cli_overrides=overrides,
+            republish=tuple(republish),
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
