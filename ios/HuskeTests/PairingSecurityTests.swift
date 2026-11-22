@@ -11,6 +11,7 @@
 
 import HuskeSync
 import Network
+import Security
 import XCTest
 @testable import Huske
 
@@ -964,7 +965,8 @@ final class PairingSecurityTests: XCTestCase {
         XCTAssertFalse(sync.isRejected)
     }
 
-    func testTheInstallIDIsStableAndPerKeychainItem() {
+    func testTheInstallIDIsStableAndPerKeychainItem() throws {
+        try Self.skipWithoutKeychain()
         let service = "cloud.tiagomoraes.huske.ios.tests.install-\(UUID().uuidString)"
         defer { InstallIdentity.remove(service: service) }
         let first = InstallIdentity.load(service: service)
@@ -974,6 +976,23 @@ final class PairingSecurityTests: XCTestCase {
         let other = "\(service)-other"
         defer { InstallIdentity.remove(service: other) }
         XCTAssertNotEqual(InstallIdentity.load(service: other), first)
+    }
+
+    /// CI builds the test host with `CODE_SIGNING_ALLOWED=NO`, and an unsigned
+    /// app has no Keychain (`errSecMissingEntitlement`). Locally signed runs
+    /// and real devices do have one.
+    private static func skipWithoutKeychain() throws {
+        let probe: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "cloud.tiagomoraes.huske.ios.tests.keychain-probe-\(UUID().uuidString)",
+            kSecAttrAccount as String: "probe",
+            kSecValueData as String: Data([1]),
+        ]
+        let status = SecItemAdd(probe as CFDictionary, nil)
+        SecItemDelete(probe as CFDictionary)
+        if status == errSecMissingEntitlement {
+            throw XCTSkip("No Keychain in this unsigned test host (CI builds with CODE_SIGNING_ALLOWED=NO)")
+        }
     }
 
     // MARK: the network or the file
