@@ -115,3 +115,99 @@ def probe_distill(
         f"Run `ollama pull {model}`.",
         reason="model_missing",
     )
+
+
+def probe_postprocess(cfg: object, *, timeout: float = 5.0) -> Readiness:
+    """Readiness of the configured post-processing target, for any backend.
+
+    Never sends transcript text, and never contacts a cloud provider (a doctor
+    run must not leak an API key's use or cost money): for cloud targets it
+    checks the key, the consent and the model locally. ``huske llm test``
+    is the explicit end-to-end check.
+    """
+    from huske.distill.providers import consent_granted, resolve_target
+
+    model = getattr(cfg, "distill_model", None)
+    if model in ("heuristic", "fake"):
+        return Readiness(True, f"backend '{model}' (no daemon needed)", reason="no_daemon")
+    target = resolve_target(cfg)
+    label = target.provider.label
+    if target.name in ("mlx", "ollama"):
+        return probe_distill(
+            target.model or "", backend=target.name, endpoint=target.endpoint or "", timeout=timeout
+        )
+    if target.name == "apple":
+        from huske.distill.apple import probe_apple
+
+        status = probe_apple(getattr(cfg, "language", None))
+        if status.available:
+            detail = f"Apple Intelligence is ready ({status.context_size:,}-token context)"
+            if status.locale_supported is False:
+                return Readiness(
+                    False,
+                    "Apple Intelligence doesn't support this transcript language",
+                    "Choose another way to clean up transcripts, or change `language`.",
+                    reason="unsupported_language",
+                )
+            return Readiness(True, detail, reason="ready")
+        return Readiness(False, status.detail, status.hint, reason=status.reason or "unknown")
+    if target.provider.needs_key:
+        from huske.distill import keychain
+
+        if not keychain.has_key(target.name):
+            return Readiness(
+                False,
+                f"no {label} API key in the Keychain",
+                f"Add it in Huske.app → Configuration, or run `huske llm key set {target.name}`.",
+                reason="needs_key",
+            )
+    if not consent_granted(target, cfg):
+        return Readiness(
+            False,
+            f"sending transcripts to {target.host} hasn't been allowed",
+            "Allow it in Huske.app → Configuration, or run `huske llm allow-cloud`.",
+            reason="needs_consent",
+        )
+    if target.provider.placement == "cloud":
+        if not target.model:
+            return Readiness(
+                False,
+                f"no {label} model chosen",
+                "Pick one in Huske.app, or `huske llm models` then "
+                "`huske config set distill_model <id>`.",
+                reason="needs_model",
+            )
+        return Readiness(True, f"{label}: {target.model} (sends transcripts to {target.host})",
+                         reason="ready")
+    # openai_compatible: a reachable server with a model.
+    from huske.distill.client import DistillError
+    from huske.distill.http_llm import OpenAICompatibleBackend
+
+    key = None
+    if target.provider.accepts_key:
+        from huske.distill import keychain
+
+        key = keychain.get_key(target.name)
+    backend = OpenAICompatibleBackend(target, consented=True, api_key=key, timeout=timeout)
+    try:
+        models = backend.list_models()
+    except DistillError as exc:
+        return Readiness(
+            False,
+            f"{label} at {target.endpoint} is not answering: {exc}",
+            "Start the server (LM Studio: Developer → Start server) or fix distill_endpoint.",
+            reason="unreachable",
+        )
+    if target.model and models and target.model not in models:
+        return Readiness(
+            False,
+            f"model '{target.model}' isn't loaded on {target.endpoint} "
+            f"(have: {', '.join(models[:5]) or 'none'})",
+            "Load it in the server, or pick one of the listed models.",
+            reason="model_missing",
+        )
+    if not target.model and not models:
+        return Readiness(False, f"{label} lists no models", "Load a model in the server.",
+                         reason="model_missing")
+    chosen = target.model or models[0]
+    return Readiness(True, f"{label}: {chosen} at {target.endpoint}", reason="ready")

@@ -35,7 +35,7 @@ def test_distill_defaults_are_light_and_opt_in() -> None:
     assert cfg.distill_enabled is False  # opt-in; never on by default
     assert cfg.distill_backend == "mlx"  # built-in: no external daemon
     # Tiny correction model — not a 4B statement extractor.
-    assert cfg.distill_model == "mlx-community/Qwen3.5-0.8B-4bit"
+    assert cfg.distill_model is None  # resolved per backend (huske.distill.providers)
     assert cfg.distill_think is False  # non-reasoning distillation by default
 
 
@@ -196,3 +196,106 @@ def test_unknown_cli_override_still_fails() -> None:
 
     with pytest.raises(ValidationError):
         load_config(None, {"no_such_option": 1})
+
+
+# --- transcription quality: language, dictionary, LLM post-processing -------
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [("pt", "pt"), ("PT", "pt"), ("pt-BR", "pt"), ("pt_BR", "pt"), ("portuguese", "pt"),
+     ("auto", None), ("", None), (None, None)],
+)
+def test_language_is_normalized(raw: str | None, expected: str | None) -> None:
+    assert RuntimeConfig(language=raw).language == expected
+
+
+def test_unknown_language_is_rejected() -> None:
+    with pytest.raises(ValueError, match="unknown language"):
+        RuntimeConfig(language="klingon")
+
+
+def test_vocabulary_defaults_empty_and_cleans_input() -> None:
+    cfg = RuntimeConfig()
+    assert cfg.vocabulary == []
+    assert cfg.vocabulary_replacements == {}
+    cleaned = RuntimeConfig(
+        vocabulary=[" OKR ", "", "okr", "Kubernetes"],
+        vocabulary_replacements={" cube ernetes ": "Kubernetes"},
+    )
+    assert cleaned.vocabulary == ["OKR", "Kubernetes"]
+    assert cleaned.vocabulary_replacements == {"cube ernetes": "Kubernetes"}
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [["x" * 81], ["line\nbreak"], ["tab\there"]],
+)
+def test_vocabulary_rejects_unusable_entries(bad: list[str]) -> None:
+    with pytest.raises(ValueError):
+        RuntimeConfig(vocabulary=bad)
+
+
+def test_vocabulary_replacement_needs_both_sides() -> None:
+    with pytest.raises(ValueError):
+        RuntimeConfig(vocabulary_replacements={"husky": ""})
+
+
+def test_vocabulary_round_trips_through_toml(tmp_path: Path) -> None:
+    cfg_file = tmp_path / "config.toml"
+    update_user_config(
+        {"vocabulary": ["OKR", "Huske"], "vocabulary_replacements": {"husky": "Huske"}},
+        config_path=cfg_file,
+    )
+    cfg = load_config(config_path=cfg_file)
+    assert cfg.vocabulary == ["OKR", "Huske"]
+    assert cfg.vocabulary_replacements == {"husky": "Huske"}
+
+
+@pytest.mark.parametrize(
+    "backend", ["mlx", "ollama", "apple", "openai_compatible", "openai", "anthropic", "openrouter"]
+)
+def test_every_llm_backend_is_accepted(backend: str) -> None:
+    assert RuntimeConfig(distill_backend=backend).distill_backend == backend  # type: ignore[arg-type]
+
+
+def test_llm_post_processing_is_off_with_no_cloud_consent_by_default() -> None:
+    cfg = RuntimeConfig()
+    assert cfg.distill_enabled is False
+    assert cfg.distill_cloud_consent is None
+    assert cfg.distill_instructions == ""
+    assert cfg.distill_context_tokens is None
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    ["https://user:secret@api.example.com/v1", "ftp://example.com", "not a url", "http://"],
+)
+def test_distill_endpoint_rejects_unsafe_values(endpoint: str) -> None:
+    with pytest.raises(ValueError):
+        RuntimeConfig(distill_endpoint=endpoint)
+
+
+def test_distill_endpoint_accepts_local_and_remote_urls() -> None:
+    assert RuntimeConfig(distill_endpoint="http://127.0.0.1:1234/v1").distill_endpoint == (
+        "http://127.0.0.1:1234/v1"
+    )
+    assert RuntimeConfig(distill_endpoint=" https://llm.example.com/v1/ ").distill_endpoint == (
+        "https://llm.example.com/v1"
+    )
+
+
+def test_distill_cloud_consent_is_a_bare_host() -> None:
+    assert RuntimeConfig(distill_cloud_consent="API.OpenAI.com").distill_cloud_consent == (
+        "api.openai.com"
+    )
+    with pytest.raises(ValueError):
+        RuntimeConfig(distill_cloud_consent="https://api.openai.com/v1")
+
+
+def test_distill_instructions_are_bounded() -> None:
+    assert RuntimeConfig(distill_instructions="  Remove filler words.  ").distill_instructions == (
+        "Remove filler words."
+    )
+    with pytest.raises(ValueError):
+        RuntimeConfig(distill_instructions="x" * 4001)

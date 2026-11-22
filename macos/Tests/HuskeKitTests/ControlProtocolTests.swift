@@ -62,6 +62,20 @@ final class ControlProtocolTests: XCTestCase {
         XCTAssertEqual(snap.asrRssMb, 0)
         XCTAssertEqual(snap.distillRssMb, 0)
         XCTAssertEqual(snap.engineRssMb, 0)
+        XCTAssertEqual(snap.distillLabel, "")
+    }
+
+    func testDecodesDistillLabel() throws {
+        let line = """
+            {"type":"state","session_id":"s","recording":false,"paused":false,\
+            "stopping":false,"current_chunk_seq":0,"queue_depth":0,\
+            "screenshots_enabled":false,"distill_enabled":true,"last_saved_name":null,\
+            "distill_label":"Apple Intelligence"}
+            """
+        guard case .state(let snap) = try ControlProtocol.decode(line: line) else {
+            return XCTFail("expected state message")
+        }
+        XCTAssertEqual(snap.distillLabel, "Apple Intelligence")
     }
 
     func testDecodesDevices() throws {

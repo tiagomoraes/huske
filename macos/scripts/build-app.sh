@@ -21,6 +21,10 @@
 # See docs/adr/0010-developer-id-signing-and-notarization.md. A secure
 # timestamp needs a real identity, so the ad-hoc path skips it.
 #
+# The app carries one helper executable, Contents/Helpers/huske-apple-llm
+# (ADR 0013): the engine runs it to reach Apple Intelligence. It is built from
+# the same package in the same configuration and signed as nested code.
+#
 # Notarization is a separate step: macos/scripts/notarize-app.sh.
 set -euo pipefail
 
@@ -44,11 +48,14 @@ fi
 
 echo "==> swift build -c $CONFIG (version $VERSION)"
 swift build -c "$CONFIG" --product Huske
+swift build -c "$CONFIG" --product huske-apple-llm
 
 BIN=$(swift build -c "$CONFIG" --product Huske --show-bin-path)/Huske
+HELPER_BIN=$(swift build -c "$CONFIG" --product huske-apple-llm --show-bin-path)/huske-apple-llm
 APP=dist/Huske.app
+HELPER="$APP/Contents/Helpers/huske-apple-llm"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Helpers"
 
 echo "==> icon"
 if [[ ! -f .cache/AppIcon.icns ]]; then
@@ -64,6 +71,22 @@ cp "$BIN" "$APP/Contents/MacOS/Huske"
 BUNDLE_DIR=$(dirname "$BIN")
 if [[ -d "$BUNDLE_DIR/Huske_Huske.bundle" ]]; then
     cp -R "$BUNDLE_DIR/Huske_Huske.bundle" "$APP/Contents/Resources/"
+fi
+
+echo "==> helper: Contents/Helpers/huske-apple-llm"
+cp "$HELPER_BIN" "$HELPER"
+# An SDK without FoundationModels (Xcode < 26) still builds the helper, but it
+# can only ever answer "not_built" — the engine then says so instead of
+# offering Apple Intelligence. Worth a loud line in the build log.
+HELPER_STATUS=$("$HELPER" --status 2>/dev/null || true)
+if [[ "$HELPER_STATUS" =~ \"reason\"[[:space:]]*:[[:space:]]*\"not_built\" ]]; then
+    echo "warning: this SDK has no FoundationModels — the bundled huske-apple-llm" >&2
+    echo "         reports not_built, so Apple Intelligence will not be offered." >&2
+    echo "         Build with Xcode 26 or newer to include it." >&2
+elif [[ -z "$HELPER_STATUS" ]]; then
+    echo "warning: huske-apple-llm --status printed nothing" >&2
+else
+    echo "    $HELPER_STATUS"
 fi
 
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -125,7 +148,8 @@ if [[ -z "$IDENTITY" ]]; then
 fi
 
 # Nested code is sealed without entitlements: entitlements belong to the
-# executable the system launches, and the font bundle has no executable.
+# executable the system launches. The font bundle has no executable, and the
+# helper is started by the engine, not by the system, and needs none.
 NESTED_ARGS=(--force --options runtime)
 if [[ -n "$KEYCHAIN" ]]; then
     NESTED_ARGS+=(--keychain "$KEYCHAIN")
@@ -165,6 +189,14 @@ while IFS= read -r -d '' nested; do
     echo "    nested: ${nested#"$APP"/}"
     codesign "${NESTED_ARGS[@]}" --sign "$IDENTITY" "$nested"
 done < <(find "$APP/Contents" -depth -name '*.bundle' -type d -print0)
+
+# The helper is a bare Mach-O, not a bundle, so the loop above never sees it.
+# Signed before the app for the same inside-out reason, with the hardened
+# runtime (and a timestamp when the identity is real) so notarization accepts
+# it, and a stable identifier rather than codesign's file-name-plus-hash.
+echo "    nested: ${HELPER#"$APP"/}"
+codesign "${NESTED_ARGS[@]}" --identifier cloud.tiagomoraes.huske.apple-llm \
+    --sign "$IDENTITY" "$HELPER"
 
 codesign "${APP_ARGS[@]}" --sign "$IDENTITY" "$APP"
 codesign --verify --deep --strict "$APP"

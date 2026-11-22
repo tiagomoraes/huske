@@ -21,7 +21,9 @@ struct MenuBarContent: View {
                 Button(snap.screenshotsEnabled ? "Disable Screenshots" : "Enable Screenshots") {
                     model.session.toggleScreenshots()
                 }
-                Button(snap.distillEnabled ? "Disable Distillation" : "Enable Distillation") {
+                Button(
+                    snap.distillEnabled ? "Turn Off Transcript Cleanup" : "Turn On Transcript Cleanup"
+                ) {
                     model.session.toggleDistill()
                 }
                 Divider()

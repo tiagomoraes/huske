@@ -239,31 +239,26 @@ def _system_audio_checks(cfg: RuntimeConfig) -> list[Check]:
     ]
 
 def _distill_checks(cfg: RuntimeConfig) -> list[Check]:
-    """Diagnostics for the optional LLM-distillation subsystem.
+    """Diagnostics for the optional transcript cleanup (LLM post-processing).
 
-    Only probes the local LLM daemon when ``distill_enabled`` is set (the user
-    has opted in) — so ``huske doctor`` never waits on a daemon the 99% who
-    don't use distillation have not installed. When enabled, a missing daemon or
-    un-pulled model is a real failure with a fix-it hint.
+    Only probes when ``distill_enabled`` is set (the user has opted in) — so
+    ``huske doctor`` never waits on a daemon most people have not installed.
+    Cloud targets are checked locally (key in the Keychain, consent, model):
+    a doctor run never contacts a provider or sends text anywhere.
     """
     if not cfg.distill_enabled:
         return [
             Check(
                 "distill",
                 True,
-                "off (opt-in: set distill_enabled; the built-in MLX model "
-                "downloads on first use)",
+                "off (opt-in transcript cleanup: set distill_enabled; the built-in MLX "
+                "model downloads on first use)",
             )
         ]
 
-    from huske.distill.health import probe_distill
+    from huske.distill.health import probe_postprocess
 
-    r = probe_distill(
-        cfg.distill_model,
-        backend=cfg.distill_backend,
-        endpoint=cfg.distill_endpoint,
-        timeout=5.0,
-    )
+    r = probe_postprocess(cfg, timeout=5.0)
     return [Check("distill", r.ok, r.detail, r.hint)]
 
 
@@ -321,51 +316,56 @@ def run_doctor(
     # huske version.
     checks.append(Check("huske version", True, __version__))
 
-    # ASR backend importable (check the active engine).
+    # The transcription model and its family's runtime (see huske/transcribe/catalog.py).
     import importlib.metadata as _md
 
-    if cfg.asr_engine == "parakeet":
-        try:
-            import parakeet_mlx  # noqa: F401
+    from huske.transcribe.catalog import is_downloaded, resolve_model
+    from huske.transcribe.engines import FAMILIES
 
-            checks.append(Check("parakeet-mlx", True, _md.version("parakeet-mlx")))
-        except Exception as exc:
+    try:
+        spec = resolve_model(cfg)
+    except ValueError as exc:
+        checks.append(Check("model", False, str(exc), "Pick one with `huske models use`."))
+        spec = None
+    if spec is not None:
+        family = FAMILIES[spec.family]
+        package = family.runtime.replace("_", "-")
+        if family.available():
+            try:
+                version = _md.version(package)
+            except _md.PackageNotFoundError:
+                version = "installed"
+            checks.append(Check(package, True, version))
+        else:
             checks.append(
                 Check(
-                    "parakeet-mlx",
+                    package,
                     False,
-                    str(exc),
-                    "pip install 'parakeet-mlx' (Apple Silicon Mac only).",
+                    f"{family.label} needs {package}, which isn't installed",
+                    f"pip install '{package}' (Apple Silicon Mac only).",
                 )
             )
-        model_desc = f"'{cfg.parakeet_model}' will be downloaded on first use if missing"
-    else:
-        try:
-            import mlx_whisper  # noqa: F401
+        state = "downloaded" if is_downloaded(spec) else "downloads on first use"
+        size = f", {spec.size_mb / 1000:.1f} GB" if spec.size_mb else ""
+        problem = None
+        if not spec.in_catalog:
+            from huske.transcribe.catalog import layout_problem
 
-            checks.append(Check("mlx-whisper", True, _md.version("mlx-whisper")))
-        except Exception as exc:
+            problem = layout_problem(spec)
+        if problem:
+            checks.append(Check("model", False, problem, "Pick one with `huske models use`."))
+        else:
+            checks.append(Check("model", True, f"{spec.name} ({spec.repo}{size}) — {state}"))
+        if spec.id == "whisper-large-v3":
             checks.append(
                 Check(
-                    "mlx-whisper",
-                    False,
-                    str(exc),
-                    "pip install 'mlx-whisper>=0.4' (Apple Silicon Mac only).",
+                    "whisper size",
+                    True,
+                    "large-v3 is ~3 GB and 3x slower than large-v3-turbo, which pins the "
+                    "language the same way",
+                    "`huske models use whisper-large-v3-turbo` for daily use.",
                 )
             )
-        model_desc = f"'{cfg.model}' will be downloaded on first use if missing"
-
-    # Model cached check (does not download — we attempt to load only at run time).
-    checks.append(Check("model", True, model_desc))
-    if cfg.asr_engine == "whisper" and cfg.model == "large-v3":
-        checks.append(
-            Check(
-                "whisper size",
-                True,
-                "large-v3 is ~2.9 GB resident; large-v3-turbo is ~1.5 GB with the same language pin",
-                'set model = "large-v3-turbo" for daily use.',
-            )
-        )
     checks.append(
         Check(
             "metal footprint",
@@ -382,25 +382,35 @@ def run_doctor(
     # decode window — so a configured `language` is a hint there, not a promise,
     # and code-switched speech can come out in English. Say so plainly rather
     # than letting the transcript frontmatter imply otherwise.
-    if cfg.language:
-        pinned = cfg.asr_engine == "whisper"
-        checks.append(
-            Check(
-                "language",
-                pinned,
-                f"'{cfg.language}'" + ("" if pinned else " (parakeet cannot enforce it)"),
-                None
-                if pinned
-                else (
-                    "parakeet infers the language per decode window, so speech "
-                    "mixing "
-                    f"{cfg.language} with English can be transcribed as English. "
-                    "huske re-decodes windows it catches drifting; to enforce "
-                    "the language outright set asr_engine = \"whisper\" (with "
-                    'model = "large-v3-turbo").'
-                ),
+    if cfg.language and spec is not None:
+        support = spec.language_support(cfg.language)
+        if support == "unsupported":
+            checks.append(
+                Check(
+                    "language",
+                    False,
+                    f"'{cfg.language}' is not a language {spec.name} transcribes",
+                    "Choose a model that covers it (`huske models`), or change `language`.",
+                )
             )
-        )
+        else:
+            pinned = support == "pinned"
+            checks.append(
+                Check(
+                    "language",
+                    pinned,
+                    f"'{cfg.language}'"
+                    + ("" if pinned else f" ({spec.name} cannot enforce it)"),
+                    None
+                    if pinned
+                    else (
+                        f"{spec.name} works out the language per decode window, so speech "
+                        f"mixing {cfg.language} with English can come out as English. "
+                        "huske re-decodes windows it catches drifting; to enforce the "
+                        "language outright use `huske models use whisper-large-v3-turbo`."
+                    ),
+                )
+            )
 
     # sounddevice working.
     try:

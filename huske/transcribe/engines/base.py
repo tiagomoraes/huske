@@ -20,6 +20,8 @@ if TYPE_CHECKING:
     import numpy as np
     import numpy.typing as npt
 
+    from huske.transcribe.vocabulary import Vocabulary
+
 # Both engines run on 16 kHz mono.
 TARGET_SAMPLE_RATE = 16000
 
@@ -119,6 +121,17 @@ class TranscriptionEngine(abc.ABC):
     #: ``<engine>:<short-model>`` recorded in transcript frontmatter, e.g.
     #: ``parakeet:tdt-0.6b-v3`` or ``mlx-whisper:medium``.
     model_label: str = "unknown"
+
+    def set_options(
+        self, *, language: str | None, vocabulary: Vocabulary | None, word_boost: bool = False
+    ) -> None:
+        """Per-job spoken language and dictionary (an import can differ from live).
+
+        Cheap by contract: the worker calls it before every job, and it must
+        never reload the model. Engines that can't use an option ignore it.
+        """
+        self._language = language
+        self._vocabulary = vocabulary
 
     @abc.abstractmethod
     def transcribe(self, audio: npt.NDArray[np.float32]) -> list[Segment]:

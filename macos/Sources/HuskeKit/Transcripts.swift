@@ -29,6 +29,18 @@ public struct TranscriptMeta: Equatable, Sendable {
     public var extra: [String: String] = [:]
 
     public init() {}
+
+    /// `<provider>:<model>` when a language model cleaned this transcript up
+    /// (`apple:apple-on-device`, `anthropic:claude-haiku-5-5`).
+    public var postprocessedBy: String? {
+        extra["postprocessed_by"].flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// File name of the untouched ASR output kept beside a cleaned-up
+    /// transcript (`<name>.asr.txt`, same format as the transcript).
+    public var rawTranscript: String? {
+        extra["raw_transcript"].flatMap { $0.isEmpty ? nil : $0 }
+    }
 }
 
 public struct TranscriptRun: Equatable, Sendable, Identifiable {
@@ -108,6 +120,20 @@ public enum TranscriptParser {
               parts[0].count == 4, parts[1].count == 2, parts[2].count == 2
         else { return false }
         return parts.allSatisfy { $0.allSatisfy(\.isNumber) }
+    }
+
+    /// Where the raw sibling named by `raw_transcript` lives: next to the
+    /// transcript, and only there. The name comes from a file anyone can
+    /// edit, so anything that is not a plain file name — a path separator,
+    /// `.`/`..`, a hidden name, the transcript itself — resolves to nothing.
+    public static func rawSiblingURL(for transcript: URL, rawName: String) -> URL? {
+        let name = rawName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty,
+              !name.contains("/"), !name.contains("\\"), !name.contains("\0"),
+              !name.hasPrefix("."), !name.hasPrefix("~"),
+              name != transcript.lastPathComponent
+        else { return nil }
+        return transcript.deletingLastPathComponent().appendingPathComponent(name, isDirectory: false)
     }
 
     // MARK: full document

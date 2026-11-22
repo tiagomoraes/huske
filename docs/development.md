@@ -64,6 +64,29 @@ pytest tests/integration/test_real_whisper.py
 `test_real_whisper.py` downloads and runs the `tiny` mlx-whisper model
 (Apple Silicon only — skipped on other platforms).
 
+### Apple Intelligence helper
+
+Transcript cleanup on Apple Intelligence goes through `huske-apple-llm`, a
+small Swift executable in `macos/` (ADR 0013). Build it and point the engine at
+it:
+
+```bash
+cd macos && swift build --product huske-apple-llm
+export HUSKE_APPLE_LLM_HELPER=$(swift build --product huske-apple-llm --show-bin-path)/huske-apple-llm
+$HUSKE_APPLE_LLM_HELPER --status     # {"available": true, "context_size": 8192, …}
+```
+
+It needs an SDK with FoundationModels (Xcode 26+); built with an older SDK it
+compiles and reports `not_built`. The real-model test runs only when asked:
+
+```bash
+HUSKE_TEST_APPLE_HELPER=$HUSKE_APPLE_LLM_HELPER pytest tests/unit/test_apple_llm.py
+```
+
+When experimenting with cloud providers, set `HUSKE_KEYCHAIN` to a throwaway
+keychain file (`security create-keychain -p pw /tmp/test.keychain-db`) so keys
+never land in your login keychain, and use synthetic text only.
+
 ## Project layout
 
 ```text
@@ -71,7 +94,8 @@ huske/
   capture/       microphone and system-audio capture
   chunker/       WAV chunk rotation
   recovery/      orphaned audio recovery
-  transcribe/    worker process and transcript writing
+  transcribe/    worker process, engines, dictionary, transcript writing
+  distill/       optional transcript cleanup (LLM backends, keys, consent)
   sync/          Git transcript publisher
 services/
   huske_mcp/     independent Linux/VPS MCP service

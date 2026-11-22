@@ -15,6 +15,7 @@ from typing import Any
 from huske.config import load_config
 from huske.distill.client import DistillError, OllamaClient
 from huske.distill.distiller import build_distiller, distill_transcript, source_sha256_for
+from huske.distill.providers import provider
 from huske.distill.sidecar import sidecar_is_current, write_sidecar
 from huske.distill.worker import iter_transcripts
 from huske.search.parser import ParseError
@@ -55,15 +56,14 @@ def _preflight(cfg: Any) -> str | None:
     if cfg.distill_model in ("heuristic", "fake"):
         return None
     if cfg.distill_backend != "ollama":
-        from huske.distill.health import probe_distill
+        from huske.distill.health import probe_postprocess
 
-        r = probe_distill(
-            cfg.distill_model, backend=cfg.distill_backend, endpoint=cfg.distill_endpoint
-        )
+        r = probe_postprocess(cfg)
         if r.ok:
             return None
         return f"{r.detail}\n  hint: {r.hint or ''}".rstrip()
-    client = OllamaClient(cfg.distill_endpoint, timeout=cfg.distill_timeout_seconds)
+    endpoint = cfg.distill_endpoint or provider("ollama").default_endpoint or ""
+    client = OllamaClient(endpoint, timeout=cfg.distill_timeout_seconds)
     try:
         models = client.list_models()
     except DistillError as exc:
@@ -71,7 +71,7 @@ def _preflight(cfg: Any) -> str | None:
             f"{exc}\n  hint: start the daemon (`ollama serve`) or set distill_endpoint."
         )
     # Ollama tags carry a ``:latest`` suffix when none is given; match loosely.
-    wanted = cfg.distill_model
+    wanted = cfg.distill_model or provider("ollama").default_model or ""
     if wanted not in models and f"{wanted}:latest" not in models and not any(
         m.split(":", 1)[0] == wanted.split(":", 1)[0] and wanted in m for m in models
     ):
@@ -103,22 +103,16 @@ def run_distill(
         _print(f"[error] {err}")
         return 1
 
-    distiller = build_distiller(
-        cfg.distill_model,
-        backend=cfg.distill_backend,
-        endpoint=cfg.distill_endpoint,
-        timeout=cfg.distill_timeout_seconds,
-        max_statements=cfg.distill_max_statements_per_passage,
-        think=cfg.distill_think,
-    )
+    try:
+        distiller = build_distiller(cfg)
+    except DistillError as exc:
+        _print(f"[error] {exc}")
+        return 1
 
     if gentle:
         _lower_process_priority()
         _print(f"[huske] low-impact mode: nice +{_GENTLE_NICE}. Pass --fast to run flat out.")
-    _print(
-        f"[huske] correcting transcripts under {cfg.output_root} "
-        f"(model {cfg.distill_model} via {cfg.distill_backend})…"
-    )
+    _print(f"[huske] cleaning up transcripts under {cfg.output_root} ({distiller.label})…")
 
     summary = DistillSummary()
     for path in iter_transcripts(cfg.output_root):
@@ -128,19 +122,26 @@ def run_distill(
             if not force and sidecar_is_current(path, source_sha):
                 summary.files_skipped += 1
                 continue
-            sidecar = distill_transcript(
-                path, distiller, max_statements_per_passage=cfg.distill_max_statements_per_passage
-            )
+            sidecar = distill_transcript(path, distiller)
             write_sidecar(path, sidecar)
             summary.files_distilled += 1
             summary.statements += len(sidecar.statements)
-        except (ParseError, DistillError) as exc:
+        except DistillError as exc:
+            summary.files_failed += 1
+            summary.errors.append(f"{path.name}: {exc}")
+            if exc.kind in ("auth", "consent", "config"):
+                # Every remaining file would fail the same way; the raw
+                # transcripts stay as they are.
+                _print(f"[error] {exc}")
+                break
+        except ParseError as exc:
             summary.files_failed += 1
             summary.errors.append(f"{path.name}: {exc}")
         except Exception as exc:
             summary.files_failed += 1
             summary.errors.append(f"{path.name}: {exc}")
 
+    distiller.close()
     _print(
         f"\n{summary.files_distilled} corrected, {summary.files_skipped} unchanged, "
         f"{summary.files_failed} failed across {summary.files_seen} transcript(s); "

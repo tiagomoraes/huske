@@ -170,3 +170,16 @@ def test_devices_json_lists_devices(
         "AirPods Pro",
     ]
     assert payload["devices"][0]["host_api"] == "Core Audio"
+
+
+def test_set_stores_the_normalized_language_and_dictionary(tmp_path: Path) -> None:
+    from huske.config import _read_toml
+    from huske.config_tool import set_config_value
+
+    target = tmp_path / "config.toml"
+    assert set_config_value("language", "pt-BR", config_path=target) == 0
+    assert set_config_value("vocabulary", '[" OKR ", "okr", "Huske"]', config_path=target) == 0
+    assert set_config_value("language", "auto", config_path=target) == 0
+    data = _read_toml(target)
+    assert "language" not in data  # auto = unset
+    assert data["vocabulary"] == ["OKR", "Huske"]
