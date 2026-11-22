@@ -5,23 +5,21 @@ import WidgetKit
 struct HuskeLiveActivityBundle: WidgetBundle {
     var body: some Widget {
         RecordingLiveActivity()
-        if #available(iOS 18.0, *) {
-            StartRecordingControl()
-        }
+        RecordControl()
     }
 }
 
-/// Control Center / Lock Screen / Action button control: one tap opens Huske
-/// and starts a recording.
-@available(iOS 18.0, *)
-struct StartRecordingControl: ControlWidget {
+/// Control Center, Lock Screen and Action button control (Settings › Action
+/// Button › Controls › Huske). One press starts a recording in the background;
+/// the next stops and saves it. The Dynamic Island shows which state it is in.
+struct RecordControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: "cloud.tiagomoraes.huske.ios.start-recording") {
-            ControlWidgetButton(action: StartRecordingIntent()) {
-                Label("Record", systemImage: "mic.fill")
+            ControlWidgetButton(action: RecordControlIntent()) {
+                Label("Record", systemImage: "record.circle")
             }
         }
-        .displayName("Start Huske Recording")
-        .description("Opens Huske and starts a new recording.")
+        .displayName("Huske Record")
+        .description("Starts a recording without opening Huske. Press again to stop and save it.")
     }
 }

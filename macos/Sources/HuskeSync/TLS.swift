@@ -13,6 +13,13 @@ import Network
 import Security
 
 enum TLSPSK {
+    /// TCP keepalive: first probe after `keepaliveIdle` seconds of silence,
+    /// then every `keepaliveInterval`; `keepaliveCount` unanswered probes
+    /// drop the connection — 30 + 4 × 5 = 50 s for a half-open one.
+    static let keepaliveIdle = 30
+    static let keepaliveInterval = 5
+    static let keepaliveCount = 4
+
     static func clientParameters(identity: String, key: Data) -> NWParameters {
         let tls = NWProtocolTLS.Options()
         let sec = tls.securityProtocolOptions
@@ -68,8 +75,13 @@ enum TLSPSK {
     private static func parameters(tls: NWProtocolTLS.Options) -> NWParameters {
         let tcp = NWProtocolTCP.Options()
         tcp.noDelay = true
+        // Idle alone leaves the probe interval and count at the system
+        // defaults (75 s × 8): a peer that vanished without a FIN — Wi-Fi
+        // dropped, the Mac slept — would hold the connection for ten minutes.
         tcp.enableKeepalive = true
-        tcp.keepaliveIdle = 30
+        tcp.keepaliveIdle = keepaliveIdle
+        tcp.keepaliveInterval = keepaliveInterval
+        tcp.keepaliveCount = keepaliveCount
         let params = NWParameters(tls: tls, tcp: tcp)
         // AWDL (peer-to-peer Wi-Fi), as AirDrop does: works when the phone
         // and the Mac are not on the same network.

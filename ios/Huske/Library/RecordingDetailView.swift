@@ -81,7 +81,9 @@ struct RecordingDetailView: View {
                         ShareLink(item: markdown) {
                             Label("Share Transcript", systemImage: "text.quote")
                         }
-                        Button("Copy Transcript", systemImage: "doc.on.doc") {
+                        // The Copy button above the transcript copies just the
+                        // words; this keeps the times and sources.
+                        Button("Copy with Timestamps", systemImage: "clock") {
                             UIPasteboard.general.string = markdown
                         }
                     }
@@ -274,7 +276,7 @@ private struct SyncStatusLine: View {
                         .font(.plexSans(15, relativeTo: .subheadline))
                         .foregroundStyle(badge.isProblem ? Brand.err : Brand.fgMuted)
                         .fixedSize(horizontal: false, vertical: true)
-                    if case .failed = badge {
+                    if badge.canRetry {
                         Button("Try again") { sync.retry(recording.id) }
                             .font(.plexSans(15, .medium, relativeTo: .subheadline))
                             .foregroundStyle(Brand.amber)
@@ -287,33 +289,9 @@ private struct SyncStatusLine: View {
     }
 
     private var statusLine: String? {
-        let mac = sync.macName
-        switch badge {
-        case .recording: return "Recording now."
-        case .damaged: return "This recording was cut off and can't be sent."
-        case .onPhone: return "On this iPhone. Pair your Mac to have it transcribed."
-        case .waitingForMac:
-            return sync.lastError ?? (sync.isMacReachable
-                ? "Ready to send to \(mac)."
-                : "Waiting for \(mac). Open Huske on your Mac.")
-        case let .uploading(fraction): return "Sending to \(mac) · \(Int(fraction * 100))%"
-        case .onMac:
-            return sync.engineAvailable == false
-                ? "On \(mac). It's transcribed once Huske's engine is set up there."
-                : "On \(mac), about to be transcribed."
-        case .queued: return "On \(mac), next in line to be transcribed."
-        case let .transcribing(done, total, _):
-            if let done, let total, total > 1 { return "\(mac) is transcribing it · \(done) of \(total)" }
-            return "\(mac) is transcribing it."
-        case .transcribed:
-            if let fetched = recording.transcript?.fetchedAt {
-                return "Transcribed on \(mac) · \(Format.relative(fetched))"
-            }
-            return "Transcribed on \(mac)"
-        case let .failed(reason):
-            if recording.sync.failure != nil { return reason ?? "Couldn't send this recording." }
-            return "\(mac) couldn't transcribe it" + (reason.map { ": \($0)" } ?? ".")
-        }
+        badge.sentence(
+            macName: sync.macName, waitingLine: sync.waitingLine, engineAvailable: sync.engineAvailable,
+            fetched: recording.transcript.map { Format.relative($0.fetchedAt) })
     }
 }
 
@@ -324,13 +302,39 @@ private struct TranscriptSection: View {
     let badge: SyncBadge
     let macName: String
 
+    /// What Copy puts on the clipboard: the words, ready to paste — the full
+    /// transcript, or the parts the Mac did transcribe.
+    private var copyableText: String? {
+        if let markdown = recording.transcript?.markdown, !markdown.isEmpty { return TranscriptText.plain(markdown) }
+        if let parts = recording.partialTranscript, !parts.markdown.isEmpty { return TranscriptText.plain(parts.markdown) }
+        return nil
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Rectangle().fill(Brand.divider).frame(height: 1)
+            // The rule that opens the transcript carries its one action.
+            HStack(spacing: 4) {
+                Rectangle().fill(Brand.divider).frame(height: 1)
+                if let text = copyableText {
+                    CopyTranscriptButton(text: text)
+                }
+            }
             if let markdown = recording.transcript?.markdown, !markdown.isEmpty {
                 TranscriptView(blocks: TranscriptParser.parse(markdown))
             } else if recording.transcript != nil {
                 placeholder("\(macName) heard no speech in this recording.")
+            } else if let parts = recording.partialTranscript {
+                // The parts the Mac did transcribe. While that is where the
+                // recording stands, the line under the title says so; while
+                // the Mac tries again it says that, so say here what this is.
+                if !badge.isPartial {
+                    Text(parts.earlierTryNote)
+                        .font(.plexSans(13, relativeTo: .footnote))
+                        .foregroundStyle(Brand.fgMuted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                TranscriptView(blocks: TranscriptParser.parse(parts.markdown))
             } else if recording.capture == .complete {
                 placeholder("The words appear here once \(macName) has transcribed it.")
             } else {
@@ -345,6 +349,43 @@ private struct TranscriptSection: View {
             .foregroundStyle(Brand.fgFaint)
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// One tap puts the whole transcript on the clipboard. It answers in place,
+/// "Copied" with a check for a moment, plus a tap you can feel. No toast.
+private struct CopyTranscriptButton: View {
+    let text: String
+    @State private var copied = false
+
+    var body: some View {
+        Button {
+            // Answer first: a long transcript (or the simulator's pasteboard
+            // sync) can take a moment to write, and the main thread must not
+            // wait for it. UIPasteboard is safe to use off the main thread.
+            copied = true
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            let words = text
+            DispatchQueue.global(qos: .userInitiated).async { UIPasteboard.general.string = words }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 15, weight: .medium))
+                Text(copied ? "Copied" : "Copy")
+                    .font(.plexSans(15, .medium, relativeTo: .subheadline))
+            }
+            .foregroundStyle(copied ? Brand.ok : Brand.amber)
+            .padding(.leading, 10)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(copied ? "Transcript copied" : "Copy transcript")
+        .task(id: copied) {
+            guard copied else { return }
+            try? await Task.sleep(for: .seconds(1.6))
+            copied = false
+        }
     }
 }
 

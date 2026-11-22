@@ -170,6 +170,26 @@ final class AppModel {
         phoneSync.attach(model: self)
     }
 
+    // MARK: launch
+
+    @ObservationIgnored private let launchGate = LaunchGate()
+
+    /// From the app delegate, once the app has launched — window or not. A
+    /// login item, or a main window that was closed at the last quit, starts
+    /// with no window, and `bootstrap()` used to run only from that window's
+    /// task: a paired iPhone could not reach the Mac (and "start recording
+    /// when Huske opens" did nothing) until someone opened the window.
+    func bootstrapAtLaunch() {
+        launchGate.startAtLaunch { [weak self] in await self?.bootstrap() }
+    }
+
+    /// From the main window's task: joins the launch run while it is still
+    /// going (a normal launch must not probe the engine twice); a window
+    /// opened later bootstraps again, as it always has.
+    func bootstrapFromWindow() async {
+        await launchGate.runFromWindow { [weak self] in await self?.bootstrap() }
+    }
+
     func bootstrap() async {
         if isDemo {
             let demo = DemoSession(controller: session)

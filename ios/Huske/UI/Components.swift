@@ -137,6 +137,9 @@ struct SyncBadgeView: View {
     let badge: SyncBadge
     var compact = true
     var showsDone = false
+    /// When set, a failure that Retry can fix carries its way out:
+    /// "Couldn't send — Retry".
+    var onRetry: (() -> Void)?
 
     var body: some View {
         if badge == .transcribed && !showsDone {
@@ -149,9 +152,19 @@ struct SyncBadgeView: View {
                     .foregroundStyle(badge.isProblem ? Brand.err : Brand.fgMuted)
                     .monospacedDigit()
                     .lineLimit(1)
+                    .accessibilityLabel(badge.accessibilityLabel)
+                if let onRetry, badge.canRetry {
+                    Text("—")
+                        .font(.plexSans(compact ? 13 : 14, relativeTo: .footnote))
+                        .foregroundStyle(Brand.fgFaint)
+                        .accessibilityHidden(true)
+                    Button("Retry", action: onRetry)
+                        .font(.plexSans(compact ? 13 : 14, .medium, relativeTo: .footnote))
+                        .foregroundStyle(Brand.amber)
+                        .buttonStyle(.borderless)
+                }
             }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(badge.accessibilityLabel)
+            .accessibilityElement(children: .combine)
         }
     }
 }
@@ -162,18 +175,24 @@ extension SyncBadge {
         case .recording: return .live
         case .onPhone, .waitingForMac: return .waiting
         case .uploading(let fraction): return .progress(fraction)
-        case .onMac, .queued: return .held
+        case .onMac, .queued, .retryingOnMac, .partial: return .held
         case let .transcribing(done, total, fraction):
-            if let done, let total, total > 0 { return .progress(Double(done) / Double(total)) }
-            return .progress(fraction.flatMap { $0 > 0 ? $0 : nil })
+            // The Mac's own progress when it gives one. Its "part 2 of 3"
+            // names the part being worked on, so counting it as done filled
+            // the ring for the whole last part.
+            if let fraction, fraction > 0 { return .progress(min(fraction, 1)) }
+            if fraction == nil, let done, let total, total > 0, done > 1 {
+                return .progress(Double(done - 1) / Double(total))
+            }
+            return .progress(nil)
         case .transcribed: return .done
-        case .failed, .damaged: return .failed
+        case .failed, .sendFailed, .damaged: return .failed
         }
     }
 
     var isProblem: Bool {
         switch self {
-        case .failed, .damaged: return true
+        case .failed, .sendFailed, .damaged: return true
         default: return false
         }
     }

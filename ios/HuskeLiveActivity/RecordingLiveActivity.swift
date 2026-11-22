@@ -1,10 +1,15 @@
 // Lock Screen banner + Dynamic Island for a recording in progress.
 //
-// State is the interface: a red dot + "REC" while recording, an amber pause
-// glyph + "PAUSED" when paused. The elapsed time is a system timer
-// (`Text(timerInterval:pauseTime:)`), so it ticks without app updates and
-// freezes exactly when paused. Widgets cannot animate continuously, so the
-// "pulse" is the coarse level meter the app refreshes at most every ~2 s.
+// The same instrument as the app's recorder (DESIGN.md, "Quiet instrument"):
+// state is a glyph and plain words, the elapsed time is the largest thing in
+// light tabular numerals, and the controls are hardware — a hairline ring with
+// a red square stops, a ring with a pause glyph pauses, an amber disc resumes.
+//
+// The elapsed time is a system timer (`Text(timerInterval:pauseTime:)`), so it
+// ticks without app updates and freezes exactly when paused. In a widget that
+// view is *flexible*: it takes all the width it is offered and must never get
+// `.fixedSize()` (its ideal width is unbounded — that pushed the rest of the
+// banner off-screen). Give it a frame and an alignment instead.
 
 import ActivityKit
 import AppIntents
@@ -14,63 +19,48 @@ import WidgetKit
 struct RecordingLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: RecordingActivityAttributes.self) { context in
-            LockScreenBanner(context: context)
+            LockScreenView(state: context.state, recordingID: context.attributes.recordingID)
                 .activityBackgroundTint(Brand.Ink.bg)
                 .activitySystemActionForegroundColor(Brand.Ink.fg)
         } dynamicIsland: { context in
             let state = context.state
+            let id = context.attributes.recordingID
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        PhaseLabel(state: state)
-                        MiniLevelMeter(level: state.level, active: state.phase == .recording, barHeight: 16)
-                    }
-                    .padding(.leading, 6)
-                    .padding(.top, 4)
+                    StateLine(state: state, size: 14)
+                        .padding(.leading, 8)
+                        .padding(.top, 6)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    ElapsedText(state: state)
-                        .font(.plexMono(26, .semibold, relativeTo: .title2))
-                        .foregroundStyle(Brand.Ink.fg)
-                        .multilineTextAlignment(.trailing)
-                        .frame(maxWidth: 120, alignment: .trailing)
-                        .padding(.trailing, 6)
-                        .padding(.top, 4)
-                }
-                DynamicIslandExpandedRegion(.center) {
-                    Text(state.title)
-                        .font(.plexSans(14, .semibold, relativeTo: .subheadline))
-                        .foregroundStyle(Brand.Ink.fg)
-                        .lineLimit(1)
+                    ElapsedTime(state: state, size: 24, alignment: .trailing)
+                        .padding(.trailing, 8)
                         .padding(.top, 2)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    if state.phase == .saved {
-                        SavedLine()
-                            .padding(.top, 6)
-                    } else {
-                        HStack(spacing: 10) {
-                            PauseResumeButton(recordingID: context.attributes.recordingID, state: state, wide: true)
-                            StopButton(recordingID: context.attributes.recordingID, wide: true)
+                    HStack(alignment: .center, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(state.title)
+                                .font(.plexSans(16, .medium, relativeTo: .headline))
+                                .foregroundStyle(Brand.Ink.fg)
+                                .lineLimit(1)
+                            DetailLine(state: state)
                         }
-                        .padding(.top, 8)
-                        .padding(.horizontal, 4)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Controls(state: state, recordingID: id, diameter: 44)
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.top, 10)
+                    .padding(.bottom, 4)
                 }
             } compactLeading: {
-                HStack(spacing: 5) {
-                    PhaseGlyph(state: state, size: 9)
-                    MiniLevelMeter(level: state.level, active: state.phase == .recording, barHeight: 11, barCount: 3)
-                }
-                .padding(.leading, 2)
+                PhaseGlyph(phase: state.phase, size: 10)
+                    .padding(.leading, 4)
             } compactTrailing: {
-                ElapsedText(state: state)
-                    .font(.plexMono(13, .medium, relativeTo: .caption))
-                    .foregroundStyle(state.phase == .recording ? Brand.Ink.recordRed : Brand.Ink.amber)
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: 46, alignment: .trailing)
+                ElapsedTime(state: state, size: 14, weight: .medium, alignment: .trailing,
+                            tint: state.phase == .recording ? Brand.Ink.recordRed : Brand.Ink.amber)
+                    .frame(width: state.compactTimerWidth)
             } minimal: {
-                PhaseGlyph(state: state, size: 10)
+                PhaseGlyph(phase: state.phase, size: 10)
             }
             .keylineTint(state.phase == .recording ? Brand.Ink.recordRed : Brand.Ink.amber)
         }
@@ -79,210 +69,223 @@ struct RecordingLiveActivity: Widget {
 
 // MARK: - Lock Screen
 
-private struct LockScreenBanner: View {
-    let context: ActivityViewContext<RecordingActivityAttributes>
+private struct LockScreenView: View {
+    let state: RecordingActivityAttributes.ContentState
+    let recordingID: String
 
     var body: some View {
-        let state = context.state
-        HStack(alignment: .center, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    PhaseLabel(state: state)
-                    Text("·")
-                        .font(.plexSans(13))
-                        .foregroundStyle(Brand.Ink.fgFaint)
-                    Text("huske")
-                        .font(.plexSerifItalic(14))
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                StateLine(state: state, size: 14)
+                Spacer(minLength: 8)
+                Text("huske")
+                    .font(.plexSerifItalic(16, relativeTo: .subheadline))
+                    .foregroundStyle(Brand.Ink.fgMuted)
+                    .accessibilityHidden(true)
+            }
+            Text(state.title)
+                .font(.plexSans(16, .medium, relativeTo: .headline))
+                .foregroundStyle(Brand.Ink.fg)
+                .lineLimit(1)
+                .padding(.top, 8)
+            HStack(alignment: .center, spacing: 12) {
+                ElapsedTime(state: state, size: 40, alignment: .leading)
+                if state.phase == .saved {
+                    Text("Saved on this iPhone")
+                        .font(.plexSans(13, relativeTo: .footnote))
                         .foregroundStyle(Brand.Ink.fgMuted)
-                }
-                Text(state.title)
-                    .font(.plexSans(16, .semibold, relativeTo: .headline))
-                    .foregroundStyle(Brand.Ink.fg)
-                    .lineLimit(1)
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    ElapsedText(state: state)
-                        .font(.plexMono(30, .semibold, relativeTo: .title))
-                        .foregroundStyle(Brand.Ink.fg)
+                        .lineLimit(1)
                         .fixedSize()
-                    if state.phase == .saved {
-                        SavedLine()
-                    } else if let reason = state.pauseReason, state.phase == .paused {
-                        Text(reason)
-                            .font(.plexSans(13, .medium, relativeTo: .footnote))
-                            .foregroundStyle(Brand.Ink.warn)
-                            .lineLimit(1)
-                    } else {
-                        MiniLevelMeter(level: state.level, active: state.phase == .recording, barHeight: 16)
-                    }
+                } else {
+                    Controls(state: state, recordingID: recordingID, diameter: 46)
                 }
             }
-            Spacer(minLength: 0)
-            if state.phase != .saved {
-                HStack(spacing: 10) {
-                    PauseResumeButton(recordingID: context.attributes.recordingID, state: state, wide: false)
-                    StopButton(recordingID: context.attributes.recordingID, wide: false)
-                }
-            }
+            .padding(.top, 2)
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 16)
+        .padding(.top, 16)
+        .padding(.bottom, 14)
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
     }
 }
 
 // MARK: - pieces
 
-private struct ElapsedText: View {
+/// The running time in light tabular numerals. Flexible by nature (see the
+/// file header): it fills the frame it is given and aligns inside it.
+private struct ElapsedTime: View {
     let state: RecordingActivityAttributes.ContentState
+    let size: CGFloat
+    var weight: Font.Weight = .light
+    let alignment: Alignment
+    var tint: Color?
 
     var body: some View {
+        timer
+            .font(.plexSans(size, weight, relativeTo: .title))
+            .monospacedDigit()
+            .foregroundStyle(tint ?? (state.phase == .recording ? Brand.Ink.fg : Brand.Ink.fgMuted))
+            .multilineTextAlignment(alignment == .trailing ? .trailing : .leading)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .frame(maxWidth: .infinity, alignment: alignment)
+            .accessibilityLabel(state.phase == .recording ? "Elapsed" : "Recorded")
+    }
+
+    @ViewBuilder private var timer: some View {
         if state.phase == .saved {
             Text(Duration.seconds(max(0, state.elapsed)).formatted(.time(pattern: .minuteSecond)))
-                .monospacedDigit()
         } else {
             Text(timerInterval: state.timerRange, pauseTime: state.pausedAt, countsDown: false, showsHours: true)
-                .monospacedDigit()
         }
     }
 }
 
-private struct PhaseGlyph: View {
+/// Glyph + plain words: "● Recording", "Paused by a call", "✓ Saved".
+private struct StateLine: View {
     let state: RecordingActivityAttributes.ContentState
     let size: CGFloat
 
     var body: some View {
-        switch state.phase {
-        case .recording:
-            Circle()
-                .fill(Brand.Ink.recordRed)
-                .frame(width: size, height: size)
-                .accessibilityLabel("Recording")
-        case .paused:
-            Image(systemName: "pause.fill")
-                .font(.system(size: size + 2, weight: .bold))
-                .foregroundStyle(Brand.Ink.amber)
-                .accessibilityLabel("Paused")
-        case .saved:
-            Image(systemName: "checkmark")
-                .font(.system(size: size + 2, weight: .bold))
-                .foregroundStyle(Brand.Ink.fg)
-                .accessibilityLabel("Saved")
-        }
-    }
-}
-
-private struct PhaseLabel: View {
-    let state: RecordingActivityAttributes.ContentState
-
-    var body: some View {
-        HStack(spacing: 6) {
-            PhaseGlyph(state: state, size: 8)
-            Text(label)
-                .font(.plexSans(13, .medium))
+        HStack(alignment: .center, spacing: 7) {
+            PhaseGlyph(phase: state.phase, size: size * 0.6)
+            Text(words)
+                .font(.plexSans(size, .medium, relativeTo: .subheadline))
                 .foregroundStyle(color)
+                .lineLimit(1)
+                .fixedSize()
         }
+        .accessibilityElement(children: .combine)
     }
 
-    private var label: String {
+    private var words: String {
         switch state.phase {
         case .recording: return "Recording"
-        case .paused: return "Paused"
+        case .paused: return state.pauseReason == nil ? "Paused" : "Paused by a call"
         case .saved: return "Saved"
         }
     }
 
     private var color: Color {
         switch state.phase {
-        case .recording: return Brand.Ink.recordRed
-        case .paused: return Brand.Ink.amber
+        case .recording: return Brand.Ink.fg
+        case .paused: return state.pauseReason == nil ? Brand.Ink.fg : Brand.Ink.warn
         case .saved: return Brand.Ink.fgMuted
         }
     }
 }
 
-/// A tiny 0…4 input-level meter: data, not decoration (DESIGN.md).
-struct MiniLevelMeter: View {
-    let level: Int
-    let active: Bool
-    var barHeight: CGFloat = 14
-    var barCount: Int = 4
-
-    var body: some View {
-        HStack(alignment: .bottom, spacing: 2) {
-            ForEach(0..<barCount, id: \.self) { index in
-                let threshold = barCount == 4 ? index + 1 : index * 2 + 1
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(active && level >= threshold ? Brand.Ink.fg : Brand.Ink.fgFaint)
-                    .frame(width: 3, height: barHeight * CGFloat(index + 1) / CGFloat(barCount))
-            }
-        }
-        .frame(height: barHeight, alignment: .bottom)
-        .accessibilityElement()
-        .accessibilityLabel("Input level \(level) of 4")
-    }
-}
-
-private struct SavedLine: View {
-    var body: some View {
-        Text("Saved · syncing to your Mac")
-            .font(.plexSans(13, .medium, relativeTo: .footnote))
-            .foregroundStyle(Brand.Ink.fgMuted)
-            .lineLimit(1)
-    }
-}
-
-private struct PauseResumeButton: View {
-    let recordingID: String
+/// Under the title in the expanded island: why it isn't recording, if it isn't.
+/// There is no level meter anywhere in the Live Activity: the system redraws
+/// it only now and then (especially on the Lock Screen), and a meter that
+/// stands still reads as "not recording". The red dot and the running timer —
+/// which the system ticks by itself — are the signs of life.
+private struct DetailLine: View {
     let state: RecordingActivityAttributes.ContentState
-    let wide: Bool
 
     var body: some View {
-        let paused = state.phase == .paused
-        Button(intent: PauseResumeRecordingIntent(recordingID: recordingID)) {
-            if wide {
-                Label(paused ? "Resume" : "Pause", systemImage: paused ? "play.fill" : "pause.fill")
-                    .font(.plexSans(14, .semibold))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 40)
-                    .foregroundStyle(paused ? Brand.fgOnAmber : Brand.Ink.fg)
-                    .background(Capsule().fill(paused ? Brand.Ink.amber : Brand.Ink.bgElevated))
-                    .overlay(Capsule().strokeBorder(paused ? .clear : Brand.Ink.border, lineWidth: 1))
-            } else {
-                Image(systemName: paused ? "play.fill" : "pause.fill")
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(paused ? Brand.fgOnAmber : Brand.Ink.fg)
-                    .frame(width: 46, height: 46)
-                    .background(Circle().fill(paused ? Brand.Ink.amber : Brand.Ink.bgElevated))
-                    .overlay(Circle().strokeBorder(paused ? .clear : Brand.Ink.border, lineWidth: 1))
-            }
+        switch state.phase {
+        case .recording:
+            EmptyView()
+        case .paused:
+            Text("Tap resume to continue")
+                .font(.plexSans(13, relativeTo: .footnote))
+                .foregroundStyle(Brand.Ink.fgMuted)
+                .lineLimit(1)
+        case .saved:
+            Text("Saved on this iPhone")
+                .font(.plexSans(13, relativeTo: .footnote))
+                .foregroundStyle(Brand.Ink.fgMuted)
+                .lineLimit(1)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(paused ? "Resume recording" : "Pause recording")
     }
 }
 
-private struct StopButton: View {
-    let recordingID: String
-    let wide: Bool
+private struct PhaseGlyph: View {
+    let phase: RecordingActivityAttributes.ContentState.Phase
+    let size: CGFloat
 
     var body: some View {
-        Button(intent: StopRecordingIntent(recordingID: recordingID)) {
-            if wide {
-                Label("Stop", systemImage: "stop.fill")
-                    .font(.plexSans(14, .semibold))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 40)
-                    .foregroundStyle(Brand.fgOnRed)
-                    .background(Capsule().fill(Brand.Ink.recordRed))
-            } else {
-                Image(systemName: "stop.fill")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(Brand.fgOnRed)
-                    .frame(width: 46, height: 46)
-                    .background(Circle().fill(Brand.Ink.recordRed))
+        Group {
+            switch phase {
+            case .recording:
+                Circle()
+                    .fill(Brand.Ink.recordRed)
+                    .frame(width: size, height: size)
+            case .paused:
+                Image(systemName: "pause.fill")
+                    .font(.system(size: size, weight: .bold))
+                    .foregroundStyle(Brand.Ink.amber)
+            case .saved:
+                Image(systemName: "checkmark")
+                    .font(.system(size: size, weight: .bold))
+                    .foregroundStyle(Brand.Ink.fgMuted)
             }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Stop and save recording")
+        .accessibilityHidden(true)
+    }
+}
+
+/// Pause/Resume + Stop, as round hardware controls.
+private struct Controls: View {
+    let state: RecordingActivityAttributes.ContentState
+    let recordingID: String
+    let diameter: CGFloat
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button(intent: PauseResumeRecordingIntent(recordingID: recordingID)) {
+                PauseResumeFace(paused: state.phase == .paused, diameter: diameter)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(state.phase == .paused ? "Resume recording" : "Pause recording")
+
+            Button(intent: StopRecordingIntent(recordingID: recordingID)) {
+                StopFace(diameter: diameter)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Stop and save recording")
+        }
+    }
+}
+
+private struct PauseResumeFace: View {
+    let paused: Bool
+    let diameter: CGFloat
+
+    var body: some View {
+        ZStack {
+            if paused {
+                Circle().fill(Brand.Ink.amber)
+                Image(systemName: "play.fill")
+                    .font(.system(size: diameter * 0.36, weight: .semibold))
+                    .foregroundStyle(Brand.fgOnAmber)
+                    .offset(x: diameter * 0.03)
+            } else {
+                Circle().strokeBorder(Brand.Ink.fg.opacity(0.35), lineWidth: 1.5)
+                Image(systemName: "pause.fill")
+                    .font(.system(size: diameter * 0.34, weight: .semibold))
+                    .foregroundStyle(Brand.Ink.fg)
+            }
+        }
+        .frame(width: diameter, height: diameter)
+        .contentShape(Circle())
+    }
+}
+
+/// The REC control while recording: a hairline ring around a red square.
+private struct StopFace: View {
+    let diameter: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle().strokeBorder(Brand.Ink.fg.opacity(0.85), lineWidth: 1.5)
+            RoundedRectangle(cornerRadius: diameter * 0.09, style: .continuous)
+                .fill(Brand.Ink.recordRed)
+                .frame(width: diameter * 0.38, height: diameter * 0.38)
+        }
+        .frame(width: diameter, height: diameter)
+        .contentShape(Circle())
     }
 }
 
@@ -295,11 +298,14 @@ private extension RecordingActivityAttributes {
 
 private extension RecordingActivityAttributes.ContentState {
     static let recording = Self(
-        phase: .recording, title: "Recording 14:03",
-        timerStart: .now.addingTimeInterval(-754), pausedAt: nil, pauseReason: nil, level: 3)
+        phase: .recording, title: "Supplier call — follow-up",
+        timerStart: .now.addingTimeInterval(-754), pausedAt: nil, pauseReason: nil)
     static let paused = Self(
         phase: .paused, title: "Design review",
-        timerStart: .now.addingTimeInterval(-1834), pausedAt: .now, pauseReason: "Phone call", level: 0)
+        timerStart: .now.addingTimeInterval(-1834), pausedAt: .now, pauseReason: "Phone call")
+    static let saved = Self(
+        phase: .saved, title: "Design review",
+        timerStart: .now.addingTimeInterval(-1834), pausedAt: .now, pauseReason: nil)
 }
 
 #Preview("Lock Screen", as: .content, using: RecordingActivityAttributes.preview) {
@@ -307,5 +313,19 @@ private extension RecordingActivityAttributes.ContentState {
 } contentStates: {
     RecordingActivityAttributes.ContentState.recording
     RecordingActivityAttributes.ContentState.paused
+    RecordingActivityAttributes.ContentState.saved
+}
+
+#Preview("Island expanded", as: .dynamicIsland(.expanded), using: RecordingActivityAttributes.preview) {
+    RecordingLiveActivity()
+} contentStates: {
+    RecordingActivityAttributes.ContentState.recording
+    RecordingActivityAttributes.ContentState.paused
+}
+
+#Preview("Island compact", as: .dynamicIsland(.compact), using: RecordingActivityAttributes.preview) {
+    RecordingLiveActivity()
+} contentStates: {
+    RecordingActivityAttributes.ContentState.recording
 }
 #endif
