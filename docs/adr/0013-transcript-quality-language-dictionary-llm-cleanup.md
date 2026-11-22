@@ -196,9 +196,12 @@ compatibility; the app calls the feature "Transcript cleanup".
 - The transcript contract gains three optional frontmatter keys. The inbox
   contract gains an optional `language`. Both are additive.
 - **Release builds.** The Apple helper needs an SDK with FoundationModels
-  (Xcode 26+). A release built on the current macos-15 runner (Xcode 16)
-  ships a helper that reports `not_built`. `build-app.sh` warns about it, and
-  moving the app build to an Xcode 26+ runner is a follow-up.
+  (Xcode 26+), so the release's app build runs on the `macos-26` runner and
+  selects the newest stable Xcode ≥ 26 (`macos/scripts/select-xcode.sh`).
+  `HUSKE_REQUIRE_APPLE_LLM=1` makes `build-app.sh` fail rather than ship a
+  `not_built` helper. A CI job on `macos-26` packages the app the same way on
+  every PR. The regular macOS job stays on Xcode 16 and compiles only the
+  helper's stub.
 - **The built-in 0.8B model barely corrects.** With the old per-run JSON
   prompt or the new one, it mostly echoes its input, though the batched
   prompt is about 7× faster. Apple Intelligence, a 2B+ model or a cloud model

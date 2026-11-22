@@ -77,7 +77,9 @@ $HUSKE_APPLE_LLM_HELPER --status     # {"available": true, "context_size": 8192,
 ```
 
 It needs an SDK with FoundationModels (Xcode 26+); built with an older SDK it
-compiles and reports `not_built`. The real-model test runs only when asked:
+compiles and reports `not_built` (`HUSKE_REQUIRE_APPLE_LLM=1 ./scripts/build-app.sh`
+turns that into a failure, as the release does). The real-model test runs only
+when asked:
 
 ```bash
 HUSKE_TEST_APPLE_HELPER=$HUSKE_APPLE_LLM_HELPER pytest tests/unit/test_apple_llm.py

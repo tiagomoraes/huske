@@ -158,7 +158,10 @@ source of truth. The app icon is generated from the brand mark at build time
 and cached under `macos/.cache/`. The script also builds `huske-apple-llm`
 into `Contents/Helpers` and signs it before the app (hardened runtime, no
 entitlements). It needs an SDK with FoundationModels (Xcode 26+); with an
-older SDK the helper still builds, reports `not_built`, and the script warns.
+older SDK the helper still builds, reports `not_built`, and the script warns —
+or fails, with `HUSKE_REQUIRE_APPLE_LLM=1`, which releases set. The release
+job builds on the `macos-26` runner with the newest stable Xcode ≥ 26
+(`macos/scripts/select-xcode.sh`), and a CI job does the same on every PR.
 
 The script signs with a `Developer ID Application` identity when one is in the
 keychain and ad-hoc otherwise, so a contributor without a certificate still

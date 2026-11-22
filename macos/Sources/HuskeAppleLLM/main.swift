@@ -66,8 +66,9 @@ struct FoundationModel: HelperModel {
 
     private static func contextSize(_ model: SystemLanguageModel) -> Int {
         // 4,096 tokens on macOS 26 (TN3193); macOS 27 reports the real value
-        // (8,192 on AFM 3 Core Advanced). The property arrived in a later SDK.
-        #if compiler(>=6.4)
+        // (8,192 on AFM 3 Core Advanced). The property arrived with the 26.4
+        // SDK (Swift 6.3, back-deployed to 26.0); older SDKs assume 4,096.
+        #if compiler(>=6.3)
         return model.contextSize
         #else
         return 4096
