@@ -273,15 +273,26 @@ final class PythonInteropTests: XCTestCase {
         XCTAssertEqual(tiny.dictionary, "prompt")
 
         // Choosing writes the config through the engine; a refusal is JSON.
+        // CI's interpreter has no MLX runtimes (the contract job installs no
+        // ML packages), and the engine rightly refuses a model whose runtime
+        // is missing — so check whichever answer this interpreter gives.
         let config = home.appendingPathComponent("config.toml").path
-        let used = try ModelsBridge.parseUse(
-            try run(["models", "use", "whisper-tiny", "--json", "--config", config]).stdout)
-        XCTAssertNil(used.error)
-        XCTAssertEqual(used.model?.id, "whisper-tiny")
-        XCTAssertEqual(used.model?.inUse, true)
-        XCTAssertEqual(used.written["asr_model"], .string("whisper-tiny"))
+        let whisperInstalled = catalog.families.first { $0.name == "whisper" }?.available ?? false
+        let usedRun = try run(["models", "use", "whisper-tiny", "--json", "--config", config])
+        let used = try ModelsBridge.parseUse(usedRun.stdout)
         let after = try ModelsBridge.parseCatalog(try run(["models", "--json", "--config", config]).stdout)
-        XCTAssertEqual(after.current?.id, "whisper-tiny")
+        if whisperInstalled {
+            XCTAssertNil(used.error)
+            XCTAssertEqual(used.model?.id, "whisper-tiny")
+            XCTAssertEqual(used.model?.inUse, true)
+            XCTAssertEqual(used.written["asr_model"], .string("whisper-tiny"))
+            XCTAssertEqual(after.current?.id, "whisper-tiny")
+        } else {
+            XCTAssertEqual(usedRun.status, 2)
+            XCTAssertTrue(used.error?.contains("mlx-whisper") ?? false, "\(String(describing: used.error))")
+            XCTAssertNil(used.model)
+            XCTAssertEqual(after.current?.id, current.id, "a refused choice leaves the config alone")
+        }
 
         let refused = try run(["models", "use", "foo/bar", "--json", "--config", config])
         XCTAssertEqual(refused.status, 2)
