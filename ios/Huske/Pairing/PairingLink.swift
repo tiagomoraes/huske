@@ -43,7 +43,28 @@ enum PairingLink {
     static func parse(text: String, now: Date = .now) -> Outcome {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard containsPairingLink(trimmed) else { return .notPairingLink }
-        return checked(PairingInvite(string: trimmed), now: now)
+        let invite = PairingInvite(string: trimmed)
+            ?? linkWithoutTrailingPunctuation(in: trimmed).flatMap(PairingInvite.init(string:))
+        return checked(invite, now: now)
+    }
+
+    /// A link copied out of a sentence brings the sentence's punctuation
+    /// ("…key=AbC.", "…key=AbC”"). The key is the link's last field and is
+    /// base64url, so nothing after its last `[A-Za-z0-9_-]` character belongs
+    /// to the link. The key must still decode to 32 bytes, so this cannot turn
+    /// a damaged key into an accepted one.
+    private static func linkWithoutTrailingPunctuation(in text: String) -> String? {
+        guard let start = text.range(of: "\(SyncConstants.urlScheme)://pair", options: .caseInsensitive)
+        else { return nil }
+        var link = text[start.lowerBound...].prefix { !$0.isWhitespace }
+        while let last = link.last, !isBase64URLCharacter(last) {
+            link = link.dropLast()
+        }
+        return String(link)
+    }
+
+    private static func isBase64URLCharacter(_ character: Character) -> Bool {
+        character.isASCII && (character.isLetter || character.isNumber || character == "-" || character == "_")
     }
 
     static func isPairingURL(_ url: URL) -> Bool {

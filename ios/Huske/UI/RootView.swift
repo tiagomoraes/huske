@@ -78,24 +78,22 @@ private struct HomeHeader: View {
 
             Spacer()
 
-            // The paired Mac in plain words; the dot is the only signal
-            // (filled = reachable now, hollow = away). No capsule.
+            // The paired Mac in plain words; the glyph is the signal (filled
+            // = there now, hollow = away, arc = connecting). When only the
+            // user can fix the link, the words say what is wrong instead of
+            // the Mac's name; the Mac screen has the way out. No capsule.
             Button(action: onMacTapped) {
                 HStack(spacing: 7) {
                     if sync.isPaired {
-                        if sync.isMacReachable {
-                            StatusDot(color: dotColor, size: 6, pulsing: sync.isRunning)
-                        } else {
-                            Circle().strokeBorder(Brand.fgFaint, lineWidth: 1.25).frame(width: 7, height: 7)
-                        }
-                        Text(shortName)
+                        LinkGlyph(state: sync.link, isBusy: sync.isRunning)
+                        Text(sync.link.headline ?? shortName)
                             .lineLimit(1)
                     } else {
                         Text("Pair your Mac")
                     }
                 }
                 .font(.plexSans(14, relativeTo: .footnote))
-                .foregroundStyle(sync.isPaired ? Brand.fgMuted : Brand.amber)
+                .foregroundStyle(chipColor)
                 .padding(.vertical, 10)
                 .padding(.leading, 12)
                 .frame(maxWidth: 220, alignment: .trailing)
@@ -110,16 +108,16 @@ private struct HomeHeader: View {
         .background(Brand.bg)
     }
 
-    private var dotColor: Color {
-        if sync.lastError != nil && !sync.isMacReachable { return Brand.warn }
-        return sync.isMacReachable ? Brand.ok : Brand.fgFaint
+    private var chipColor: Color {
+        guard sync.isPaired else { return Brand.amber }
+        return sync.link.needsSettings || sync.link.needsPairing ? Brand.err : Brand.fgMuted
     }
 
     private var shortName: String { sync.macName }
 
     private var accessibilityText: String {
         guard sync.isPaired else { return "Pair your Mac" }
-        return "\(sync.macName), \(sync.isMacReachable ? "online" : "not nearby"). Mac settings"
+        return "\(sync.link.accessibilityLabel(macName: sync.macName)). Mac settings"
     }
 }
 

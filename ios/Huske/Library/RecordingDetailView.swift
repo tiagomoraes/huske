@@ -274,7 +274,7 @@ private struct SyncStatusLine: View {
                         .font(.plexSans(15, relativeTo: .subheadline))
                         .foregroundStyle(badge.isProblem ? Brand.err : Brand.fgMuted)
                         .fixedSize(horizontal: false, vertical: true)
-                    if case .failed = badge {
+                    if badge.canRetry {
                         Button("Try again") { sync.retry(recording.id) }
                             .font(.plexSans(15, .medium, relativeTo: .subheadline))
                             .foregroundStyle(Brand.amber)
@@ -287,33 +287,9 @@ private struct SyncStatusLine: View {
     }
 
     private var statusLine: String? {
-        let mac = sync.macName
-        switch badge {
-        case .recording: return "Recording now."
-        case .damaged: return "This recording was cut off and can't be sent."
-        case .onPhone: return "On this iPhone. Pair your Mac to have it transcribed."
-        case .waitingForMac:
-            return sync.lastError ?? (sync.isMacReachable
-                ? "Ready to send to \(mac)."
-                : "Waiting for \(mac). Open Huske on your Mac.")
-        case let .uploading(fraction): return "Sending to \(mac) · \(Int(fraction * 100))%"
-        case .onMac:
-            return sync.engineAvailable == false
-                ? "On \(mac). It's transcribed once Huske's engine is set up there."
-                : "On \(mac), about to be transcribed."
-        case .queued: return "On \(mac), next in line to be transcribed."
-        case let .transcribing(done, total, _):
-            if let done, let total, total > 1 { return "\(mac) is transcribing it · \(done) of \(total)" }
-            return "\(mac) is transcribing it."
-        case .transcribed:
-            if let fetched = recording.transcript?.fetchedAt {
-                return "Transcribed on \(mac) · \(Format.relative(fetched))"
-            }
-            return "Transcribed on \(mac)"
-        case let .failed(reason):
-            if recording.sync.failure != nil { return reason ?? "Couldn't send this recording." }
-            return "\(mac) couldn't transcribe it" + (reason.map { ": \($0)" } ?? ".")
-        }
+        badge.sentence(
+            macName: sync.macName, waitingLine: sync.waitingLine, engineAvailable: sync.engineAvailable,
+            fetched: recording.transcript.map { Format.relative($0.fetchedAt) })
     }
 }
 
@@ -331,6 +307,18 @@ private struct TranscriptSection: View {
                 TranscriptView(blocks: TranscriptParser.parse(markdown))
             } else if recording.transcript != nil {
                 placeholder("\(macName) heard no speech in this recording.")
+            } else if let parts = recording.partialTranscript {
+                // The parts the Mac did transcribe. While that is where the
+                // recording stands, the line under the title says so; while
+                // the Mac tries again it says that, so say here what this is.
+                if !badge.isPartial {
+                    Text(parts.earlierTryNote)
+                        .font(.plexSans(13, relativeTo: .footnote))
+                        .foregroundStyle(Brand.fgMuted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                TranscriptView(blocks: TranscriptParser.parse(parts.markdown))
             } else if recording.capture == .complete {
                 placeholder("The words appear here once \(macName) has transcribed it.")
             } else {

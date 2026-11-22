@@ -1,6 +1,8 @@
 // The "Mac" screen: pair (scan / paste / Camera link), confirm a pairing, or
-// manage the paired Mac (presence, last sync, Sync now, Forget).
+// manage the paired Mac (the link to it and why it isn't syncing, last sync,
+// Sync now, Copy details, Forget).
 
+import AppIntents
 import HuskeSync
 import SwiftUI
 
@@ -128,6 +130,9 @@ private struct ConfirmPairingView: View {
     let app: AppModel
     let invite: PairingInvite
 
+    /// A Mac paired before keeps the name this iPhone gave it.
+    private var macName: String { app.sync.name(forMacID: invite.macID, fallback: invite.macName) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             VStack(alignment: .leading, spacing: 10) {
@@ -136,7 +141,7 @@ private struct ConfirmPairingView: View {
                     Image(systemName: "laptopcomputer")
                         .font(.system(size: 28, weight: .light))
                         .foregroundStyle(Brand.fg)
-                    Text(invite.macName)
+                    Text(macName)
                         .font(.plexSans(26, .semibold, relativeTo: .title))
                         .kerning(-0.3)
                         .foregroundStyle(Brand.fg)
@@ -149,8 +154,13 @@ private struct ConfirmPairingView: View {
             }
             .padding(.top, 12)
 
+            // Another link that didn't work arrived while this one waits.
+            if let message = app.pairingMessage {
+                NoticeText(text: message, tone: .error)
+            }
+
             if let current = app.sync.pairedMac, current.macID != invite.macID {
-                NoticeText(text: "This replaces \(current.macName). Recordings not yet transcribed will go to \(invite.macName) instead.",
+                NoticeText(text: "This replaces \(app.sync.displayName(of: current)). Recordings not yet transcribed will go to \(macName) instead.",
                            tone: .warn)
             }
 
@@ -165,7 +175,7 @@ private struct ConfirmPairingView: View {
             case .working:
                 HStack(spacing: 12) {
                     ProgressView().tint(Brand.amber)
-                    Text("Connecting to \(invite.macName)…")
+                    Text("Connecting to \(macName)…")
                         .font(.plexSans(16, relativeTo: .body))
                         .foregroundStyle(Brand.fgMuted)
                 }
@@ -191,11 +201,20 @@ private struct ConfirmPairingView: View {
 private struct PairedMacView: View {
     let app: AppModel
     @State private var confirmingForget = false
+    @State private var scanning = false
+    /// "Looking for your Mac…" only earns an explanation once it has lasted.
+    @State private var showsSearchHelp = false
+    @Environment(\.openURL) private var openURL
 
     private var sync: SyncManager { app.sync }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
+            // A link that didn't work (bad, expired) must say so here too,
+            // not only before the first pairing.
+            if let message = app.pairingMessage {
+                NoticeText(text: message, tone: .error)
+            }
             if let banner = app.pairingSuccessMessage {
                 NoticeText(text: banner, tone: .ok)
             }
@@ -213,21 +232,13 @@ private struct PairedMacView: View {
                                 .font(.plexSerif(24, relativeTo: .title2))
                                 .foregroundStyle(Brand.fg)
                                 .lineLimit(2)
-                            HStack(spacing: 7) {
-                                if sync.isMacReachable {
-                                    StatusDot(color: Brand.ok, size: 6)
-                                } else {
-                                    Circle().strokeBorder(Brand.fgFaint, lineWidth: 1.25).frame(width: 7, height: 7)
-                                }
-                                Text(sync.isMacReachable ? "Nearby" : "Not nearby")
-                                    .font(.plexSans(14, relativeTo: .footnote))
-                                    .foregroundStyle(Brand.fgMuted)
-                            }
-                            .accessibilityElement(children: .combine)
+                            LinkStatusLine(state: sync.link, isBusy: sync.isRunning)
                         }
                         Spacer(minLength: 0)
                     }
                     .padding(16)
+                    divider
+                    MacNameRow(sync: sync)
                     divider
                     InfoRow(label: "Last sync", value: sync.lastSyncAt.map { Format.relative($0) } ?? "Never")
                     divider
@@ -240,10 +251,30 @@ private struct PairedMacView: View {
             }
             .padding(.top, 12)
 
-            if !sync.hasConfirmedPairing {
+            // Why it isn't syncing, with the way out. What only the user can
+            // fix comes first.
+            if sync.link.isBlocked, let why = sync.link.explanation(macName: sync.macName) {
+                NoticeText(text: why, tone: .warn)
+                if sync.link.needsSettings {
+                    Button("Open Settings") {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                } else if sync.link.needsPairing {
+                    Button {
+                        scanning = true
+                    } label: {
+                        Label("Scan Pairing Code", systemImage: "qrcode.viewfinder")
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                }
+            } else if !sync.hasConfirmedPairing {
                 NoticeText(text: "Waiting for \(sync.macName) to confirm the pairing — keep Huske open on your Mac.", tone: .info)
             } else if let error = sync.lastError {
                 NoticeText(text: error, tone: .warn)
+            } else if showsSearchHelp, sync.link == .searching,
+                      let why = sync.link.explanation(macName: sync.macName) {
+                NoticeText(text: why, tone: .info)
             }
 
             Button {
@@ -276,7 +307,24 @@ private struct PairedMacView: View {
                     }
                     .padding(16)
                 }
+                Card(padding: 0) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Record without opening Huske")
+                            .font(.plexSans(15, .medium, relativeTo: .subheadline))
+                            .foregroundStyle(Brand.fg)
+                        Text("In Settings › Action Button, choose Controls, then Huske Record. One press starts a recording; the next stops and saves it. Siri and Shortcuts can also start recordings and read transcripts.")
+                            .font(.plexSans(14, relativeTo: .footnote))
+                            .foregroundStyle(Brand.fgMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                        ShortcutsLink()
+                            .shortcutsLinkStyle(.automaticOutline)
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
+
+            CopyDetailsButton(sync: sync)
 
             Button(role: .destructive) {
                 confirmingForget = true
@@ -298,6 +346,15 @@ private struct PairedMacView: View {
                 .foregroundStyle(Brand.fgFaint)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .sheet(isPresented: $scanning) {
+            QRScannerSheet { payload in app.receivePairingText(payload) }
+        }
+        .task(id: sync.link == .searching) {
+            showsSearchHelp = false
+            guard sync.link == .searching else { return }
+            try? await Task.sleep(for: .seconds(4))
+            if !Task.isCancelled { showsSearchHelp = true }
+        }
     }
 
     private var divider: some View {
@@ -313,12 +370,90 @@ private struct PairedMacView: View {
     }
 
     private var activityText: String {
+        if sync.link == .searching { return "Looking for \(sync.macName)…" }
         switch sync.activity {
         case .connecting: return "Connecting…"
         case let .uploading(_, fraction): return "Sending \(Int(fraction * 100))%"
         case .checking: return "Checking transcripts…"
         case .idle: return "Syncing…"
         }
+    }
+}
+
+/// "Copy details": what sync did lately, as text for a support message.
+private struct CopyDetailsButton: View {
+    let sync: SyncManager
+    @State private var copied = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button {
+                UIPasteboard.general.string = sync.diagnosticsReport()
+                copied = true
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(2))
+                    copied = false
+                }
+            } label: {
+                Text(copied ? "Copied" : "Copy details")
+                    .font(.plexSans(15, .medium, relativeTo: .subheadline))
+                    .foregroundStyle(Brand.amber)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            Text("What sync did lately, for when something isn't working. No recordings, transcripts or names.")
+                .font(.plexSans(13, relativeTo: .caption))
+                .foregroundStyle(Brand.fgFaint)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// What this iPhone calls the paired Mac, edited in place — so two Macs that
+/// both call themselves "MacBook Pro" can be told apart. Empty shows (and
+/// means) the Mac's own name; once renamed, the Mac's own name stays visible
+/// underneath.
+private struct MacNameRow: View {
+    let sync: SyncManager
+    @FocusState private var editing: Bool
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("Name")
+                    .font(.plexSans(15, relativeTo: .subheadline))
+                    .foregroundStyle(Brand.fgMuted)
+                Spacer(minLength: 12)
+                TextField(sync.macOwnName ?? "Mac",
+                          text: Binding(get: { sync.macNickname }, set: { sync.macNickname = $0 }))
+                    .font(.plexSans(15, relativeTo: .subheadline))
+                    .foregroundStyle(Brand.fg)
+                    .multilineTextAlignment(.trailing)
+                    .submitLabel(.done)
+                    .autocorrectionDisabled()
+                    .focused($editing)
+                    .accessibilityLabel("Name for this Mac")
+                    .accessibilityHint("Only this iPhone uses it. Leave it empty to use the Mac's own name.")
+                if !editing {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Brand.fgFaint)
+                        .accessibilityHidden(true)
+                }
+            }
+            if let own = sync.macOwnName, sync.macName != own {
+                Text("Calls itself “\(own)”")
+                    .font(.plexSans(13, relativeTo: .footnote))
+                    .foregroundStyle(Brand.fgFaint)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .contentShape(Rectangle())
+        .onTapGesture { editing = true }
     }
 }
 
