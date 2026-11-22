@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 from huske import __version__
-from huske.ipc.protocol import decode_message, encode_snapshot
+from huske.ipc.protocol import ControlSnapshot, decode_message, encode_snapshot
 from huske.models import RenderState
 from huske.run_loop import build_control_snapshot
 
@@ -61,6 +61,23 @@ def test_snapshot_carries_render_state_fields() -> None:
     assert snap.asr_rss_mb == 0.0
     assert snap.distill_rss_mb == 0.0
     assert snap.engine_rss_mb == 0.0
+    assert snap.distill_label == ""
+
+
+def test_snapshot_carries_the_cleanup_label() -> None:
+    state = _state(recording=True)
+    state.update(distill_enabled=True, distill_label="Apple Intelligence")
+    snap = build_control_snapshot(
+        state,
+        session_id="s",
+        session_started_at=datetime(2026, 7, 21, 9, 0).astimezone(),
+        output_root=Path("/tmp/out"),
+        input_device_name=None,
+    )
+    assert snap.distill_label == "Apple Intelligence"
+    decoded = decode_message(encode_snapshot(snap).decode())
+    assert isinstance(decoded, ControlSnapshot)
+    assert decoded.distill_label == "Apple Intelligence"
 
 
 def test_snapshot_round_trips_over_the_wire() -> None:

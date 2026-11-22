@@ -1,8 +1,13 @@
 """Capture coordinator: runs mic + system audio in parallel.
 
-Microphone capture uses sounddevice. System audio uses Core Audio process tap
-where available, with ScreenCaptureKit as the legacy fallback. Each source is
-forwarded separately to the chunker so they can be transcribed independently.
+Preferred mode (``capture_sync``, macOS 14.4+): one Core Audio aggregate device
+holds the microphone (clock source) and a system-output tap, so both channels
+arrive together, sample-aligned on one clock — what echo cancellation needs
+(see ``synced_capture.py``, ADR 0012). If that cannot be built, or it stops
+delivering, capture falls back to independent streams: the microphone through
+sounddevice, and system audio through the Core Audio tap or ScreenCaptureKit.
+Each source is forwarded separately to the chunker so they can be transcribed
+independently.
 
 Threads:
   - PortAudio audio thread (sounddevice-managed) calls ``_mic_callback`` directly
@@ -35,6 +40,7 @@ from huske.capture.devices import (
     DeviceResolution,
     resolve_input_device_with_fallback,
 )
+from huske.capture.synced_capture import SyncedCaptureError, SyncedCaptureStream
 from huske.capture.system_audio import (
     SystemAudioPermissionError,
     SystemAudioStream,
@@ -65,6 +71,28 @@ class BlockSink(Protocol):
 
 
 _MIXER_BLOCK_SECONDS = 0.05  # 50 ms — well below any chunk-rotation timing concern
+# A synced aggregate that has not delivered a callback this long after start
+# (or that stops delivering for this long) is abandoned for separate streams.
+_SYNCED_STALL_SECONDS = 3.0
+
+
+def open_synced_capture(
+    mic_name: str | None,
+    on_event: Callable[[str, str], None],
+) -> SyncedCaptureStream:
+    """Build + start mic and system capture on one aggregate clock.
+
+    Module-level so tests can replace it (real construction touches the HAL
+    and may block on a privacy prompt). Raises on any failure.
+    """
+    from huske.capture import coreaudio_hal
+
+    mic = coreaudio_hal.find_input_device(mic_name)
+    if mic is None:
+        raise SyncedCaptureError(f"no Core Audio input device matches {mic_name!r}")
+    stream = SyncedCaptureStream(mic, on_event=on_event)
+    stream.start()
+    return stream
 
 
 class _SourceBuffer:
@@ -151,6 +179,12 @@ class CaptureCoordinator:
         self._mic_stream: sd.InputStream | None = None
         self._mixer_thread: threading.Thread | None = None
         self._system_stream: SystemAudioBackendInstance | None = None
+        # Synced mode: one aggregate delivers mic + system on one clock and
+        # replaces both ``_mic_stream`` and ``_system_stream``.
+        self._synced: SyncedCaptureStream | None = None
+        self._synced_started_at: float | None = None
+        self._synced_resamplers: tuple[object, object] | None = None
+        self._synced_lock = threading.Lock()
         self._stop = threading.Event()
         self._paused = threading.Event()
         self._pause_lock = threading.Lock()
@@ -209,6 +243,11 @@ class CaptureCoordinator:
         return self._mic_device_index
 
     @property
+    def synced(self) -> bool:
+        """True while mic + system come from one aggregate clock."""
+        return self._synced is not None
+
+    @property
     def paused(self) -> bool:
         return self._paused.is_set()
 
@@ -231,6 +270,143 @@ class CaptureCoordinator:
     # ----------------------------------------------------------------- startup
 
     def start(self) -> None:
+        if self._want_synced() and self._start_synced(self._mic_device_index):
+            self._mixer_thread = threading.Thread(
+                target=self._mixer_loop, name="huske-mixer", daemon=True
+            )
+            self._mixer_thread.start()
+            return
+        self._start_separate()
+        self._mixer_thread = threading.Thread(
+            target=self._mixer_loop, name="huske-mixer", daemon=True
+        )
+        self._mixer_thread.start()
+
+    # ------------------------------------------------------------ synced mode
+
+    def _want_synced(self) -> bool:
+        cfg = self._cfg
+        return (
+            bool(getattr(cfg, "capture_sync", False))
+            and self._system_audio_enabled
+            and cfg.system_audio_backend in ("auto", "tap")
+            and is_tap_supported()
+        )
+
+    def _start_synced(self, device_index: int | None) -> bool:
+        """Try to capture mic + system from one aggregate. False → use separate."""
+        mic_name: str | None = None
+        if device_index is not None:
+            try:
+                mic_name = str(sd.query_devices(device_index)["name"])
+            except Exception:
+                return False
+        try:
+            stream = open_synced_capture(mic_name, self._on_event)
+        except Exception as exc:
+            self._on_event(
+                "warn",
+                f"synced mic+system capture unavailable ({exc}); using separate streams",
+            )
+            return False
+        resamplers: tuple[object, object] | None = None
+        if stream.sample_rate != self._cfg.sample_rate:
+            try:
+                import soxr
+
+                resamplers = (
+                    soxr.ResampleStream(stream.sample_rate, self._cfg.sample_rate, 1, dtype="float32"),
+                    soxr.ResampleStream(stream.sample_rate, self._cfg.sample_rate, 1, dtype="float32"),
+                )
+            except Exception as exc:
+                stream.stop()
+                self._on_event("warn", f"synced capture rate {stream.sample_rate} Hz unusable: {exc}")
+                return False
+        import time as _time
+
+        with self._synced_lock:
+            self._synced = stream
+            self._synced_resamplers = resamplers
+            self._synced_started_at = _time.monotonic()
+        self._mic_device_index = device_index
+        self._mic_active = True
+        self._sys_active = True
+        self._on_warning_clear("system_audio")
+        self._on_warning_clear("system_audio_backend")
+        return True
+
+    def _stop_synced(self) -> None:
+        with self._synced_lock:
+            stream, self._synced = self._synced, None
+            self._synced_resamplers = None
+            self._synced_started_at = None
+        if stream is not None:
+            try:
+                stream.stop()
+            except Exception:
+                pass
+
+    def _synced_stalled(self) -> bool:
+        stream = self._synced
+        started = self._synced_started_at
+        if stream is None or started is None:
+            return False
+        import time as _time
+
+        last = stream.last_callback_at
+        if last is None:
+            return _time.monotonic() - started > _SYNCED_STALL_SECONDS
+        age = (datetime.now().astimezone() - last).total_seconds()
+        return age > _SYNCED_STALL_SECONDS
+
+    def _fall_back_from_synced(self, reason: str) -> None:
+        """Abandon the aggregate and continue on independent streams."""
+        self._on_event("warn", f"synced capture {reason}; switching to separate streams")
+        with self._pause_lock:
+            was_paused = self._paused.is_set()
+            self._paused.set()
+            self._clear_buffers()
+        self._stop_synced()
+        self._mic_active = False
+        self._sys_active = False
+        try:
+            self._start_separate()
+        except RuntimeError as exc:
+            self._on_event("error", f"capture fallback failed: {exc}")
+        with self._pause_lock:
+            if not was_paused:
+                self._paused.clear()
+
+    def _drain_synced(self, *, discard: bool) -> None:
+        stream = self._synced
+        if stream is None:
+            return
+        resamplers = self._synced_resamplers
+        for mic, sys_, when in stream.drain_available():
+            self._mic_last = when
+            self._sys_last = when
+            if discard:
+                continue
+            if resamplers is not None:
+                mic = resamplers[0].resample_chunk(mic)  # type: ignore[attr-defined]
+                sys_ = resamplers[1].resample_chunk(sys_)  # type: ignore[attr-defined]
+                n = min(len(mic), len(sys_))
+                mic, sys_ = mic[:n], sys_[:n]
+            if mic.size == 0:
+                continue
+            mp = float(np.abs(mic).max())
+            sp = float(np.abs(sys_).max()) if sys_.size else 0.0
+            with self._peak_lock:
+                if mp > self._mic_peak:
+                    self._mic_peak = mp
+                if sp > self._sys_peak:
+                    self._sys_peak = sp
+            self._mic_buf.push(np.asarray(mic, dtype=np.float32))
+            self._sys_buf.push(np.asarray(sys_, dtype=np.float32))
+
+    # ---------------------------------------------------------- separate mode
+
+    def _start_separate(self) -> None:
         # Mic — uses sounddevice's callback API so PortAudio drives delivery
         # from its own real-time audio thread. This is robust against Python
         # GIL contention and macOS scheduler preemption that would otherwise
@@ -261,11 +437,6 @@ class CaptureCoordinator:
             raise RuntimeError(
                 "No audio source available — mic failed and system audio unavailable."
             )
-
-        self._mixer_thread = threading.Thread(
-            target=self._mixer_loop, name="huske-mixer", daemon=True
-        )
-        self._mixer_thread.start()
 
     def _start_system_audio(self) -> None:
         backend = self._cfg.system_audio_backend
@@ -355,6 +526,8 @@ class CaptureCoordinator:
         revert to the old one; if that also fails we leave the coordinator
         in mic-off mode and surface a warning.
         """
+        if self._synced is not None:
+            return self._swap_synced_mic(new_device_index)
         if new_device_index == self._mic_device_index and self._mic_stream is not None:
             return True
 
@@ -437,6 +610,35 @@ class CaptureCoordinator:
         self._on_event("info", "microphone capture switched")
         return True
 
+    def _swap_synced_mic(self, new_device_index: int) -> bool:
+        """Rebuild the synced aggregate around another microphone."""
+        if new_device_index == self._mic_device_index:
+            return True
+        with self._pause_lock:
+            was_paused = self._paused.is_set()
+            self._paused.set()
+            self._clear_buffers()
+            with self._peak_lock:
+                self._mic_peak = 0.0
+        self._stop_synced()
+        ok = self._start_synced(new_device_index)
+        if not ok:
+            # Keep recording on independent streams with the requested mic.
+            self._mic_device_index = new_device_index
+            self._mic_active = False
+            self._sys_active = False
+            try:
+                self._start_separate()
+            except RuntimeError as exc:
+                self._on_event("error", f"mic switch failed: {exc}")
+            ok = self._mic_active
+        with self._pause_lock:
+            if not was_paused:
+                self._paused.clear()
+        if ok:
+            self._on_event("info", "microphone capture switched")
+        return ok
+
     def reclaim_mic(self, requested_name: str | None) -> DeviceResolution | None:
         """Re-scan audio devices and move mic capture onto the best one.
 
@@ -470,6 +672,10 @@ class CaptureCoordinator:
                 old_stream.close()
             except Exception:
                 pass
+        was_synced = self._synced is not None
+        if was_synced:
+            self._stop_synced()
+            self._sys_active = False
 
         try:
             sd._terminate()
@@ -478,6 +684,24 @@ class CaptureCoordinator:
             self._on_event("warn", f"audio device rescan failed: {exc}")
 
         resolution = resolve_input_device_with_fallback(requested_name)
+        if (was_synced or self._want_synced()) and resolution.device is not None:
+            if self._system_stream is not None:
+                # Moving from separate to synced: the aggregate brings its own tap.
+                try:
+                    self._system_stream.stop()
+                except Exception:
+                    pass
+                self._system_stream = None
+                self._sys_active = False
+            if self._start_synced(resolution.device.index):
+                with self._pause_lock:
+                    if not was_paused:
+                        self._paused.clear()
+                self._on_warning_clear("microphone")
+                return resolution
+        if was_synced and self._system_stream is None and self._system_audio_enabled:
+            # Synced rebuild failed: system audio needs its own stream again.
+            self._start_system_audio()
         new_stream = self._open_mic_stream(resolution.device)
 
         if new_stream is None and resolution.device is not None and not resolution.fallback_used:
@@ -540,6 +764,7 @@ class CaptureCoordinator:
 
     def stop(self, timeout: float = 5.0) -> None:
         self._stop.set()
+        self._stop_synced()
         if self._mic_stream is not None:
             try:
                 self._mic_stream.stop()
@@ -611,6 +836,9 @@ class CaptureCoordinator:
         block_frames = max(1, round(sr * _MIXER_BLOCK_SECONDS))
 
         while not self._stop.is_set():
+            if self._synced is not None and self._synced_stalled():
+                self._fall_back_from_synced("stopped delivering audio")
+                continue
             if self._paused.is_set():
                 self._drain_system(discard=True)
                 self._clear_buffers()
@@ -709,6 +937,9 @@ class CaptureCoordinator:
                 )
 
     def _drain_system(self, *, discard: bool = False) -> None:
+        if self._synced is not None:
+            self._drain_synced(discard=discard)
+            return
         if self._system_stream is None:
             return
         for block, when in self._system_stream.drain_available():

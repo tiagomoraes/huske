@@ -97,6 +97,60 @@ jobs:
           python -m ruff check .
           python -m mypy huske_mcp
 
+  ios:
+    name: iPhone app (Swift)
+    runs-on: macos-15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      # The .xcodeproj is generated (and git-ignored); the wrapper stamps the
+      # app version from pyproject.toml.
+      - name: Generate the Xcode project
+        run: ./scripts/generate.sh
+        working-directory: ios
+
+      # Simulator names change with every Xcode, so pick any available iPhone.
+      - name: Build and unit-test on a simulator
+        working-directory: ios
+        run: |
+          SIM=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          print(next(d["udid"] for runtime, ds in devices.items() if "iOS" in runtime
+                     for d in ds if d["name"].startswith("iPhone")))')
+          xcodebuild test -project Huske.xcodeproj -scheme Huske \
+            -destination "id=$SIM" CODE_SIGNING_ALLOWED=NO
+
+  # The release builds Huske.app with Xcode 26+ so the bundled
+  # huske-apple-llm compiles its FoundationModels code (ADR 0013). The job
+  # below (macos-15, Xcode 16) only ever compiles the helper's stub, so this
+  # one mirrors the release build on every PR: a compile error in the Apple
+  # Intelligence path shows up here, not on release day.
+  apple-intelligence:
+    name: Huske.app release build (Xcode 26)
+    runs-on: macos-26
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Select Xcode 26 or newer
+        run: ./macos/scripts/select-xcode.sh 26
+
+      - name: Helper tests
+        run: swift test --filter HuskeAppleLLMTests
+        working-directory: macos
+
+      - name: Package Huske.app as the release does
+        run: ./scripts/build-app.sh
+        working-directory: macos
+        env:
+          HUSKE_CODESIGN_IDENTITY: "-"
+          HUSKE_REQUIRE_APPLE_LLM: "1"
+
   swift:
     name: macOS app (Swift)
     runs-on: macos-15

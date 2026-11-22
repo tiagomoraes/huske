@@ -9,7 +9,8 @@ contribution rules live in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 - Python CLI package in `huske/` (entry point: `huske.cli:app`, exposed as
   the `huske` console script — subcommands: `run` (headless engine), `recover`,
-  `doctor`, `devices`, `config`, `distill`, `export`, and `sync`). There is no
+  `doctor`, `devices`, `config`, `models`, `languages`, `llm`, `distill`,
+  `export`, and `sync`). There is no
   terminal UI anymore — the macOS app is the face; `--no-ui` survives as a
   hidden no-op (ADR 0007).
 - Native macOS app in `macos/` (SwiftPM: `HuskeKit` library + `Huske` SwiftUI
@@ -30,6 +31,13 @@ contribution rules live in [CONTRIBUTING.md](CONTRIBUTING.md).
   often has several engines that upgrade at different times. Never compare
   version strings lexically (`0.9.0` > `0.11.0`); use `EngineVersion`. See the
   0.11.1 amendment in `docs/adr/0006-native-macos-app.md`.
+- iPhone recorder app in `ios/` (SwiftUI, iOS 17+, generated with XcodeGen via
+  `ios/scripts/generate.sh`). Recordings sync to Huske.app over the shared
+  `HuskeSync` library (`macos/Sources/HuskeSync`: Bonjour + peer-to-peer,
+  TLS-PSK pairing by QR) and reach the engine through the inbox CLI
+  (`huske inbox add|process|status|retry`, `huske/inbox/`). Contracts:
+  `specs/002-phone-sync/contracts/`; decision: ADR 0011. A wire change bumps
+  `protocolVersion` and lands on both ends in `HuskeSync`.
 - Unit and integration tests in `tests/`.
 - Product specs and contracts in `specs/001-huske-recorder/`.
 - Public contributor documentation in `README.md`, `CONTRIBUTING.md`, and
@@ -53,8 +61,11 @@ modules that pass audio through a single pipeline:
    `chunk_minutes` cap — so silent gaps aren't recorded; `speech_gated = false`
    restores fixed-interval rotation. Calls `on_finalized(AudioChunk)` per file.
 3. **`transcribe/worker.py`** is a `multiprocessing` (spawn) subprocess. It
-   builds a pluggable engine from `transcribe/engines/` — `parakeet` (default,
-   via `parakeet-mlx`) or `whisper` (legacy `mlx-whisper`) — transcribes each
+   builds the engine for the resolved model (`transcribe/catalog.py`:
+   `asr_model` or the legacy keys) through the family registry in
+   `transcribe/engines/` — `parakeet` (default, via `parakeet-mlx`) or
+   `whisper` (`mlx-whisper`); models are data in `transcribe/models.toml`,
+   ADR 0014 — transcribes each
    per-source WAV, tags segments with their source, runs `transcribe/dedup.py`
    to drop mic echo of system audio, and renders the transcript. MLX inference
    releases the GIL but model loads / audio decode do not, so it must not run
@@ -65,6 +76,13 @@ modules that pass audio through a single pipeline:
    frontmatter under `output_root/YYYY-MM-DD/`. The contract for that
    filename and frontmatter is in
    `specs/001-huske-recorder/contracts/transcript-format.md` — keep them in sync.
+
+Echo: with mic + system on speakers, `capture/synced_capture.py` records both
+from one Core Audio aggregate (mic = clock, tap drift-compensated) so they stay
+sample-aligned, and the worker cancels the bleed with WebRTC AEC3
+(`transcribe/aec.py`, `livekit` binding) before transcription — ADR 0012. AEC3
+needs the reference to lead the echo (~170 ms) and is gated off without an
+echo path; `huske echo-test` measures it on real hardware.
 
 `recovery/scanner.py` runs at startup and on `huske recover`: it scans
 `audio_root/` for orphaned WAVs from a prior crash, submits the valid ones

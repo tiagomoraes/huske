@@ -23,6 +23,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from huske.transcribe.vocabulary import Vocabulary
+
 # Use spawn on macOS to keep PortAudio out of the child.
 _ctx = mp.get_context("spawn")
 
@@ -182,6 +184,69 @@ def _mark_echoes(
     )
 
 
+def _job_id_echo(job_data: dict[str, Any]) -> dict[str, str]:
+    """``{"job_id": …}`` when the job carried one, else ``{}``.
+
+    Live chunk jobs have no ``job_id`` and are matched by ``chunk_seq``; jobs
+    from the engine inbox carry a string id because their ``chunk_seq`` values
+    (1…N per imported recording) can collide with the live session's.
+    """
+    job_id = job_data.get("job_id")
+    return {"job_id": job_id} if isinstance(job_id, str) else {}
+
+
+def _extra_frontmatter(raw: Any) -> dict[str, str | int | float | bool] | None:
+    """Sanitize a job's additive frontmatter: string keys, scalar values only."""
+    if not isinstance(raw, dict):
+        return None
+    clean: dict[str, str | int | float | bool] = {}
+    for key, value in raw.items():
+        if isinstance(key, str) and isinstance(value, (str, int, float, bool)):
+            clean[key] = value
+    return clean or None
+
+
+def _job_model(job_data: dict[str, Any]) -> tuple[str, str, str]:
+    """``(family, repo, label)`` from a job; older job shapes still work."""
+    family = str(job_data.get("asr_engine", "parakeet"))
+    repo = job_data.get("asr_repo")
+    label = job_data.get("asr_label")
+    if isinstance(repo, str) and repo and isinstance(label, str) and label:
+        return family, repo, label
+    from huske.transcribe.catalog import resolve_model
+
+    class _Legacy:
+        asr_model = None
+        asr_engine = family
+        model = job_data.get("config_model", "base")
+        parakeet_model = job_data.get("parakeet_model") or ""
+
+    spec = resolve_model(_Legacy())
+    return spec.family, spec.repo, spec.label
+
+
+def asr_job_fields(cfg: Any) -> dict[str, Any]:
+    """The model, language and dictionary fields every ASR job carries.
+
+    Shared by live chunks (``chunk_to_job``) and the engine inbox, so a phone
+    recording is transcribed exactly like a live one.
+    """
+    from huske.transcribe.catalog import resolve_model
+
+    spec = resolve_model(cfg)
+    return {
+        "asr_engine": spec.family,
+        "asr_repo": spec.load_from,
+        "asr_label": spec.label,
+        # Legacy fields, kept so an older worker could still read the job.
+        "config_model": cfg.model,
+        "parakeet_model": cfg.parakeet_model,
+        "language": cfg.language,
+        **Vocabulary.from_runtime_config(cfg).to_job(),
+        "parakeet_word_boost": cfg.parakeet_word_boost,
+    }
+
+
 def _worker_main(
     in_q: Any,
     out_q: Any,
@@ -238,7 +303,7 @@ def _worker_main(
     # resident model so the next job reloads it (idle-unload). Rebuilt only if
     # the job's engine selection changes (it never does mid-session).
     engine: Any = None
-    engine_key: tuple[str, str, str | None] | None = None
+    engine_key: tuple[str, str, str] | None = None
     model_resident = False
     idle_unload = False
     idle_unload_seconds = 120.0
@@ -268,23 +333,29 @@ def _worker_main(
         idle_unload = bool(job_data.get("whisper_idle_unload", False))
         idle_unload_seconds = float(job_data.get("whisper_idle_unload_seconds", 120.0))
         try:
-            asr_engine = job_data.get("asr_engine", "parakeet")
-            model_size = job_data["config_model"]
-            parakeet_model = job_data.get(
-                "parakeet_model", "mlx-community/parakeet-tdt-0.6b-v3"
-            )
+            asr_engine, asr_repo, asr_label = _job_model(job_data)
             language = job_data["language"]
 
-            key = (asr_engine, model_size, parakeet_model)
+            key = (asr_engine, asr_repo, asr_label)
             if engine is None or key != engine_key:
                 engine = build_engine(
                     asr_engine,
-                    model=model_size,
-                    parakeet_model=parakeet_model,
+                    repo=asr_repo,
+                    label=asr_label,
                     language=language,
                     compute_type=job_data.get("config_compute_type", "int8"),
                 )
                 engine_key = key
+            # Language and dictionary are per job: an imported recording can
+            # carry its own language. Never reloads the model.
+            vocabulary = Vocabulary.from_job(job_data)
+            set_options = getattr(engine, "set_options", None)
+            if callable(set_options):
+                set_options(
+                    language=language,
+                    vocabulary=vocabulary,
+                    word_boost=bool(job_data.get("parakeet_word_boost", False)),
+                )
 
             audio_paths: dict[str, str] = dict(job_data["audio_paths"])
             sources = _ordered_sources(audio_paths, job_data.get("audio_sources") or [])
@@ -295,9 +366,10 @@ def _worker_main(
 
             # Acoustic echo cancellation: remove the system audio that bled into
             # the mic over speakers, using the clean system channel as the
-            # far-end reference, *before* transcription. Self-gating — with
-            # headphones there is no coherent echo path and the mic passes
-            # through. The transcript-level dedup below is the backstop.
+            # far-end reference, *before* transcription. WebRTC AEC3 by default
+            # (coherence suppression as the fallback). Self-gating — with
+            # headphones there is no echo path and the mic passes through. The
+            # transcript-level dedup below is the backstop.
             orig_mic = arrays.get("microphone")
             cleaned_mic = None
             if (
@@ -307,10 +379,12 @@ def _worker_main(
                 and arrays["microphone"].size
                 and arrays["system"].size
             ):
-                from huske.transcribe.aec import cancel_echo
+                from huske.transcribe.aec import remove_echo
 
-                arrays["microphone"] = cancel_echo(
-                    arrays["microphone"], arrays["system"]
+                arrays["microphone"], _echo_method = remove_echo(
+                    arrays["microphone"],
+                    arrays["system"],
+                    method=str(job_data.get("echo_canceller", "auto")),
                 )
                 cleaned_mic = arrays["microphone"]
 
@@ -340,7 +414,9 @@ def _worker_main(
                     {
                         "start": s.start,
                         "end": s.end,
-                        "text": s.text,
+                        # The dictionary's deterministic pass: "heard as X →
+                        # write Y" replacements and distinctive casing.
+                        "text": vocabulary.apply(s.text),
                         "source": s.source,
                         "echo": s.echo,
                         "confidence": s.confidence,
@@ -366,6 +442,7 @@ def _worker_main(
                 incomplete=job_data["incomplete"],
                 text=body,
                 segments=seg_dicts or None,
+                extra_frontmatter=_extra_frontmatter(job_data.get("extra_frontmatter")),
             )
 
             output_root = _Path(job_data["output_root"])
@@ -379,7 +456,11 @@ def _worker_main(
                 audio_path=_Path(primary_path),
             )
             target = day / transcript_filename(chunk_proxy).name
-            written = write_transcript_if_nonempty(transcript, target)
+            # Imported recordings (engine inbox) carry a deterministic session
+            # id, so a retry must rewrite the same file, not disambiguate it.
+            written = write_transcript_if_nonempty(
+                transcript, target, overwrite=bool(job_data.get("overwrite", False))
+            )
 
             # Audio cleanup. Without --keep-audio, drop the per-source WAVs.
             # With it, transcode each WAV to the configured (compressed) format
@@ -406,6 +487,7 @@ def _worker_main(
                     "error": None,
                     "rss_mb": rss_mb(),
                     **mem,
+                    **_job_id_echo(job_data),
                 }
             )
         except Exception as exc:
@@ -416,6 +498,7 @@ def _worker_main(
                     "ok": False,
                     "transcript_path": None,
                     "error": f"{exc}\n{tb}",
+                    **_job_id_echo(job_data),
                 }
             )
         finally:
@@ -583,13 +666,11 @@ def chunk_to_job(
         "audio_sources": list(chunk.audio_sources),
         "incomplete": bool(chunk.is_partial),
         "output_root": str(cfg.output_root),
-        "asr_engine": cfg.asr_engine,
-        "config_model": cfg.model,
-        "parakeet_model": cfg.parakeet_model,
+        **asr_job_fields(cfg),
         "config_compute_type": cfg.compute_type,
         "config_device": cfg.device,
-        "language": cfg.language,
         "echo_cancel": cfg.echo_cancel,
+        "echo_canceller": cfg.echo_canceller,
         "echo_dedup": cfg.echo_dedup,
         "keep_audio": cfg.keep_audio,
         "keep_audio_format": cfg.keep_audio_format,

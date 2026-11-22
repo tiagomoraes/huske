@@ -249,3 +249,67 @@ final class TranscriptScannerTests: XCTestCase {
         XCTAssertEqual(pruned.cache.count, 1, "deleted files must drop out of the cache")
     }
 }
+
+/// A cleaned-up transcript: its provenance keys and the raw sibling that
+/// "Show original" reads.
+final class CleanedTranscriptTests: XCTestCase {
+    private let cleaned = """
+        ---
+        session_id: 20260721T093000_8a3f2c19
+        chunk_seq: 3
+        date: 2026-07-21
+        start_time: 2026-07-21T10:12:10-03:00
+        duration_seconds: 840
+        audio_sources:
+          - microphone
+        model: parakeet:tdt-0.6b-v3
+        language: en
+        huske_version: 0.15.0
+        postprocessed_by: ollama:qwen3.5:0.8b
+        postprocessed_at: '2026-07-21T10:26:31-03:00'
+        raw_transcript: 101210_8a3f2c19_003.asr.txt
+        ---
+
+        # 10:12 – 10:26 (Tue 2026-07-21)
+
+        [10:12:10 · mic] Agreed. I'll move the Kubernetes upgrade to Monday.
+        """
+
+    func testProvenanceKeysAreRead() throws {
+        let doc = try XCTUnwrap(TranscriptParser.parse(cleaned))
+        // Only the first colon separates key from value.
+        XCTAssertEqual(doc.meta.postprocessedBy, "ollama:qwen3.5:0.8b")
+        XCTAssertEqual(doc.meta.rawTranscript, "101210_8a3f2c19_003.asr.txt")
+        XCTAssertEqual(doc.meta.extra["postprocessed_at"], "2026-07-21T10:26:31-03:00")
+        XCTAssertEqual(doc.runs.count, 1)
+    }
+
+    func testAnUncleanedTranscriptHasNoProvenance() throws {
+        let raw = cleaned
+            .replacingOccurrences(of: "postprocessed_by: ollama:qwen3.5:0.8b\n", with: "")
+            .replacingOccurrences(of: "raw_transcript: 101210_8a3f2c19_003.asr.txt\n", with: "raw_transcript: \"\"\n")
+        let doc = try XCTUnwrap(TranscriptParser.parse(raw))
+        XCTAssertNil(doc.meta.postprocessedBy)
+        XCTAssertNil(doc.meta.rawTranscript)
+    }
+
+    func testRawSiblingResolvesNextToTheTranscript() {
+        let md = URL(fileURLWithPath: "/u/huske/transcripts/2026-07-21/101210_8a3f2c19_003.md")
+        XCTAssertEqual(
+            TranscriptParser.rawSiblingURL(for: md, rawName: "101210_8a3f2c19_003.asr.txt")?.path,
+            "/u/huske/transcripts/2026-07-21/101210_8a3f2c19_003.asr.txt")
+        XCTAssertEqual(
+            TranscriptParser.rawSiblingURL(for: md, rawName: " 101210_8a3f2c19_003.asr.txt ")?.lastPathComponent,
+            "101210_8a3f2c19_003.asr.txt")
+    }
+
+    func testRawSiblingRefusesAnythingButAPlainFileName() {
+        let md = URL(fileURLWithPath: "/u/huske/transcripts/2026-07-21/101210_8a3f2c19_003.md")
+        for name in [
+            "", "   ", "../secrets.txt", "/etc/passwd", "sub/dir.asr.txt", "..", ".", ".hidden",
+            "~/notes.txt", "a\\b.txt", "101210_8a3f2c19_003.md",
+        ] {
+            XCTAssertNil(TranscriptParser.rawSiblingURL(for: md, rawName: name), "accepted \(name)")
+        }
+    }
+}

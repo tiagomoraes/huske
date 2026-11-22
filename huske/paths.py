@@ -107,6 +107,17 @@ def incomplete_root(cfg: RuntimeConfig) -> Path:
     return cfg.audio_root / "incomplete"
 
 
+def imported_audio_dir(cfg: RuntimeConfig, when: datetime | date) -> Path:
+    """Where ``keep_audio`` retains an imported recording's original audio.
+
+    ``audio_root/imported/<YYYY-MM-DD>/`` (the recording's local start date),
+    beside — never inside — the per-session live-capture directories, which
+    is why recovery skips ``imported/`` like it skips ``incomplete/``.
+    """
+    d = when.date() if isinstance(when, datetime) else when
+    return cfg.audio_root / "imported" / d.isoformat()
+
+
 def statements_sidecar_path(transcript_path: Path) -> Path:
     """The distill sidecar for a transcript (skip-hash + polished runs).
 

@@ -20,12 +20,9 @@ public final class EngineProcess: @unchecked Sendable {
     public init(binary: URL, arguments: [String], environment: [String: String] = [:]) {
         process.executableURL = binary
         process.arguments = arguments
-        var env = ProcessInfo.processInfo.environment
-        env["HUSKE_NO_UPDATE_CHECK"] = "1"
-        for (key, value) in environment {
-            env[key] = value
-        }
-        process.environment = env
+        // Carries HUSKE_APPLE_LLM_HELPER when this app bundles the helper, so
+        // a session can clean up transcripts with Apple Intelligence.
+        process.environment = HelperLocator.childEnvironment(overrides: environment)
         process.standardOutput = pipe
         process.standardError = pipe
         process.standardInput = FileHandle.nullDevice

@@ -24,10 +24,12 @@ DEFAULT_LLM_MEMORY_LIMIT_MB = 6144
 
 
 class DistillerLike(Protocol):
-    model_id: str
-    backend: str
+    """A post-processing completion backend (``huske.distill.correction``)."""
 
-    def distill_passage(self, text: str, *, sources: list[str], language: str) -> list[str]: ...
+    provider: str
+    model_id: str
+
+    def complete(self, instructions: str, prompt: str, *, max_tokens: int) -> str: ...
 
 
 def configure_mlx_limits(
@@ -173,18 +175,18 @@ class MetalGate:
 
 
 class GatedDistiller:
-    """Wrap a Distiller so each passage waits for the Metal gate."""
+    """Wrap a backend so each request waits for the Metal gate (ASR first)."""
 
     def __init__(self, inner: DistillerLike, gate: MetalGate) -> None:
         self._inner = inner
         self._gate = gate
+        self.provider = inner.provider
         self.model_id = inner.model_id
-        self.backend = inner.backend
 
-    def distill_passage(self, text: str, *, sources: list[str], language: str) -> list[str]:
+    def complete(self, instructions: str, prompt: str, *, max_tokens: int) -> str:
         self._gate.acquire_llm()
         try:
-            return self._inner.distill_passage(text, sources=sources, language=language)
+            return self._inner.complete(instructions, prompt, max_tokens=max_tokens)
         finally:
             self._gate.release_llm()
 
