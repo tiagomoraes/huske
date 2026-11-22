@@ -267,15 +267,24 @@ class RuntimeConfig(BaseModel):
     # --- Cloud transcript sync (Git first; provider boundary is explicit) ---
     # See docs/adr/0009-git-replica-and-isolated-mcp-service.md.
     #
-    # The recording app publishes immutable transcript files to a private Git
+    # The recording app publishes transcript files to a private Git
     # repository. It never hosts a read/MCP surface. Git is the first storage
     # provider (GitHub is the documented setup), while `sync_provider` keeps the
     # config contract open for a future object-store implementation.
     sync_enabled: bool = False
     sync_provider: Literal["git"] = "git"
-    # SSH is recommended (`git@github.com:owner/private-repo.git`) because the
-    # credential stays in the user's normal ssh-agent / Keychain instead of in
-    # huske's config. HTTPS also works with the user's Git credential helper.
+    # How Git authenticates:
+    #   git        : this Mac's own Git sign-in — an SSH key or a credential
+    #                helper. Huske stores nothing.
+    #   github-app : the Huske Sync GitHub App ("Connect GitHub" in the app).
+    #                A short-lived token scoped to the repositories the user
+    #                shared with the app, kept in the macOS Keychain, never in
+    #                this file. Requires an https://github.com/<owner>/<repo>
+    #                remote.
+    sync_auth: Literal["git", "github-app"] = "git"
+    # With `sync_auth = "git"`, SSH (`git@github.com:owner/private-repo.git`)
+    # keeps the credential in the user's ssh-agent / Keychain; HTTPS works with
+    # the user's Git credential helper.
     sync_remote: str | None = None
     sync_branch: str = "main"
     # A dedicated managed checkout. Only transcript Markdown is copied into its
@@ -539,6 +548,18 @@ class RuntimeConfig(BaseModel):
     def _sync_has_remote(self) -> RuntimeConfig:
         if self.sync_enabled and not (self.sync_remote and self.sync_remote.strip()):
             raise ValueError("sync_enabled=true requires sync_remote")
+        return self
+
+    @model_validator(mode="after")
+    def _github_app_needs_github_https(self) -> RuntimeConfig:
+        if self.sync_auth == "github-app" and self.sync_remote:
+            from huske.sync.github import parse_github_https_remote
+
+            if parse_github_https_remote(self.sync_remote) is None:
+                raise ValueError(
+                    "sync_auth=github-app needs an https://github.com/<owner>/<repo> "
+                    "sync_remote"
+                )
         return self
 
     @model_validator(mode="after")

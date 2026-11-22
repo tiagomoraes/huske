@@ -310,4 +310,44 @@ final class PythonInteropTests: XCTestCase {
         }
         XCTAssertFalse(message.isEmpty)
     }
+
+    /// Cloud sync's GitHub sign-in is rendered from `huske sync status --json`.
+    /// Decode the real CLI's output with the app's parser.
+    func testSyncStatusJSONDecodesWithTheSwiftParser() throws {
+        guard let python = ProcessInfo.processInfo.environment["HUSKE_INTEROP_PYTHON"] else {
+            throw XCTSkip("set HUSKE_INTEROP_PYTHON to run the cross-language interop test")
+        }
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("huske-github-interop-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: python)
+        process.arguments = ["-m", "huske", "sync", "status", "--json", "--config", "/nonexistent.toml"]
+        var env = ProcessInfo.processInfo.environment
+        env["HUSKE_NO_UPDATE_CHECK"] = "1"
+        env["HOME"] = home.path
+        process.environment = env
+        let out = Pipe()
+        process.standardOutput = out
+        process.standardError = Pipe()
+        try process.run()
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
+        let events = GitHubSyncEvent.parseAll(String(data: data, encoding: .utf8) ?? "")
+        switch events.last {
+        case .status(let status)?:
+            XCTAssertEqual(status.auth, "git")
+            XCTAssertNil(status.repository)
+            XCTAssertTrue(status.installUrl.hasPrefix("https://github.com/apps/"))
+        case .error?:
+            // A runner without a usable login keychain still has to speak
+            // the same contract: an error event the app can show.
+            break
+        default:
+            XCTFail("unparseable `huske sync status --json` output: \(events)")
+        }
+    }
 }

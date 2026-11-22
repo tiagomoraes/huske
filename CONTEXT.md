@@ -55,6 +55,12 @@ dedicated Git checkout and pushes them. Git is the first cloud provider; GitHub
 is the documented host. It never publishes audio, screenshots, logs, config, or
 credentials.
 
+**Huske Sync**:
+The project's GitHub App behind "Connect GitHub". It can read and write only
+the contents of repositories the user shares with it. Its user access token,
+obtained by device-flow sign-in, is the credential when `sync_auth` is
+`github-app`.
+
 **ReplicaRepository**:
 The private Git repository used as the durable handoff and history. It is not
 the Huske source-code repository.

@@ -301,11 +301,29 @@ The screenshot interval must be at least 1 second.
 
 ## Sync transcripts and query them from agents (opt-in)
 
-The recording app does not host MCP. Open **Cloud sync** in Huske.app, create a
-private GitHub repository, paste its SSH URL, and press **Sync now**. After the
-first push succeeds, enable automatic sync.
+The recording app does not host MCP. Open **Cloud sync** in Huske.app and choose
+**Connect GitHub**:
+
+1. Enter the code Huske shows on GitHub and approve **Huske Sync**.
+2. Create a private repository (Huske opens the form prefilled) and share only
+   it with Huske Sync.
+3. Choose **Publish here**. Huske publishes once, then publishes every new
+   transcript automatically.
+
+No SSH key is needed. Huske Sync can read and write the contents of the
+repositories you share with it and nothing else: it cannot create, delete, or
+reconfigure repositories. Its short-lived token stays in your macOS Keychain.
 
 Terminal equivalent:
+
+```bash
+huske sync login                          # enter the code on GitHub
+huske sync use you/huske-transcripts      # a private repository shared with Huske Sync
+huske sync
+huske config set sync_enabled true
+```
+
+Prefer your own Git sign-in? Choose **Use an SSH key instead**, or:
 
 ```bash
 huske config set sync_remote git@github.com:you/huske-transcripts.git
@@ -315,9 +333,9 @@ huske sync
 
 Huske publishes only canonical transcript Markdown under
 `transcripts/YYYY-MM-DD/*.md`, plus a `README.md` and `AGENTS.md` that explain
-the layout to agents. Git uses your existing SSH agent or credential helper;
-Huske stores no GitHub token. Audio, screenshots, logs, config, and credentials
-are never copied. A transcript that distillation polishes after publishing is
+the layout to agents. With your own Git sign-in, Git uses your SSH agent or
+credential helper and Huske stores no GitHub token. Audio, screenshots, logs,
+config, and credentials are never copied. A transcript that distillation polishes after publishing is
 updated in place. A transcript you delete in the repository stays deleted
 (`huske sync --republish <path>` publishes it again).
 

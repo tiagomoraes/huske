@@ -73,6 +73,10 @@ enum ScreenRenderer {
         let syncModel = makeConfigModel()
         syncModel.pane = .connect
         screens.append(("root-cloud-sync", AnyView(RootView().environment(syncModel))))
+        for (suffix, githubModel) in makeGitHubSyncModels() {
+            githubModel.pane = .connect
+            screens.append(("root-cloud-sync-\(suffix)", AnyView(RootView().environment(githubModel))))
+        }
         let paletteModel = makeActiveModel()
         paletteModel.paletteVisible = true
         screens.append(("root-palette", AnyView(RootView().environment(paletteModel))))
@@ -386,6 +390,63 @@ enum ScreenRenderer {
                 ]
             ))
         return model
+    }
+
+    /// Connect GitHub, step by step: not connected → code → choose a
+    /// repository → publishing.
+    private static func makeGitHubSyncModels() -> [(String, AppModel)] {
+        func status(connected: Bool, repository: String?) -> GitHubSyncStatus {
+            GitHubSyncStatus(
+                auth: repository == nil ? "git" : "github-app", connected: connected,
+                login: connected ? "you" : nil, repository: repository,
+                remote: repository.map { "https://github.com/\($0).git" },
+                syncEnabled: repository != nil,
+                installUrl: "https://github.com/apps/huske-sync/installations/new",
+                newRepositoryUrl: "https://github.com/new?name=huske-transcripts&visibility=private")
+        }
+        func model(remote: String?) -> AppModel {
+            let model = makeIdleModel()
+            var file = #""input_device": "MacBook Pro Microphone""#
+            if let remote {
+                file += #", "sync_enabled": true, "sync_auth": "github-app", "sync_remote": "\#(remote)""#
+            }
+            let json = #"{"path": "/tmp/config.toml", "exists": true, "file": {\#(file)}, "effective": {\#(file)}}"#
+            if let snapshot = try? ConfigBridge.parseShowJSON(json) {
+                model.config._previewInject(snapshot: snapshot)
+            }
+            return model
+        }
+
+        let connect = model(remote: nil)
+        connect.github._previewInject(status: status(connected: false, repository: nil))
+
+        let code = model(remote: nil)
+        code.github._previewInject(
+            status: status(connected: false, repository: nil),
+            login: .waiting(
+                GitHubDeviceCode(
+                    userCode: "WDJB-MJHT", verificationUri: "https://github.com/login/device",
+                    expiresIn: 900)))
+
+        let choose = model(remote: nil)
+        choose.github._previewInject(
+            status: status(connected: true, repository: nil),
+            shared: GitHubSharedRepositories(
+                installed: true, repositorySelection: "all",
+                repositories: [
+                    GitHubRepository(fullName: "you/huske-transcripts", isPrivate: true),
+                    GitHubRepository(fullName: "you/website", isPrivate: false),
+                ],
+                installUrl: "https://github.com/apps/huske-sync/installations/new",
+                installationSettingsUrl: "https://github.com/settings/installations/1",
+                newRepositoryUrl: "https://github.com/new?name=huske-transcripts&visibility=private",
+                current: nil))
+
+        let publishing = model(remote: "https://github.com/you/huske-transcripts.git")
+        publishing.github._previewInject(
+            status: status(connected: true, repository: "you/huske-transcripts"))
+
+        return [("connect", connect), ("code", code), ("choose", choose), ("publishing", publishing)]
     }
 
     private static func makeConfigModel() -> AppModel {

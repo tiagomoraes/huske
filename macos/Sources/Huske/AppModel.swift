@@ -138,6 +138,7 @@ final class AppModel {
     let models = ModelsStore()
     /// Receives recordings from paired iPhones (specs/002-phone-sync).
     let phoneSync = PhoneSyncCoordinator()
+    let github = GitHubSyncController()
 
     // MARK: doctor
 
@@ -344,26 +345,52 @@ final class AppModel {
     // MARK: cloud sync
 
     func syncNow() {
-        guard let binaryURL, !syncRunning else { return }
+        Task { await performSync() }
+    }
+
+    /// Run `huske sync` once; `true` when it published without problems.
+    @discardableResult
+    func performSync() async -> Bool {
+        guard let binaryURL, !syncRunning else { return false }
         syncRunning = true
         syncMessage = nil
         syncSucceeded = nil
+        defer { syncRunning = false }
+        do {
+            let result = try await CLIRunner.run(
+                binary: binaryURL, arguments: ["sync"], timeout: 180)
+            let output = (result.stdout + "\n" + result.stderr)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            syncSucceeded = result.status == 0
+            syncMessage =
+                output.isEmpty
+                ? (result.status == 0 ? "Repository is current." : "Sync failed.")
+                : output
+            return result.status == 0
+        } catch {
+            syncSucceeded = false
+            syncMessage = Self.describe(error)
+            return false
+        }
+    }
+
+    /// Finish "Connect GitHub": point sync at the chosen repository, publish
+    /// once, and — only if that worked — publish automatically from now on.
+    func useGitHubRepository(_ fullName: String) {
         Task {
-            do {
-                let result = try await CLIRunner.run(
-                    binary: binaryURL, arguments: ["sync"], timeout: 180)
-                let output = (result.stdout + "\n" + result.stderr)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                self.syncSucceeded = result.status == 0
-                self.syncMessage =
-                    output.isEmpty
-                    ? (result.status == 0 ? "Repository is current." : "Sync failed.")
-                    : output
-            } catch {
-                self.syncSucceeded = false
-                self.syncMessage = Self.describe(error)
+            guard await github.use(fullName, binary: binaryURL) else { return }
+            await config.reload(binary: binaryURL)
+            if await performSync(), !config.bool("sync_enabled") {
+                config.set("sync_enabled", to: .bool(true))
             }
-            self.syncRunning = false
+            await github.refresh(binary: binaryURL)
+        }
+    }
+
+    func disconnectGitHub() {
+        Task {
+            await github.disconnect(binary: binaryURL)
+            await config.reload(binary: binaryURL)
         }
     }
 

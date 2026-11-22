@@ -23,7 +23,10 @@ it never re-implements recording or transcription logic (see
   Intelligence") and has a "Show original" switch that shows the untouched
   transcript from the sibling `.asr.txt`.
 - **Cloud sync** — configures a private Git repository, branch, and automatic
-  transcript publishing without requiring a terminal. “Sync now” invokes the
+  transcript publishing without requiring a terminal. **Connect GitHub** signs
+  in with the Huske Sync GitHub App (a code entered on GitHub, no SSH), lists
+  the private repositories shared with it, and publishes to the one chosen;
+  "Use an SSH key instead" keeps the manual repository URL. “Sync now” invokes the
   same `huske sync` path used by the recording engine. A background sync
   problem stays visible in the pane (and as a session warning) until a clean
   run clears it. The pane explains how AI tools read the repository through
