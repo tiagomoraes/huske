@@ -18,6 +18,13 @@ Only one piece of one item is in flight at a time. That keeps live chunks
 interleaved with a long import instead of queued behind all of it, and bounds
 how long a stopping engine can wait on inbox work to a single piece.
 
+A piece that fails does not stop the others: the attempt goes on, the item
+ends ``failed`` with ``missing_chunks`` naming the pieces without a result,
+and the transcripts of the finished ones stay listed (Huske.app hands them to
+the phone as a partial transcript). What is finished is remembered in
+``chunk_results``, so every later attempt — automatic, after a re-queue, or
+``huske inbox retry`` — transcribes only the missing pieces.
+
 Each piece's job carries a string ``job_id`` (``inbox:<id>:<seq>``) that the
 worker echoes back; results are matched on it, never on ``chunk_seq``, which
 restarts at 1 for every imported recording and so collides with live chunks.
@@ -25,6 +32,9 @@ restarts at 1 for every imported recording and so collides with live chunks.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import math
 import os
 import shutil
 import threading
@@ -41,6 +51,7 @@ from huske.inbox.decode import DecodeCancelled, decode_to_wav16k
 from huske.inbox.split import Piece, SplitCancelled, split_wav
 from huske.inbox.store import (
     MAX_ATTEMPTS,
+    THROUGHPUT_FILE,
     WORK_DIR,
     InboxItem,
     InboxLock,
@@ -56,6 +67,11 @@ RETRY_DELAY_SECONDS = 60.0
 # A submitted job whose worker has been dead this long is considered lost.
 LOST_WORKER_GRACE_SECONDS = 3.0
 PRUNE_INTERVAL_SECONDS = 3600.0
+# How often `chunk_progress` of the piece in flight is refreshed in status.json.
+PROGRESS_INTERVAL_SECONDS = 5.0
+# A piece shorter than this is mostly fixed cost (model load); it says little
+# about how long a long one takes, so it does not feed the measured speed.
+MIN_MEASURED_AUDIO_SECONDS = 30.0
 
 EventSink = Callable[[str, str], None]
 Decoder = Callable[..., float]
@@ -65,6 +81,213 @@ Splitter = Callable[..., list[tuple[Piece, Path]]]
 def is_inbox_job_id(value: object) -> bool:
     """True for a ``job_id`` minted by the inbox (never set on live chunks)."""
     return isinstance(value, str) and value.startswith(JOB_ID_PREFIX)
+
+
+def split_key(cfg: RuntimeConfig, pieces: list[tuple[Piece, Path]]) -> str:
+    """Names one way of cutting a recording, and the ASR settings used on it.
+
+    Finished pieces are only reused by a later attempt when this is unchanged:
+    a different ``chunk_minutes`` moves the cuts (piece 2 is other audio), and
+    a different engine, model or language would leave one transcript written
+    two ways.
+    """
+    model = cfg.parakeet_model if cfg.asr_engine == "parakeet" else cfg.model
+    payload = json.dumps(
+        {
+            "asr": [cfg.asr_engine, model, cfg.language],
+            "pieces": [[p.seq, p.start_frame, p.end_frame, p.sample_rate] for p, _ in pieces],
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def finished_chunks(
+    status: dict[str, Any], *, key: str | None = None
+) -> tuple[int, dict[int, str | None]]:
+    """``(total, {piece number: transcript path or None})`` from ``chunk_results``.
+
+    The pieces an earlier attempt finished, as far as they still hold: a piece
+    whose transcript file is gone counts as not done. With ``key``, nothing
+    is returned unless the recording was cut the same way. ``(0, {})`` when
+    there is no usable record.
+    """
+    record = status.get("chunk_results")
+    if not isinstance(record, dict):
+        return 0, {}
+    if key is not None and record.get("split") != key:
+        return 0, {}
+    total = record.get("total")
+    done = record.get("done")
+    if not isinstance(total, int) or isinstance(total, bool) or total <= 0:
+        return 0, {}
+    if not isinstance(done, dict):
+        return 0, {}
+    results: dict[int, str | None] = {}
+    for raw_seq, path in done.items():
+        try:
+            seq = int(raw_seq)
+        except (TypeError, ValueError):
+            continue
+        if not 1 <= seq <= total:
+            continue
+        if path is None:
+            results[seq] = None  # transcribed, no speech
+        elif isinstance(path, str) and path and os.path.isfile(path):
+            results[seq] = path
+    return total, results
+
+
+def partial_fields(total: int, results: dict[int, str | None]) -> dict[str, Any]:
+    """Status fields of an item that stopped with ``results`` of ``total`` pieces."""
+    return {
+        "chunks_total": total,
+        "chunks_done": len(results),
+        "transcripts": [path for _, path in sorted(results.items()) if path],
+        "missing_chunks": [seq for seq in range(1, total + 1) if seq not in results],
+    }
+
+
+def estimate_piece_progress(elapsed_seconds: float, expected_seconds: float) -> float | None:
+    """How far through the piece in flight the transcriber probably is (0 to 1).
+
+    An estimate from elapsed time, for a status line that would otherwise sit
+    on "1 of 3" for minutes: the ASR call is opaque (``mlx_whisper`` reports
+    no progress) so there is nothing real to read. Rises steadily to 0.9 at
+    the expected duration; past it, creeps towards 0.99 and stays there. It
+    only ever grows with time and never says "done": that is the piece's
+    result arriving, which moves ``chunks_done`` instead.
+    """
+    if expected_seconds <= 0 or elapsed_seconds < 0:
+        return None
+    ratio = elapsed_seconds / expected_seconds
+    if ratio <= 1.0:
+        return 0.9 * ratio
+    return 0.9 + 0.09 * (1.0 - math.exp(-(ratio - 1.0)))
+
+
+class Throughput:
+    """Measured transcription speed on this Mac, per ASR engine and model.
+
+    Wall seconds per second of audio, from pieces this inbox has actually
+    transcribed — never an assumed figure. Kept in ``<inbox_root>/
+    .throughput.json`` so the first piece of a later pass has it too; until
+    one piece has been measured there is no estimate at all. Recent pieces
+    weigh more (each new one halves the weight of what came before). Only the
+    inbox lock holder writes it.
+    """
+
+    def __init__(self, path: Path, key: str) -> None:
+        self._path = path
+        self._key = key
+        self._loaded = False
+        self._wall = 0.0
+        self._audio = 0.0
+
+    def _load(self) -> None:
+        if self._loaded:
+            return
+        self._loaded = True
+        try:
+            data = json.loads(self._path.read_text(encoding="utf-8"))
+            entry = data["engines"][self._key]
+            wall = float(entry["wall_seconds"])
+            audio = float(entry["audio_seconds"])
+        except (OSError, ValueError, KeyError, TypeError):
+            return
+        if math.isfinite(wall) and math.isfinite(audio) and wall > 0 and audio > 0:
+            self._wall, self._audio = wall, audio
+
+    def rate(self) -> float | None:
+        """Wall seconds per audio second, or None when nothing was measured."""
+        self._load()
+        if self._audio <= 0 or self._wall <= 0:
+            return None
+        return self._wall / self._audio
+
+    def record(self, wall_seconds: float, audio_seconds: float) -> None:
+        if audio_seconds < MIN_MEASURED_AUDIO_SECONDS or wall_seconds <= 0:
+            return
+        self._load()
+        self._wall = self._wall * 0.5 + wall_seconds
+        self._audio = self._audio * 0.5 + audio_seconds
+        try:
+            try:
+                data = json.loads(self._path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                data = {}
+            if not isinstance(data, dict) or not isinstance(data.get("engines"), dict):
+                data = {"version": 1, "engines": {}}
+            data["engines"][self._key] = {
+                "wall_seconds": round(self._wall, 3),
+                "audio_seconds": round(self._audio, 3),
+            }
+            tmp = self._path.with_name(f"{self._path.name}.{os.getpid()}.tmp")
+            tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            os.replace(tmp, self._path)
+        except OSError:
+            pass  # an estimate is never worth failing a transcription for
+
+
+# How often a one-shot pass looks for a live session to yield to.
+LIVE_SESSION_CHECK_SECONDS = 1.0
+
+
+def live_session_running(cfg: RuntimeConfig) -> bool:
+    """True while a ``huske run`` session holds a live lock under ``audio_root``.
+
+    The live engine writes ``audio_root/<session>/.lock`` (its pid) before it
+    first tries the inbox lock, so a one-shot pass sees a starting session at
+    once. A lock naming a dead process (a crashed session) does not count.
+    """
+    from huske.session import is_lock_alive
+
+    try:
+        entries = list(os.scandir(cfg.audio_root))
+    except OSError:
+        return False
+    for entry in entries:
+        if entry.name in {"incomplete", "imported"}:
+            continue
+        try:
+            if not entry.is_dir():
+                continue
+        except OSError:
+            continue
+        lock = paths.lock_path(Path(entry.path))
+        if lock.is_file() and is_lock_alive(lock):
+            return True
+    return False
+
+
+class LiveSessionWatch:
+    """``should_stop`` for a one-shot pass: a live session has started.
+
+    Checks at most every ``interval`` seconds and stays tripped once it fires.
+    """
+
+    def __init__(
+        self,
+        cfg: RuntimeConfig,
+        *,
+        interval: float = LIVE_SESSION_CHECK_SECONDS,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._cfg = cfg
+        self._interval = interval
+        self._clock = clock
+        self._next = float("-inf")
+        self.tripped = False
+
+    def __call__(self) -> bool:
+        if self.tripped:
+            return True
+        now = self._clock()
+        if now < self._next:
+            return False
+        self._next = now + self._interval
+        self.tripped = live_session_running(self._cfg)
+        return self.tripped
 
 
 class AsrWorker(Protocol):
@@ -136,11 +359,31 @@ class _Active:
     work_dir: Path
     pieces: list[tuple[Piece, Path]]
     prev_attempts: int
+    # How this recording was cut (`split_key`), for `chunk_results`.
+    key: str = ""
     next_index: int = 0
     inflight: str | None = None
+    inflight_seq: int = 0
     submitted: bool = False
-    chunks_done: int = 0
-    transcripts: list[str] = field(default_factory=list)
+    # Finished pieces, by number: the transcript each wrote (None: no speech).
+    # Starts with what earlier attempts finished.
+    results: dict[int, str | None] = field(default_factory=dict)
+    # Pieces that failed in this attempt, by number: the first line of why.
+    failed: dict[int, str] = field(default_factory=dict)
+    # The piece in flight, for the `chunk_progress` estimate.
+    inflight_seconds: float = 0.0
+    submitted_at: float | None = None
+    progress: float = 0.0
+    next_progress_at: float = float("-inf")
+
+    @property
+    def chunks_done(self) -> int:
+        return len(self.results)
+
+    @property
+    def transcripts(self) -> list[str]:
+        """Transcripts written so far, in chronological (piece) order."""
+        return [path for _, path in sorted(self.results.items()) if path]
 
 
 class InboxProcessor:
@@ -179,6 +422,14 @@ class InboxProcessor:
         self._next_prune = float("-inf")
         self._dead_since: float | None = None
         self._attempted: set[str] = set()
+        # `run_pending`'s stop request (SIGTERM, a live session starting),
+        # while it runs: lets a preparation cut short by the stop be told
+        # apart from one that failed.
+        self._should_stop: Callable[[], bool] | None = None
+        model = cfg.parakeet_model if cfg.asr_engine == "parakeet" else cfg.model
+        self._throughput = Throughput(
+            self.store.root / THROUGHPUT_FILE, f"{cfg.asr_engine}:{model}"
+        )
         #: Ids of the items this processor started, in order.
         self.processed: list[str] = []
 
@@ -241,6 +492,7 @@ class InboxProcessor:
                 return []
             self._finish_preparation()
         if self._active is not None:
+            self._refresh_progress(now)
             return self._next_job()
         if not force and now < self._next_scan:
             return []
@@ -260,6 +512,8 @@ class InboxProcessor:
         a = self._active
         if a is not None and a.inflight == job_id:
             a.submitted = True
+            a.submitted_at = self._clock()
+            a.next_progress_at = a.submitted_at + PROGRESS_INTERVAL_SECONDS
             self._dead_since = None
 
     def job_failed(self, job_id: str, error: str) -> bool:
@@ -282,28 +536,42 @@ class InboxProcessor:
             return []
         a.inflight = None
         a.submitted = False
+        submitted_at, a.submitted_at = a.submitted_at, None
         self._dead_since = None
-        seq = int(result.get("chunk_seq", 0) or 0)
+        seq = a.inflight_seq
         total = len(a.pieces)
         if not result.get("ok"):
+            # This piece has no transcript; the others may still get one. The
+            # attempt goes on and ends `failed` with this piece missing.
             lines = str(result.get("error") or "").strip().splitlines()
-            self._fail(a.item, a.work_dir, f"chunk {seq}/{total} failed: {lines[0] if lines else 'unknown error'}")
+            a.failed[seq] = lines[0] if lines else "unknown error"
+            self._emit(
+                "warn", f"inbox: {a.item.label} — chunk {seq}/{total} failed: {a.failed[seq]}"
+            )
+            if not self._pieces_left(a):
+                self._finish()
+            else:
+                # Nothing new to record, but the estimate for this piece must
+                # not sit on the next one (a status write drops it).
+                self._write_progress(a)
             return []
         written: list[Path] = []
         tp = result.get("transcript_path")
         if isinstance(tp, str) and tp:
             path = os.path.abspath(tp)
-            a.transcripts.append(path)
+            a.results[seq] = path
             written.append(Path(path))
             self._emit("info", f"inbox: {a.item.label} — chunk {seq}/{total} → {Path(path).name}")
+            # Speech was transcribed: a fair sample of this Mac's speed. (A
+            # silent piece returns at once and would flatter it.)
+            if submitted_at is not None:
+                self._throughput.record(self._clock() - submitted_at, a.inflight_seconds)
         else:
+            a.results[seq] = None
             self._emit("info", f"inbox: {a.item.label} — chunk {seq}/{total}: no speech")
-        a.chunks_done += 1
-        self.store.write_status(
-            a.item, chunks_done=a.chunks_done, transcripts=list(a.transcripts)
-        )
-        if a.chunks_done >= total:
-            self._complete()
+        self._write_progress(a)
+        if not self._pieces_left(a):
+            self._finish()
         return written
 
     def check_worker(self, alive: bool) -> list[str]:
@@ -329,9 +597,10 @@ class InboxProcessor:
     def abandon(self) -> None:
         """Stop work in progress and put its item back to ``queued``.
 
-        Used on a graceful stop: the interrupted attempt is not counted, and
-        the deterministic session id makes the next run rewrite the same
-        transcripts.
+        Used on a graceful stop: the interrupted attempt is not counted. The
+        pieces it finished stay recorded (``chunk_results``), so the next run
+        goes on from there; the piece in flight is transcribed again, into
+        the same file (the session id is deterministic).
         """
         prep, self._prep = self._prep, None
         if prep is not None:
@@ -378,6 +647,7 @@ class InboxProcessor:
         with nothing to do never loads a model.
         """
         worker: AsrWorker | None = None
+        self._should_stop = should_stop
         try:
             while True:
                 if should_stop is not None and should_stop():
@@ -405,6 +675,7 @@ class InboxProcessor:
                     self.handle_result(result)
                 self.check_worker(worker.alive)
         finally:
+            self._should_stop = None
             if worker is not None:
                 worker.stop(drain_timeout=5.0)
 
@@ -461,43 +732,130 @@ class InboxProcessor:
             return
         item = prep.item
         if prep.error is not None:
+            if self._should_stop is not None and self._should_stop():
+                # Asked to stop while decoding. SIGTERM goes to the whole
+                # process group, so it took `afconvert` down as well, and that
+                # reads as a decode error: it is the stop, not the recording.
+                # Back to the queue, the attempt unspent.
+                self._requeue(item, prep.prev_attempts, prep.work_dir)
+                return
             self._fail(item, prep.work_dir, f"could not decode: {prep.error}")
             return
         started = item.started_at.astimezone()
-        self._active = _Active(
+        pieces = list(prep.pieces)
+        key = split_key(self.cfg, pieces)
+        # What earlier attempts finished, if the recording is cut the same way
+        # and their transcripts are still there: not transcribed again.
+        _, results = finished_chunks(item.status, key=key)
+        results = {seq: path for seq, path in results.items() if seq <= len(pieces)}
+        a = _Active(
             item=item,
             session_id=session_id_for(item.id, started),
             started_at=started,
             work_dir=prep.work_dir,
-            pieces=list(prep.pieces),
+            pieces=pieces,
             prev_attempts=prep.prev_attempts,
+            key=key,
+            results=results,
         )
-        if not prep.pieces:
+        self._active = a
+        if not pieces:
             self._emit("info", f"inbox: {item.label} has no audio")
             self._complete()
             return
-        self.store.write_status(item, chunks_total=len(prep.pieces))
+        self._write_progress(a)
         minutes = prep.duration_seconds / 60.0
+        kept = f", {len(results)} already transcribed" if results else ""
         self._emit(
             "info",
             f"inbox: transcribing {item.label} ({minutes:.1f} min, "
-            f"{len(prep.pieces)} chunk(s))",
+            f"{len(pieces)} chunk(s){kept})",
         )
 
     def _next_job(self) -> list[dict[str, Any]]:
         a = self._active
         if a is None or a.inflight is not None:
             return []
-        if a.next_index >= len(a.pieces):
-            self._complete()
+        if not self._pieces_left(a):
+            self._finish()
             return []
         piece, path = a.pieces[a.next_index]
         a.next_index += 1
         job_id = f"{JOB_ID_PREFIX}{a.item.id}:{piece.seq}"
         a.inflight = job_id
+        a.inflight_seq = piece.seq
         a.submitted = False
+        a.inflight_seconds = float(piece.duration_seconds)
+        a.submitted_at = None
+        a.progress = 0.0
         self._dead_since = None
         return [self._job(a, piece, path, job_id)]
+
+    @staticmethod
+    def _pieces_left(a: _Active) -> bool:
+        """Move past the pieces that already have a result; is one left?"""
+        while a.next_index < len(a.pieces) and a.pieces[a.next_index][0].seq in a.results:
+            a.next_index += 1
+        return a.next_index < len(a.pieces)
+
+    def _finish(self) -> None:
+        """Every piece was attempted: `done`, or `failed` with what is missing."""
+        a = self._active
+        if a is None:
+            return
+        if not a.failed:
+            self._complete()
+            return
+        total = len(a.pieces)
+        seqs = sorted(a.failed)
+        why = a.failed[seqs[0]]
+        if len(seqs) == 1:
+            error = f"chunk {seqs[0]}/{total} failed: {why}"
+        else:
+            error = f"chunks {', '.join(str(s) for s in seqs)} of {total} failed: {why}"
+        self._fail(a.item, a.work_dir, error)
+
+    def _write_progress(self, a: _Active) -> None:
+        """Record the finished pieces: the counts Huske.app shows, and
+        ``chunk_results`` for a later attempt to pick up from."""
+        self.store.write_status(
+            a.item,
+            chunks_total=len(a.pieces),
+            chunks_done=a.chunks_done,
+            transcripts=a.transcripts,
+            chunk_results={
+                "split": a.key,
+                "total": len(a.pieces),
+                "done": {str(seq): path for seq, path in sorted(a.results.items())},
+            },
+        )
+
+    def _refresh_progress(self, now: float) -> None:
+        """Publish ``chunk_progress`` for the piece being transcribed.
+
+        At most every ``PROGRESS_INTERVAL_SECONDS``, only once this Mac's
+        speed has been measured, and only forwards.
+        """
+        a = self._active
+        if a is None or a.inflight is None or not a.submitted or a.submitted_at is None:
+            return
+        if now < a.next_progress_at:
+            return
+        a.next_progress_at = now + PROGRESS_INTERVAL_SECONDS
+        rate = self._throughput.rate()
+        if rate is None:
+            return
+        estimate = estimate_piece_progress(now - a.submitted_at, a.inflight_seconds * rate)
+        if estimate is None:
+            return
+        fraction = math.floor(estimate * 100) / 100
+        if fraction <= a.progress:
+            return
+        a.progress = fraction
+        try:
+            self.store.write_status(a.item, chunk_progress=fraction)
+        except OSError:
+            pass
 
     def _job(self, a: _Active, piece: Piece, path: Path, job_id: str) -> dict[str, Any]:
         cfg = self.cfg
@@ -556,8 +914,9 @@ class InboxProcessor:
             state="done",
             chunks_total=total,
             chunks_done=total,
-            transcripts=list(a.transcripts),
+            transcripts=a.transcripts,
             error=None,
+            chunk_results=None,
         )
         try:
             self._retain_audio(item, a.started_at)
@@ -583,10 +942,15 @@ class InboxProcessor:
         return dest
 
     def _fail(self, item: InboxItem, work_dir: Path, error: str) -> None:
-        if self._active is not None and self._active.item.id == item.id:
+        a = self._active
+        if a is not None and a.item.id == item.id:
             self._active = None
+        else:
+            a = None
         shutil.rmtree(work_dir, ignore_errors=True)
-        self.store.write_status(item, state="failed", error=error)
+        self.store.write_status(
+            item, state="failed", error=error, **self._partial(item, a)
+        )
         attempts = item.attempts
         if attempts >= MAX_ATTEMPTS:
             self._emit(
@@ -600,7 +964,22 @@ class InboxProcessor:
             )
         self._next_scan = float("-inf")
 
+    @staticmethod
+    def _partial(item: InboxItem, a: _Active | None) -> dict[str, Any]:
+        """What a failing item keeps: its finished pieces and which are missing.
+
+        From the attempt itself when it got as far as cutting the recording;
+        otherwise (it could not be decoded this time, or its holder died) from
+        what earlier attempts recorded. Nothing when it was never cut.
+        """
+        if a is not None and a.pieces:
+            return partial_fields(len(a.pieces), a.results)
+        total, results = finished_chunks(item.status)
+        return partial_fields(total, results) if total else {}
+
     def _requeue(self, item: InboxItem, prev_attempts: int, work_dir: Path) -> None:
+        # `chunk_results` stays: the pieces already transcribed are not done
+        # again by whoever picks the item up.
         shutil.rmtree(work_dir, ignore_errors=True)
         try:
             self.store.write_status(
@@ -630,6 +1009,7 @@ class InboxProcessor:
                     item,
                     state="failed",
                     error=f"interrupted while transcribing; gave up after {item.attempts} attempts",
+                    **self._partial(item, None),
                 )
             else:
                 self.store.write_status(

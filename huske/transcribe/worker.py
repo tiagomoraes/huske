@@ -16,9 +16,13 @@ the result contains text.
 from __future__ import annotations
 
 import multiprocessing as mp
+import os
 import queue
 import signal
+import threading
+import time
 import traceback
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -111,6 +115,53 @@ _READY_MSG = "__READY__"
 def _configure_worker_signal_handlers() -> None:
     """Let the parent process own terminal Ctrl+C shutdown."""
     signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+
+# How often the worker checks that the process that started it still exists.
+PARENT_POLL_SECONDS = 1.0
+
+
+def _parent_is_gone(parent_pid: int) -> bool:
+    """True once the process that started this worker no longer exists.
+
+    A child whose parent dies is re-parented (to launchd on macOS), so its
+    parent pid stops being the one captured at start. Polling ``getppid`` is
+    the portable way to notice; macOS has no ``PR_SET_PDEATHSIG``.
+    """
+    return os.getppid() != parent_pid
+
+
+def _exit_orphaned() -> None:
+    """Leave now. Not ``sys.exit``: that only raises in the watcher thread,
+    and a flag would not be seen by a main thread inside a minutes-long MLX
+    transcribe call. Nobody is left to read a result or a status code."""
+    os._exit(0)
+
+
+def _watch_parent(
+    parent_pid: int,
+    *,
+    interval: float = PARENT_POLL_SECONDS,
+    is_gone: Callable[[int], bool] = _parent_is_gone,
+    on_orphaned: Callable[[], None] = _exit_orphaned,
+    sleep: Callable[[float], None] = time.sleep,
+) -> threading.Thread:
+    """Exit this worker when its parent dies (daemon thread).
+
+    Without it, killing ``huske inbox process`` (or ``huske run``) left the
+    worker re-parented and transcribing for nobody at full CPU, holding the
+    Metal heap and the dead parent's stdout/stderr pipes open — which also
+    kept whoever was reading those pipes waiting forever.
+    """
+
+    def watch() -> None:
+        while not is_gone(parent_pid):
+            sleep(interval)
+        on_orphaned()
+
+    thread = threading.Thread(target=watch, name="huske-asr-parent-watch", daemon=True)
+    thread.start()
+    return thread
 
 
 # Returned by ``_next_message`` when the idle window elapsed with no new job.
@@ -208,9 +259,17 @@ def _worker_main(
     in_q: Any,
     out_q: Any,
     footprint: dict[str, Any] | None = None,
+    parent_pid: int | None = None,
 ) -> None:
-    """Subprocess entry point. Loops on jobs until sentinel arrives."""
+    """Subprocess entry point. Loops on jobs until sentinel arrives.
+
+    ``parent_pid`` is the pid of the process that spawned this worker; when
+    given, the worker exits as soon as that process is gone. (Left out when
+    the loop runs on a thread, as the tests do.)
+    """
     _configure_worker_signal_handlers()
+    if parent_pid is not None:
+        _watch_parent(parent_pid)
 
     from huske.proctitle import set_process_title
 
@@ -486,7 +545,9 @@ class TranscriptionWorker:
             self._out_q = _ctx.Queue()
         self._proc = _ctx.Process(
             target=_worker_main,
-            args=(self._in_q, self._out_q, self._footprint),
+            # Our pid, taken here rather than `getppid()` in the child: a
+            # parent that dies during the child's startup is still noticed.
+            args=(self._in_q, self._out_q, self._footprint, os.getpid()),
             name="huske-worker",
         )
         self._proc.start()
