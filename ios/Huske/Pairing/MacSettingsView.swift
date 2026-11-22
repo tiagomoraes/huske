@@ -421,7 +421,7 @@ private struct MacNameRow: View {
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+            HStack(alignment: .center, spacing: 0) {
                 Text("Name")
                     .font(.plexSans(15, relativeTo: .subheadline))
                     .foregroundStyle(Brand.fgMuted)
@@ -436,12 +436,19 @@ private struct MacNameRow: View {
                     .focused($editing)
                     .accessibilityLabel("Name for this Mac")
                     .accessibilityHint("Only this iPhone uses it. Leave it empty to use the Mac's own name.")
-                if !editing {
+                // A full 44 pt target; the negative padding lets it reach into
+                // the row's own padding instead of making the row taller.
+                Button { editing = true } label: {
                     Image(systemName: "pencil")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Brand.fgFaint)
-                        .accessibilityHidden(true)
+                        .font(.system(size: 18, weight: .regular))
+                        .foregroundStyle(editing ? Brand.amber : Brand.fgMuted)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .padding(.vertical, -12)
+                .padding(.trailing, -12)
+                .accessibilityHidden(true)
             }
             if let own = sync.macOwnName, sync.macName != own {
                 Text("Calls itself “\(own)”")
