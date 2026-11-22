@@ -191,8 +191,7 @@ struct TranscriptsView: View {
                 LazyVStack(alignment: .leading, spacing: 1, pinnedViews: []) {
                     ForEach(Self.window(sections, limit: visibleLimit), id: \.0) { title, entries in
                         Text(title)
-                            .font(.brandMono(10.5, .medium))
-                            .kerning(0.6)
+                            .font(.brandSans(12.5, .medium))
                             .foregroundStyle(Theme.fgMuted)
                             .padding(.horizontal, 16)
                             .padding(.top, 14)
@@ -354,11 +353,13 @@ struct TranscriptsView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         guard let date = formatter.date(from: isoDay) else { return isoDay }
-        if Calendar.current.isDateInToday(date) { return "today · \(isoDay)" }
-        if Calendar.current.isDateInYesterday(date) { return "yesterday · \(isoDay)" }
-        let out = DateFormatter()
-        out.dateFormat = "EEE"
-        return "\(out.string(from: date).lowercased()) · \(isoDay)"
+        if Calendar.current.isDateInToday(date) { return "Today" }
+        if Calendar.current.isDateInYesterday(date) { return "Yesterday" }
+        let sameYear = Calendar.current.component(.year, from: date)
+            == Calendar.current.component(.year, from: Date())
+        return sameYear
+            ? date.formatted(.dateTime.weekday(.wide).day().month(.wide))
+            : date.formatted(.dateTime.day().month(.wide).year())
     }
 }
 
@@ -369,24 +370,52 @@ struct TranscriptRowView: View {
     let action: () -> Void
 
     @State private var hovering = false
+    @State private var glance: TranscriptGlance?
+
+    init(entry: TranscriptEntry, showDay: Bool, selected: Bool, action: @escaping () -> Void) {
+        self.entry = entry
+        self.showDay = showDay
+        self.selected = selected
+        self.action = action
+        _glance = State(initialValue: TranscriptGlances.previewSeeds[entry.url.path])
+    }
+
+    private var subtitle: String {
+        var parts: [String] = []
+        if showDay { parts.append(TranscriptsView.dayTitle(entry.url.deletingLastPathComponent().lastPathComponent)) }
+        if let glance {
+            if glance.durationSeconds > 0 {
+                let minutes = max(1, Int((Double(glance.durationSeconds) / 60).rounded()))
+                parts.append("\(minutes) min")
+            }
+            if glance.origin == "phone" {
+                parts.append("iPhone")
+            } else if Set(glance.audioSources) == ["microphone", "system"] {
+                parts.append("you + remote")
+            } else if glance.audioSources == ["system"] {
+                parts.append("remote only")
+            }
+        }
+        return parts.isEmpty ? "Part \(entry.chunkSeq)" : parts.joined(separator: " · ")
+    }
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                Text(entry.timeString)
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(String(entry.timeString.prefix(5)))
                     .font(.brandMono(11.5, selected ? .medium : .regular))
-                    .foregroundStyle(selected ? Theme.amber : Theme.fgMuted)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("chunk \(String(format: "%03d", entry.chunkSeq))")
-                        .font(.brandSans(12.5, .medium))
-                        .foregroundStyle(Theme.fg)
-                    Text(
-                        showDay
-                            ? entry.url.deletingLastPathComponent().lastPathComponent
-                            : "session \(entry.sessionId8)"
-                    )
-                    .font(.brandMono(10))
-                    .foregroundStyle(Theme.fgFaint)
+                    .foregroundStyle(selected ? Theme.amber : Theme.fgFaint)
+                VStack(alignment: .leading, spacing: 2) {
+                    // What was said is the title; the plumbing (chunk, session)
+                    // stays in the file name and the context menu.
+                    Text(glance?.excerpt ?? "Part \(entry.chunkSeq)")
+                        .font(.brandSerif(13.5))
+                        .foregroundStyle(glance?.excerpt == nil ? Theme.fgMuted : Theme.fg)
+                        .lineLimit(2)
+                    Text(subtitle)
+                        .font(.brandSans(11))
+                        .foregroundStyle(Theme.fgFaint)
+                        .lineLimit(1)
                 }
                 Spacer(minLength: 0)
             }
@@ -404,6 +433,9 @@ struct TranscriptRowView: View {
         .buttonStyle(.plain)
         .pointingCursor(hovering: $hovering)
         .animation(Theme.easeFast, value: hovering)
+        .task(id: entry.url) {
+            glance = await TranscriptGlances.shared.glance(for: entry.url)
+        }
         .contextMenu {
             Button("Reveal in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([entry.url])
@@ -623,48 +655,43 @@ struct RunRow: View {
     let run: TranscriptRun
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            VStack(alignment: .trailing, spacing: 3) {
+        HStack(alignment: .firstTextBaseline, spacing: 16) {
+            VStack(alignment: .trailing, spacing: 2) {
                 Text(run.time)
                     .font(.brandMono(11))
-                    .foregroundStyle(Theme.fgMuted)
+                    .foregroundStyle(Theme.fgFaint)
                 sourceBadge
             }
             .frame(width: 74, alignment: .trailing)
             Text(run.text)
-                .font(.brandSans(13.5))
-                .foregroundStyle(Theme.fg)
-                .lineSpacing(4)
+                .font(.brandSerif(15))
+                .foregroundStyle(run.source == .micEcho ? Theme.fgMuted : Theme.fg)
+                .lineSpacing(5)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
+    /// Who spoke, as a word in the margin: "you" for the microphone, "call"
+    /// for system audio. No chip.
     private var sourceBadge: some View {
         Text(label)
-            .font(.brandMono(8.5, .semibold))
-            .kerning(0.5)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.radiusXS, style: .continuous)
-                    .fill(color.opacity(0.15))
-            )
+            .font(.brandSans(11, .medium))
             .foregroundStyle(color)
     }
 
     private var label: String {
         switch run.source {
-        case .mic: return "MIC"
-        case .system: return "SYS"
-        case .micEcho: return "ECHO"
-        case .unknown: return "?"
+        case .mic: return "you"
+        case .system: return "remote"
+        case .micEcho: return "echo"
+        case .unknown: return ""
         }
     }
 
     private var color: Color {
         switch run.source {
-        case .mic: return Theme.amber
+        case .mic: return Theme.fgMuted
         case .system: return Theme.info
         case .micEcho: return Theme.fgFaint
         case .unknown: return Theme.fgFaint

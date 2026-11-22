@@ -60,11 +60,48 @@ of any screen.
 - **Sidebar**: hidden title bar; ink-800/paper-100 rail, logo mark +
   *huske* wordmark (serif italic), nav rows with amber selection wash
   (amber 14% bg, amber icon), live session badge at the bottom.
-- **StatusPill**: pill, colored dot (pulsing while recording), mono uppercase.
+- **StatusPill** (name kept for call sites): *not* a pill — a state glyph
+  + sentence-case sans text, no container. See "Quiet instrument" below.
 - **Meter**: sunken capsule track, spruce→amber→rec-red gradient by absolute
   level, 2px fg peak-hold tick, mono dB readout.
-- **Eyebrow/SectionLabel**: mono 11 medium, +0.12em, uppercase, muted.
+- **SectionLabel**: sans 12 medium, sentence case, muted, normal tracking.
 - **Buttons**: primary = amber fill + ink text (hover amber-700); secondary =
   1px border + fg (hover border-soft wash); destructive = rec-red fill +
   paper text (Stop only); ghost links in amber.
 - **Cards**: bg-elev, radius 10, 1px border, 16px padding.
+
+## Quiet instrument (the app language, 2026-11)
+
+The apps had drifted into the generic "AI dashboard" look: tinted capsules
+with a dot and mono UPPERCASE text, letter-spaced mono eyebrows over every
+group, everything boxed in bordered cards, mono used for names. huske is an
+instrument for remembering — the reference points are a Braun / Teenage
+Engineering recorder and Things: almost all neutral, and every mark means
+something.
+
+1. **Content is the interface.** What was said is the hero. Chrome recedes:
+   lists sit on the paper with hairline dividers; a card frames only the one
+   object a screen is about (the QR code, the player).
+2. **Colour only when it means something.** ~95 % paper and ink. Rec-red
+   only for recording (the REC control, the live state). Amber only for the screen's one
+   primary action and for work happening right now. No green "done" chips —
+   done is the normal state and needs no mark.
+3. **State is a glyph and plain words, never a pill.** The *state ring*:
+   a 12 pt circle that fills as a recording moves through the pipeline —
+   hairline ring (waiting) → amber arc (sending / transcribing, proportional)
+   → nothing once transcribed, because the transcript itself appears. Failure
+   is err-coloured words with the way out ("Couldn't transcribe — Retry").
+   Text beside it: sans 13, sentence case ("Sending · 42 %", "Transcribing ·
+   2 of 3"). No capsules, no uppercase, no tracking.
+4. **Type carries the hierarchy.** Plex Sans for interface. **Plex Serif for
+   what people said** (transcripts, excerpts) — a transcript reads like a
+   document, with its timecodes in the margin. Plex Mono *only for time*
+   (the running timer, timecodes, durations), never for names, labels or
+   headings. Section labels are sentence case.
+5. **The recorder is hardware.** One round REC control: a hairline ring with a
+   red disc that becomes a rounded square while recording. The elapsed time is
+   the largest thing on screen, in light tabular numerals. The level is a
+   tape-like strip of hairlines, newest at the playhead.
+6. **Words.** Say what is happening in the user's terms ("On your Mac",
+   "Waiting for MacBook Pro"), never the protocol ("TLS-PSK", "Bonjour").
+

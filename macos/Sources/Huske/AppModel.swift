@@ -132,6 +132,8 @@ final class AppModel {
     let session = SessionController()
     let transcripts = TranscriptStore()
     let config = ConfigStore()
+    /// Receives recordings from paired iPhones (specs/002-phone-sync).
+    let phoneSync = PhoneSyncCoordinator()
 
     // MARK: doctor
 
@@ -161,6 +163,7 @@ final class AppModel {
 
     init() {
         refreshBinary()
+        phoneSync.attach(model: self)
     }
 
     func bootstrap() async {
@@ -181,6 +184,9 @@ final class AppModel {
             }
         }
         syncTranscriptRoot()
+        // Listen for paired iPhones whether or not anything is recording:
+        // the menu bar app is resident, so a phone can sync any time.
+        phoneSync.startIfEnabled()
         // If an engine session is already recording (relaunch, login item
         // race, headless `huske run`), surface it instead of starting anew.
         session.attachIfEngineRunning()

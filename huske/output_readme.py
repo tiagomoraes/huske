@@ -40,6 +40,10 @@ about a day, a time range, or a topic — no bespoke tooling is required.
   enforced only on the whisper engine
 - `incomplete`     — true only for recovery/partial chunks
 - `huske_version`  — semver of the producing huske binary
+- `origin`, `device`, `title`, `import_id` — only on recordings that did not
+  come from this Mac's live capture: `origin: phone` for the Huske iPhone app,
+  `origin: file` for `huske import`. Their single `mic` source is whatever that
+  device's microphone heard.
 
 ## Reading the body
 
@@ -53,8 +57,8 @@ Each paragraph is one run of speech, prefixed `[HH:MM:SS · <source>]`:
 The two sources are captured separately and interleaved by time, so an overlap
 of `mic` and `system` runs means both sides talked at once. When recording on
 speakers (no headphones), the system audio that leaks into the microphone is
-suppressed and de-duplicated, so it is **not** double-counted on the `mic`
-side. Timestamps are local wall-clock (`start_time` + offset within the chunk).
+cancelled (echo cancellation) and any residual de-duplicated, so it is **not**
+double-counted on the `mic` side. Timestamps are local wall-clock (`start_time` + offset within the chunk).
 
 For indexed agent access, publish these transcripts to a private Git repository
 and run the separate `huske-mcp` service described in the project documentation.

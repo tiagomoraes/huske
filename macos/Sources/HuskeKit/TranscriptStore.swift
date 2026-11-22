@@ -292,3 +292,60 @@ public final class TranscriptStore {
         watchedFD = -1
     }
 }
+
+/// One line that says what a transcript is about — its first words — plus
+/// the facts a list row needs, read lazily from disk and cached by path.
+public struct TranscriptGlance: Equatable, Sendable {
+    public let excerpt: String?
+    public let durationSeconds: Int
+    public let audioSources: [String]
+    public let origin: String?
+
+    public init(excerpt: String?, durationSeconds: Int, audioSources: [String], origin: String?) {
+        self.excerpt = excerpt
+        self.durationSeconds = durationSeconds
+        self.audioSources = audioSources
+        self.origin = origin
+    }
+}
+
+public actor TranscriptGlances {
+    public static let shared = TranscriptGlances()
+
+    /// Offscreen renders run no tasks; their rows read these synchronously.
+    nonisolated(unsafe) public static var previewSeeds: [String: TranscriptGlance] = [:]
+
+    private var cache: [URL: TranscriptGlance] = [:]
+
+    public func glance(for url: URL) -> TranscriptGlance? {
+        if let hit = cache[url] { return hit }
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        // The frontmatter plus the first runs fit well inside 24 KB.
+        guard let data = try? handle.read(upToCount: 24_576),
+            let text = String(data: data, encoding: .utf8) ?? String(data: data.dropLast(4), encoding: .utf8),
+            let doc = TranscriptParser.parse(text)
+        else { return nil }
+        let first = doc.runs.first(where: { $0.source != .micEcho && !$0.text.isEmpty })?.text
+        let glance = TranscriptGlance(
+            excerpt: first.map { Self.clip($0, to: 140) },
+            durationSeconds: Int(doc.meta.durationActualSeconds.rounded()) > 0
+                ? Int(doc.meta.durationActualSeconds.rounded()) : doc.meta.durationSeconds,
+            audioSources: doc.meta.audioSources,
+            origin: doc.meta.extra["origin"])
+        cache[url] = glance
+        return glance
+    }
+
+    public func seed(_ glance: TranscriptGlance, for url: URL) {
+        cache[url] = glance
+    }
+
+    static func clip(_ text: String, to limit: Int) -> String {
+        let flat = text.replacingOccurrences(of: "\n", with: " ")
+        guard flat.count > limit else { return flat }
+        let cut = flat.prefix(limit)
+        let end = cut.lastIndex(of: " ") ?? cut.endIndex
+        return String(cut[..<end]) + "…"
+    }
+}

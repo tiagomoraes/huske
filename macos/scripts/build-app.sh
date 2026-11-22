@@ -99,6 +99,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <string>Huske records your microphone to transcribe your conversations locally on this Mac. Audio never leaves your machine.</string>
     <key>NSAudioCaptureUsageDescription</key>
     <string>Huske captures system audio (calls, videos) to transcribe both sides of a conversation locally on this Mac.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Huske receives recordings from your iPhone over your local network.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_huske-sync._tcp</string>
+    </array>
 </dict>
 </plist>
 PLIST

@@ -24,6 +24,9 @@ public struct TranscriptMeta: Equatable, Sendable {
     public var language: String = ""
     public var incomplete: Bool = false
     public var huskeVersion: String = ""
+    /// Additive keys the contract allows (`origin`, `device`, `title`,
+    /// `import_id` on imported recordings, …), scalar values only.
+    public var extra: [String: String] = [:]
 
     public init() {}
 }
@@ -178,7 +181,7 @@ public enum TranscriptParser {
         case "language": meta.language = value
         case "incomplete": meta.incomplete = (value == "true")
         case "huske_version": meta.huskeVersion = value
-        default: break
+        default: meta.extra[key] = value
         }
     }
 

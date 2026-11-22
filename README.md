@@ -45,15 +45,15 @@ it about your day.
   15 min). Quiet stretches produce no file, and a conversation isn't cut
   mid-sentence at an arbitrary tick. `--no-speech-gated` restores fixed-interval
   rotation.
-- **Speaker-bleed removal** — when you record mic + system on speakers (no
+- **Echo cancellation** — when you record mic + system on speakers (no
   headphones), the system audio bleeds into the mic and would be transcribed
-  twice. huske handles it in two stages: coherence-based echo *suppression*
-  attenuates the bleed in the mic audio before transcription (`--echo-cancel`,
-  on by default; self-gating — no effect with headphones, and it can't touch
-  your own voice), and a transcript-level dedup then *removes* any residual mic
-  copy of a system line, including partial fragments (`--echo-dedup
-  drop|annotate|off`). (True sample-precise cancellation isn't possible because
-  the mic and system are captured on independent clocks — see the PR notes.)
+  twice. huske records both from one Core Audio aggregate device so they share
+  a clock, then removes the bleed from the mic with **WebRTC AEC3** (the
+  canceller in Chrome and Meet) before transcription (`--echo-cancel`, on by
+  default; self-gating — no effect with headphones, and your own voice is kept
+  even when both sides talk at once). A transcript-level dedup stays as the
+  backstop for any residual mic copy of a system line (`--echo-dedup
+  drop|annotate|off`). See `docs/adr/0012-webrtc-aec3-and-single-clock-capture.md`.
 - **Resilient** — graceful stop finalizes the partial chunk; SIGKILL + restart
   auto-recovers orphaned audio.
 - **Native macOS app** — huske's face: live level meters, start/stop/pause,

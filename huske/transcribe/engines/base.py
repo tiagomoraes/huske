@@ -12,6 +12,7 @@ transcription has no hidden CLI dependency.
 from __future__ import annotations
 
 import abc
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -47,26 +48,26 @@ class Segment:
 _LOAD_BLOCK_FRAMES = 65_536
 
 
-def load_mono_16k(path: str) -> npt.NDArray[np.float32]:
-    """Load ``path`` as a 16 kHz mono float32 numpy array (no ffmpeg).
+def iter_mono_16k(path: str) -> Iterator[npt.NDArray[np.float32]]:
+    """Yield ``path`` as consecutive 16 kHz mono float32 blocks (no ffmpeg).
 
-    Streams the file in blocks so a 30-minute 48 kHz WAV is never fully
-    materialized as float32 before resampling. Raises if the file can't be
-    read — the worker treats that as a per-chunk failure.
+    The streaming core of :func:`load_mono_16k`: a long file is decoded,
+    downmixed, and resampled one block at a time, so a caller that writes the
+    blocks straight back out (the engine inbox) never holds the whole
+    recording in memory. Raises if ``soundfile`` cannot read the file.
     """
     import numpy as np
     import soundfile as sf
 
     with sf.SoundFile(path) as handle:
         sr = int(handle.samplerate)
-        parts: list[npt.NDArray[np.float32]] = []
         if sr == TARGET_SAMPLE_RATE:
             while True:
                 block = handle.read(_LOAD_BLOCK_FRAMES, dtype="float32", always_2d=True)
                 if len(block) == 0:
                     break
                 mono = block.mean(axis=1) if block.shape[1] > 1 else block[:, 0]
-                parts.append(np.ascontiguousarray(mono, dtype=np.float32))
+                yield np.ascontiguousarray(mono, dtype=np.float32)
         else:
             import soxr
 
@@ -80,12 +81,24 @@ def load_mono_16k(path: str) -> npt.NDArray[np.float32]:
                     np.ascontiguousarray(mono, dtype=np.float32), last=False
                 )
                 if resampled.size:
-                    parts.append(np.ascontiguousarray(resampled, dtype=np.float32))
+                    yield np.ascontiguousarray(resampled, dtype=np.float32)
             flushed = stream.resample_chunk(
                 np.zeros(0, dtype=np.float32), last=True
             )
             if flushed.size:
-                parts.append(np.ascontiguousarray(flushed, dtype=np.float32))
+                yield np.ascontiguousarray(flushed, dtype=np.float32)
+
+
+def load_mono_16k(path: str) -> npt.NDArray[np.float32]:
+    """Load ``path`` as a 16 kHz mono float32 numpy array (no ffmpeg).
+
+    Streams the file in blocks so a 30-minute 48 kHz WAV is never fully
+    materialized as float32 before resampling. Raises if the file can't be
+    read — the worker treats that as a per-chunk failure.
+    """
+    import numpy as np
+
+    parts = list(iter_mono_16k(path))
     if not parts:
         return np.zeros(0, dtype=np.float32)
     out: npt.NDArray[np.float32] = np.ascontiguousarray(

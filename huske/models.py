@@ -83,6 +83,11 @@ class Transcript:
     body: str
     huske_version: str
     segments: list[TranscriptSegment] | None = None
+    # Additive frontmatter keys rendered after the core ones, in insertion
+    # order. Only imported recordings (the engine inbox) set them: `origin`,
+    # `device`, `title`, `import_id`. Live chunks leave this None, so their
+    # rendered output is unchanged.
+    extra_frontmatter: dict[str, str | int | float | bool] | None = None
 
     @property
     def date(self) -> str:

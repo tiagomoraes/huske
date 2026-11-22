@@ -8,6 +8,7 @@
 
 import AppKit
 import HuskeKit
+import HuskeSync
 import SwiftUI
 
 @MainActor
@@ -67,8 +68,35 @@ enum ScreenRenderer {
         let paletteModel = makeActiveModel()
         paletteModel.paletteVisible = true
         screens.append(("root-palette", AnyView(RootView().environment(paletteModel))))
+        // iPhone sync (specs/002-phone-sync): the pane with paired phones and
+        // recordings in every state, plus the pairing sheet before and after
+        // the phone connects.
+        let phoneModel = makePhoneModel()
+        phoneModel.pane = .phone
+        let emptyPhoneModel = makeIdleModel()
+        emptyPhoneModel.pane = .phone
+        // An engine from before the inbox existed: the pane must say so.
+        emptyPhoneModel._previewInject(
+            capabilities: EngineCapabilities(
+                version: "0.13.0", controlSocket: true, configCLI: true, devicesCLI: true),
+            binary: URL(fileURLWithPath: "/opt/homebrew/bin/huske"), version: "0.13.0")
+        emptyPhoneModel.phoneSync._previewInject(devices: [], recordings: [], listening: true)
+        screens.append(("root-iphone-empty", AnyView(RootView().environment(emptyPhoneModel))))
 
-        for (name, view) in screens {
+        var sized: [(String, AnyView, CGSize)] = screens.map { ($0.0, $0.1, CGSize(width: 1080, height: 720)) }
+        // Taller canvas: the static render cannot scroll, and every state
+        // row should stay under review.
+        sized.append(("root-iphone", AnyView(RootView().environment(phoneModel)), CGSize(width: 1080, height: 940)))
+        let invite = PairingInvite.mint(
+            macID: "8C1F0E52-7A41-4E0B-9E7C-2D5B6F3A9C10", macName: "MacBook Pro de Tiago")
+        let pairingModel = makePhoneModel()
+        pairingModel.phoneSync._previewInject(invite: invite)
+        sized.append(("pair-sheet", AnyView(PairPhoneSheet().environment(pairingModel)), CGSize(width: 430, height: 525)))
+        let pairedModel = makePhoneModel()
+        pairedModel.phoneSync._previewInject(invite: invite, paired: phoneFixtureDevices()[0])
+        sized.append(("pair-sheet-paired", AnyView(PairPhoneSheet().environment(pairedModel)), CGSize(width: 430, height: 525)))
+
+        for (name, view, size) in sized {
             for dark in [false, true] {
                 NSApplication.shared.appearance = NSAppearance(
                     named: dark ? .darkAqua : .aqua)
@@ -76,7 +104,7 @@ enum ScreenRenderer {
                     .tint(Theme.amber)
                     .environment(\.screenRendering, true)
                     .environment(\.colorScheme, dark ? .dark : .light)
-                    .frame(width: 1080, height: 720)
+                    .frame(width: size.width, height: size.height)
                     .background(Theme.bg)
                 let renderer = ImageRenderer(content: framed)
                 renderer.scale = 2.0
@@ -192,6 +220,66 @@ enum ScreenRenderer {
         return model
     }
 
+    private static func phoneFixtureDevices() -> [PairedDevice] {
+        let now = Date()
+        return [
+            PairedDevice(
+                deviceID: "5B0F7E4C-1111-4C67-9C0B-3C8F3A1B2D11", key: Data(count: 32),
+                name: "iPhone de Tiago", model: "iPhone17,1",
+                createdAt: now.addingTimeInterval(-86_400 * 12),
+                pairedAt: now.addingTimeInterval(-86_400 * 12),
+                lastSeenAt: now.addingTimeInterval(-240)),
+            PairedDevice(
+                deviceID: "9A2C44D0-2222-4C67-9C0B-3C8F3A1B2D11", key: Data(count: 32),
+                name: "Work iPhone", model: "iPhone16,2",
+                createdAt: now.addingTimeInterval(-86_400 * 40),
+                pairedAt: now.addingTimeInterval(-86_400 * 40),
+                lastSeenAt: now.addingTimeInterval(-86_400 * 3)),
+        ]
+    }
+
+    private static func makePhoneModel() -> AppModel {
+        let model = AppModel()
+        model._previewInject(
+            capabilities: EngineCapabilities(
+                version: "0.14.0", controlSocket: true, configCLI: true, devicesCLI: true,
+                inboxCLI: true),
+            binary: URL(fileURLWithPath: "/opt/homebrew/bin/huske"),
+            version: "0.14.0")
+        let now = Date()
+        typealias Recording = PhoneSyncCoordinator.Recording
+        model.phoneSync._previewInject(
+            devices: phoneFixtureDevices(),
+            recordings: [
+                Recording(
+                    id: "r5", title: "Voice memo — groceries", deviceName: "iPhone de Tiago",
+                    startedAt: now.addingTimeInterval(-300), durationSeconds: 94,
+                    byteCount: 760_000, state: .receiving, progress: 0.42),
+                Recording(
+                    id: "r4", title: "Reunião com a Ana", deviceName: "iPhone de Tiago",
+                    startedAt: now.addingTimeInterval(-3_600), durationSeconds: 1_834.5,
+                    byteCount: 14_801_234, state: .transcribing, progress: 0.66,
+                    detail: "Transcribing part 2 of 3"),
+                Recording(
+                    id: "r3", title: "Standup", deviceName: "Work iPhone",
+                    startedAt: now.addingTimeInterval(-7_200), durationSeconds: 912,
+                    byteCount: 7_300_000, state: .queued, detail: "Waiting for the transcriber"),
+                Recording(
+                    id: "r2", title: "1:1 with Marta", deviceName: "Work iPhone",
+                    startedAt: now.addingTimeInterval(-86_400), durationSeconds: 2_710,
+                    byteCount: 21_000_000, state: .transcribed, progress: 1,
+                    detail: "2 transcript chunks",
+                    transcripts: ["/tmp/huske-preview/2026-11-18/101500_9a2c44d0_001.md"]),
+                Recording(
+                    id: "r1", title: "Lecture — week 9", deviceName: "iPhone de Tiago",
+                    startedAt: now.addingTimeInterval(-86_400 * 2), durationSeconds: 5_400,
+                    byteCount: 43_000_000, state: .failed,
+                    detail: "afconvert could not decode audio.m4a (unsupported codec)"),
+            ],
+            listening: true)
+        return model
+    }
+
     private static func makeTranscriptsModel() -> AppModel {
         let model = makeIdleModel()
         func entry(_ day: String, _ time: String, _ seq: Int, _ sid: String) -> TranscriptEntry {
@@ -203,6 +291,18 @@ enum ScreenRenderer {
                 sessionId8: sid,
                 chunkSeq: seq
             )
+        }
+        let glances: [(String, String, Int, String, [String])] = [
+            ("2026-07-21/101210_8a3f2c19_003.md", "So the decision is to ship the mobile build on Friday and keep the retention review for next week.", 840, "", ["microphone", "system"]),
+            ("2026-07-21/093000_8a3f2c19_002.md", "Bom dia a todos, obrigado por entrarem na chamada. Hoje vamos rever o planeamento do trimestre.", 900, "", ["microphone", "system"]),
+            ("2026-07-21/091500_8a3f2c19_001.md", "Okay, quick idea before I forget it: the inbox should sort by who is waiting on me.", 312, "phone", ["microphone"]),
+            ("2026-07-18/112000_b71e0440_002.md", "The second part is pricing. We said three tiers, but I think two is cleaner for launch.", 600, "", ["microphone", "system"]),
+            ("2026-07-18/084500_b71e0440_001.md", "Morning. Yesterday I finished the export job; it's running on staging now.", 180, "", ["microphone"]),
+        ]
+        for (path, text, seconds, origin, sources) in glances {
+            TranscriptGlances.previewSeeds["/tmp/huske-preview/" + path] = TranscriptGlance(
+                excerpt: text, durationSeconds: seconds, audioSources: sources,
+                origin: origin.isEmpty ? nil : origin)
         }
         model.transcripts._previewInject(
             root: URL(fileURLWithPath: "/tmp/huske-preview"),
