@@ -20,7 +20,7 @@ concurrency:
 jobs:
   python:
     name: Python ${{ matrix.python-version }}
-    runs-on: macos-14
+    runs-on: macos-15
     strategy:
       fail-fast: false
       matrix:
@@ -62,7 +62,7 @@ jobs:
   # dependency surface.
   quality:
     name: Lint & types
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -87,7 +87,7 @@ jobs:
 
       - name: Mypy
         # `python -m` keeps mypy on the setup-python install. A bare
-        # `mypy` on the macos-14 image can pick up /Library/Frameworks
+        # `mypy` on the macOS runner image can pick up /Library/Frameworks
         # site-packages (numpy 2.5 stubs then fail under python_version 3.11).
         run: python -m mypy huske
 
