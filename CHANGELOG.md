@@ -6,6 +6,8 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.15.0 - 2026-11-22
+
 ### Added
 
 - **Choose the transcription model from a catalog.** `huske models` lists the
