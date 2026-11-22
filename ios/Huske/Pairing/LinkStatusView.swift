@@ -21,11 +21,11 @@ struct LinkGlyph: View {
                 StatusDot(color: Brand.ok, size: 6, pulsing: true)
             case .connecting:
                 StateRing(kind: .progress(nil), size: 9)
-            case .retrying, .noWiFi:
+            case .retrying:
                 Circle().strokeBorder(Brand.warn, lineWidth: 1.25).frame(width: 7, height: 7)
             case .localNetworkOff, .rejected:
                 StateRing(kind: .failed, size: 9)
-            case .searching, .paused:
+            case .searching, .noWiFi, .paused:
                 Circle().strokeBorder(Brand.fgFaint, lineWidth: 1.25).frame(width: 7, height: 7)
             }
         }

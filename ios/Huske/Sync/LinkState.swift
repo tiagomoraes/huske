@@ -11,7 +11,9 @@ enum LinkState: Equatable {
     /// Local Network access is off for Huske, so it cannot look for the Mac
     /// at all. Only the user can change that (Settings).
     case localNetworkOff
-    /// Not on Wi-Fi, and the Mac isn't in direct range either.
+    /// Not on Wi-Fi, and the Mac hasn't been found directly (peer-to-peer,
+    /// as AirDrop does) yet. Still looking: with Wi-Fi switched off in Control
+    /// Center the radio stays available, and the Mac can be reached directly.
     case noWiFi
     /// Looking; the Mac hasn't shown up.
     case searching
@@ -68,7 +70,7 @@ enum LinkState: Equatable {
     func label(now: Date = Date()) -> String {
         switch self {
         case .localNetworkOff: return "Local Network access is off"
-        case .noWiFi: return "Not on Wi-Fi"
+        case .noWiFi: return "Looking nearby…"
         case .searching: return "Looking for your Mac…"
         case .visible: return "Nearby"
         case .connecting: return "Connecting…"
@@ -88,7 +90,6 @@ enum LinkState: Equatable {
     var headline: String? {
         switch self {
         case .localNetworkOff: return "Local Network off"
-        case .noWiFi: return "Not on Wi-Fi"
         case .rejected: return "Pair again"
         default: return nil
         }
@@ -101,7 +102,7 @@ enum LinkState: Equatable {
         case .localNetworkOff:
             return "Huske can't look for \(macName) while Local Network access is off. Turn it on for Huske in Settings."
         case .noWiFi:
-            return "Join the same Wi-Fi as \(macName), or turn Wi-Fi on and keep the two close together. Recordings wait on this iPhone until then."
+            return "This iPhone isn't on Wi-Fi, so Huske looks for \(macName) directly, the way AirDrop does. Keep the two close together; recordings wait on this iPhone until then."
         case .searching:
             return "Open Huske on \(macName) and keep this iPhone near it."
         case .rejected:
@@ -120,10 +121,18 @@ enum LinkState: Equatable {
     /// Something the user has to act on (as opposed to waiting).
     var isBlocked: Bool {
         switch self {
-        case .localNetworkOff, .noWiFi, .rejected: return true
+        case .localNetworkOff, .rejected: return true
         default: return false
         }
     }
+
+    /// Still looking for the Mac (on Wi-Fi or, without it, directly).
+    var isLooking: Bool { self == .searching || self == .noWiFi }
+
+    /// The reason nothing is being sent lies on this iPhone and is worth
+    /// saying while it waits: what blocks it, or that it is looking without
+    /// Wi-Fi.
+    var saysWhyWaiting: Bool { isBlocked || self == .noWiFi }
 
     /// The Mac can be reached right now.
     var isReachable: Bool {

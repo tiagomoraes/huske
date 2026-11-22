@@ -93,7 +93,7 @@ final class LinkStateTests: XCTestCase {
         ].map { $0.label(now: now) }
 
         XCTAssertEqual(labels, [
-            "Local Network access is off", "Not on Wi-Fi", "Looking for your Mac…", "Nearby", "Connecting…",
+            "Local Network access is off", "Looking nearby…", "Looking for your Mac…", "Nearby", "Connecting…",
             "Connected over Wi-Fi", "Connected directly", "Connected",
             "Couldn't connect · trying again in 12 s", "Not looking right now",
         ])
@@ -122,10 +122,18 @@ final class LinkStateTests: XCTestCase {
         XCTAssertEqual(off.explanation(macName: "Studio")?.contains("Settings"), true)
         XCTAssertEqual(off.headline, "Local Network off")
 
+        // Off Wi-Fi is not a dead end: the Mac can be reached directly. It
+        // was shown as "Not on Wi-Fi" in the header, and on a real iPhone
+        // that read as "this can't work" while the phone was still looking.
         let noWiFi = LinkState.noWiFi
-        XCTAssertTrue(noWiFi.isBlocked)
+        XCTAssertFalse(noWiFi.isBlocked, "nothing to fix: it is still looking, directly")
+        XCTAssertTrue(noWiFi.isLooking)
+        XCTAssertTrue(noWiFi.saysWhyWaiting, "but the waiting line still says why")
+        XCTAssertNil(noWiFi.headline, "the Mac's name stays in the header")
+        XCTAssertEqual(noWiFi.label(), "Looking nearby…")
         XCTAssertFalse(noWiFi.needsSettings)
-        XCTAssertEqual(noWiFi.explanation(macName: "Studio")?.contains("Wi-Fi"), true)
+        let why = noWiFi.explanation(macName: "Studio") ?? ""
+        XCTAssertTrue(why.contains("Studio") && why.contains("directly") && why.contains("Wi-Fi"), why)
 
         XCTAssertEqual(LinkState.searching.explanation(macName: "Studio")?.contains("Studio"), true)
         for fine in [LinkState.visible, .connecting, .connected(.wifi), .paused] {

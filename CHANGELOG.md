@@ -89,8 +89,10 @@ This project uses semantic versioning after the first public release.
   (peer-to-peer). But it lost sight of it after a few seconds, and a
   recording saved then sat on "Waiting for your Mac". Now, while Huske is
   open or a recording is on its way, the iPhone looks for the Mac again
-  every 15 seconds while it can't see it. A recording that just stopped
-  also looks for a few seconds before it waits.
+  when it can't see it: after 2 s, then 5 s, then every 15 s. A recording
+  that just stopped also looks for a few seconds before it waits. Off Wi-Fi,
+  the header keeps your Mac's name and says "Looking nearby…" instead of
+  "Not on Wi-Fi", which read as if nothing could work.
 - **The Mac no longer drops out of your iPhone's reach until Huske is
   relaunched.** If the part of Huske that listens for the iPhone failed, it
   stayed down while the pane still said "Ready". It now restarts itself (after

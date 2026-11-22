@@ -272,7 +272,7 @@ private struct PairedMacView: View {
                 NoticeText(text: "Waiting for \(sync.macName) to confirm the pairing — keep Huske open on your Mac.", tone: .info)
             } else if let error = sync.lastError {
                 NoticeText(text: error, tone: .warn)
-            } else if showsSearchHelp, sync.link == .searching,
+            } else if showsSearchHelp, sync.link.isLooking,
                       let why = sync.link.explanation(macName: sync.macName) {
                 NoticeText(text: why, tone: .info)
             }
@@ -349,9 +349,9 @@ private struct PairedMacView: View {
         .sheet(isPresented: $scanning) {
             QRScannerSheet { payload in app.receivePairingText(payload) }
         }
-        .task(id: sync.link == .searching) {
+        .task(id: sync.link.isLooking) {
             showsSearchHelp = false
-            guard sync.link == .searching else { return }
+            guard sync.link.isLooking else { return }
             try? await Task.sleep(for: .seconds(4))
             if !Task.isCancelled { showsSearchHelp = true }
         }

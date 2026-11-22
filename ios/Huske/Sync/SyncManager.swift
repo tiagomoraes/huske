@@ -140,7 +140,7 @@ final class SyncManager {
     /// Why a finished recording hasn't gone to the Mac yet, in one sentence.
     var waitingLine: String {
         if let lastError { return lastError }
-        if link.isBlocked, let why = link.explanation(macName: macName) { return why }
+        if link.saysWhyWaiting, let why = link.explanation(macName: macName) { return why }
         return isMacReachable ? "Ready to send to \(macName)." : "Waiting for \(macName). Open Huske on your Mac."
     }
 
@@ -440,7 +440,7 @@ final class SyncManager {
             return .failed(Self.codeRejectedMessage)
         }
         // Say why, when the reason is this iPhone (Local Network off, no Wi-Fi).
-        let blocked = link.isBlocked ? link.explanation(macName: displayName(of: mac)) : nil
+        let blocked = link.saysWhyWaiting ? link.explanation(macName: displayName(of: mac)) : nil
         return .savedButNotReached(
             lastError ?? blocked ?? "Waiting for \(displayName(of: mac)) — open Huske on your Mac.")
     }
@@ -881,10 +881,15 @@ final class SyncManager {
         }
         guard lookAgainTask == nil else { return }
         let interval = lookAgainInterval
+        // Soon at first (someone is probably looking at the screen, e.g.
+        // having just unplugged a cable), then every `interval`.
+        let delays = [min(.seconds(2), interval), min(.seconds(5), interval)]
         lookAgainTask = Task { @MainActor [weak self] in
             var announced = false
+            var attempt = 0
             while true {
-                try? await Task.sleep(for: interval)
+                try? await Task.sleep(for: attempt < delays.count ? delays[attempt] : interval)
+                attempt += 1
                 // Cancelled: whoever cancelled has already let go of this task.
                 guard let self, !Task.isCancelled else { return }
                 guard self.isBrowsing, self.presence != nil, !self.macPresence.isVisible else {
@@ -893,7 +898,7 @@ final class SyncManager {
                 }
                 if !announced {
                     // Once per absence: the journal keeps only ~200 events.
-                    self.journal.record(.link, "mac not seen; starting the browse over every \(interval)")
+                    self.journal.record(.link, "mac not seen; starting the browse over (2 s, 5 s, then every \(interval))")
                     announced = true
                 }
                 self.presence?.refresh()
