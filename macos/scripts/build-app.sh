@@ -23,7 +23,10 @@
 #
 # The app carries one helper executable, Contents/Helpers/huske-apple-llm
 # (ADR 0013): the engine runs it to reach Apple Intelligence. It is built from
-# the same package in the same configuration and signed as nested code.
+# the same package in the same configuration and signed as nested code. Built
+# with an SDK older than Xcode 26 it can only answer "not_built"; that is a
+# warning by default and a failure with HUSKE_REQUIRE_APPLE_LLM=1 (releases and
+# the CI job that mirrors them set it — see macos/scripts/select-xcode.sh).
 #
 # Notarization is a separate step: macos/scripts/notarize-app.sh.
 set -euo pipefail
@@ -79,13 +82,26 @@ cp "$HELPER_BIN" "$HELPER"
 # can only ever answer "not_built" — the engine then says so instead of
 # offering Apple Intelligence. Worth a loud line in the build log.
 HELPER_STATUS=$("$HELPER" --status 2>/dev/null || true)
+REQUIRE_APPLE_LLM="${HUSKE_REQUIRE_APPLE_LLM:-0}"
 if [[ "$HELPER_STATUS" =~ \"reason\"[[:space:]]*:[[:space:]]*\"not_built\" ]]; then
+    if [[ "$REQUIRE_APPLE_LLM" == "1" ]]; then
+        echo "error: this SDK has no FoundationModels, so huske-apple-llm reports" >&2
+        echo "       not_built. Build with Xcode 26 or newer" >&2
+        echo "       (macos/scripts/select-xcode.sh)." >&2
+        exit 1
+    fi
     echo "warning: this SDK has no FoundationModels — the bundled huske-apple-llm" >&2
     echo "         reports not_built, so Apple Intelligence will not be offered." >&2
     echo "         Build with Xcode 26 or newer to include it." >&2
 elif [[ -z "$HELPER_STATUS" ]]; then
+    if [[ "$REQUIRE_APPLE_LLM" == "1" ]]; then
+        echo "error: huske-apple-llm --status printed nothing" >&2
+        exit 1
+    fi
     echo "warning: huske-apple-llm --status printed nothing" >&2
 else
+    # Any other answer (available, or unavailable on this machine — a CI VM
+    # has no Apple Intelligence) proves the framework was compiled in.
     echo "    $HELPER_STATUS"
 fi
 

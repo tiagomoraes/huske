@@ -43,7 +43,10 @@ jobs:
 
   build-app:
     name: Build Huske.app
-    runs-on: macos-15
+    # Xcode 26+ is required: its SDK has FoundationModels, which the bundled
+    # huske-apple-llm needs to reach Apple Intelligence (ADR 0013). The
+    # macos-15 image defaults to Xcode 16; macos-26 ships 26.x.
+    runs-on: macos-26
 
     # Signing and notarization are opt-in on secrets, all five or none: a
     # fork, or this repo before the credentials exist, must still produce the
@@ -91,8 +94,16 @@ jobs:
           security find-identity -v -p codesigning "$KEYCHAIN" \
             | sed -n 's/.*"\(Developer ID Application[^"]*\)".*/imported: \1/p'
 
+      # Pick the newest stable Xcode >= 26 explicitly: the image default moves.
+      - name: Select Xcode 26 or newer
+        run: ./macos/scripts/select-xcode.sh 26
+
+      # HUSKE_REQUIRE_APPLE_LLM fails the build if the helper came out without
+      # FoundationModels, instead of shipping an app that can't offer it.
       - name: Build and package Huske.app
         run: ./macos/scripts/build-app.sh
+        env:
+          HUSKE_REQUIRE_APPLE_LLM: "1"
 
       # Stable asset name — the website's download button points at
       # releases/latest/download/Huske.app.zip. The ticket staples to the .app,

@@ -147,7 +147,6 @@ private struct ModelRow: View {
     @Binding var confirmTry: TranscriptionModel?
 
     var body: some View {
-        let store = model.models
         let names = model.cleanup.languages
         let notCovered = ModelWords.notCovered(item, code: language, names: names)
         let dim = notCovered != nil && !item.inUse
