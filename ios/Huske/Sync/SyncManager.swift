@@ -7,7 +7,9 @@
 // The link to the Mac is supervised by events, not by a timer. One Bonjour
 // browse (the presence source) says where the Mac is; a pass connects straight
 // to that endpoint, and is not attempted at all while the Mac isn't visible.
-// What starts sync again: the Mac appears or is seen another way, the network
+// A browse that can't see the Mac is started over every 15 s while it runs:
+// a peer-to-peer result that dropped (iPhone off Wi-Fi) only comes back on a
+// fresh one. What starts sync again: the Mac appears or is seen another way, the network
 // path changes, the app comes to the front. Only a failure with the Mac still
 // visible is retried on a clock — 2 s doubling to 60 s, with jitter — and
 // each of those events resets it. `link` is that state for the UI; `journal`
@@ -160,6 +162,10 @@ final class SyncManager {
     @ObservationIgnored private let applicationIsInBackground: @MainActor () -> Bool
     @ObservationIgnored private let makePathSource: () -> (any NetworkPathSource)?
     @ObservationIgnored private let discoveryWait: Duration
+    /// How often a running browse that can't see the Mac is started over
+    /// (`lookAgainWhileUnseen`).
+    @ObservationIgnored private let lookAgainInterval: Duration
+    @ObservationIgnored private var lookAgainTask: Task<Void, Never>?
     @ObservationIgnored private let now: () -> Date
     /// What sync did and why, for "Copy details" (no audio, no transcript text).
     @ObservationIgnored let journal: SyncJournal
@@ -217,11 +223,13 @@ final class SyncManager {
          applicationIsInBackground: @escaping @MainActor () -> Bool = { UIApplication.shared.applicationState == .background },
          makePathSource: @escaping () -> (any NetworkPathSource)? = { SystemNetworkPath() },
          discoveryWait: Duration = .seconds(8),
+         lookAgainInterval: Duration = .seconds(15),
          journal: SyncJournal? = nil,
          now: @escaping () -> Date = Date.init) {
         self.library = library
         self.makePathSource = makePathSource
         self.discoveryWait = discoveryWait
+        self.lookAgainInterval = lookAgainInterval
         self.journal = journal ?? SyncJournal()
         self.now = now
         self.retryDelay = retryDelay
@@ -784,7 +792,11 @@ final class SyncManager {
         if let issue = new.issue, issue != old.issue {
             journal.record(.link, "can't look for the mac: \(String(describing: issue))")
         }
+        lookAgainWhileUnseen()
         guard new.isVisible else {
+            if old.isVisible, new.isBrowsing {
+                journal.record(.link, "mac no longer seen (was via \(old.routes.map(\.rawValue).joined(separator: ", ")))")
+            }
             // Nothing to retry against: the browse brings the next attempt.
             if old.isVisible { cancelScheduledRetry() }
             // Nobody finds the Mac while Local Network is off: stop waiting.
@@ -853,6 +865,42 @@ final class SyncManager {
         for waiter in waiters.values { waiter.resume() }
     }
 
+    /// While the browse runs but can't see the Mac, start it over every
+    /// `lookAgainInterval`. With the iPhone off Wi-Fi (switched off in
+    /// Control Center, so only peer-to-peer is left) the Mac's AWDL result
+    /// can drop within seconds, and a browse left running doesn't bring it
+    /// back; a fresh one does. Only while browsing (on screen, or a pass
+    /// running), so a phone in a pocket doesn't keep searching.
+    private func lookAgainWhileUnseen() {
+        let wanted = isBrowsing && presence != nil && !macPresence.isVisible
+            && macPresence.issue != .localNetworkDenied
+        guard wanted else {
+            lookAgainTask?.cancel()
+            lookAgainTask = nil
+            return
+        }
+        guard lookAgainTask == nil else { return }
+        let interval = lookAgainInterval
+        lookAgainTask = Task { @MainActor [weak self] in
+            var announced = false
+            while true {
+                try? await Task.sleep(for: interval)
+                // Cancelled: whoever cancelled has already let go of this task.
+                guard let self, !Task.isCancelled else { return }
+                guard self.isBrowsing, self.presence != nil, !self.macPresence.isVisible else {
+                    self.lookAgainTask = nil
+                    return
+                }
+                if !announced {
+                    // Once per absence: the journal keeps only ~200 events.
+                    self.journal.record(.link, "mac not seen; starting the browse over every \(interval)")
+                    announced = true
+                }
+                self.presence?.refresh()
+            }
+        }
+    }
+
     /// Journals each change of `link` once, whichever input caused it.
     private func linkInputsChanged() {
         let text = link.journalText
@@ -862,6 +910,8 @@ final class SyncManager {
     }
 
     private func stopPresence() {
+        lookAgainTask?.cancel()
+        lookAgainTask = nil
         presenceTask?.cancel()
         presenceTask = nil
         presence?.stop()
@@ -954,13 +1004,16 @@ final class SyncManager {
             if endpoint == nil {
                 // On screen, the browse result itself starts the next pass.
                 // Wait only when someone is waiting for the answer (Sync now,
-                // pairing) or when this pass is what keeps the browse alive
-                // (in the background).
-                guard trigger == .manual || trigger == .pairing || !isForeground else {
+                // pairing, a recording just saved) or when this pass is what
+                // keeps the browse alive (in the background).
+                guard trigger == .manual || trigger == .pairing || trigger == .recordingSaved || !isForeground else {
                     journal.record(.run, "\(trigger.rawValue): not started, the mac isn't visible")
                     return nil
                 }
                 journal.record(.run, "\(trigger.rawValue): waiting for the mac to appear")
+                // A peer-to-peer result that dropped doesn't come back on a
+                // browse left running; a fresh one finds the Mac if it's near.
+                presence?.refresh()
                 endpoint = await waitForMac(upTo: discoveryWait)
                 guard !Task.isCancelled, pairedMac?.macID == macID else { return nil }
                 guard endpoint != nil else {

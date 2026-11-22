@@ -247,6 +247,46 @@ final class ResilienceTests: XCTestCase {
         XCTAssertNil(monitor.issue)
     }
 
+    /// Starting the browse over must find the Mac again by itself: the phone
+    /// does this when the Mac's peer-to-peer result has gone away.
+    func testRefreshingThePresenceMonitorFindsTheMacAgain() async throws {
+        if ProcessInfo.processInfo.environment["HUSKE_SKIP_BONJOUR_TESTS"] == "1" {
+            throw XCTSkip("HUSKE_SKIP_BONJOUR_TESTS=1")
+        }
+        let bonjourDir = dir.appendingPathComponent("bonjour-refresh", isDirectory: true)
+        let bonjourRegistry = DeviceRegistry(fileURL: bonjourDir.appendingPathComponent("devices.json"))
+        let advertised = SyncServer(
+            registry: bonjourRegistry, stagingDirectory: bonjourDir.appendingPathComponent("staging"),
+            macName: "Huske Test \(UUID().uuidString.prefix(6))", serverVersion: "test")
+        try advertised.start()
+        defer { advertised.stop() }
+        _ = await advertised.waitUntilReady()
+
+        let monitor = MacPresenceMonitor(macID: bonjourRegistry.macID)
+        monitor.start()
+        defer { monitor.stop() }
+        let seen = await eventually(10) { monitor.isReachable }
+        XCTAssertTrue(seen, "the advertised server was never seen")
+
+        monitor.refresh()
+        XCTAssertTrue(monitor.presence.isBrowsing, "still looking")
+        // The new browser reports the Mac afresh; poll the endpoint rather
+        // than `isReachable`, which may stay true throughout.
+        let again = await eventually(10) { monitor.presence.endpoint != nil }
+        XCTAssertTrue(again, "the fresh browse never saw the Mac")
+        XCTAssertNil(monitor.issue)
+    }
+
+    func testRefreshDoesNothingUnlessBrowsing() async throws {
+        let monitor = MacPresenceMonitor(macID: UUID().uuidString)
+        monitor.refresh()
+        XCTAssertEqual(monitor.presence, MacPresence(), "refresh must not start a browse by itself")
+        monitor.start()
+        monitor.stop()
+        monitor.refresh()
+        XCTAssertEqual(monitor.presence, MacPresence())
+    }
+
     // MARK: status replies
 
     /// The server accepts 1000 IDs, but a reply for ~350 no longer fits the

@@ -84,6 +84,13 @@ This project uses semantic versioning after the first public release.
     using up one of its three attempts.
   - The app stops the whole group of processes on a timeout, and no longer
     waits on output that only a leftover process still holds.
+- **Your iPhone keeps finding your Mac with Wi-Fi switched off.** With Wi-Fi
+  off in Control Center, the iPhone can still reach the Mac directly
+  (peer-to-peer). But it lost sight of it after a few seconds, and a
+  recording saved then sat on "Waiting for your Mac". Now, while Huske is
+  open or a recording is on its way, the iPhone looks for the Mac again
+  every 15 seconds while it can't see it. A recording that just stopped
+  also looks for a few seconds before it waits.
 - **The Mac no longer drops out of your iPhone's reach until Huske is
   relaunched.** If the part of Huske that listens for the iPhone failed, it
   stayed down while the pane still said "Ready". It now restarts itself (after

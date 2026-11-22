@@ -337,6 +337,27 @@ public final class MacPresenceMonitor: @unchecked Sendable {
         publishPresence()
     }
 
+    /// Starts the browse over with a fresh browser, which sends new queries on
+    /// every interface. That is what finds the Mac again over peer-to-peer
+    /// Wi-Fi after its result went away: with the iPhone off Wi-Fi (Wi-Fi
+    /// switched off in Control Center), the AWDL result can drop within
+    /// seconds, and a browse left running doesn't bring it back. What was
+    /// seen stays reported until the new browser says otherwise. Does
+    /// nothing unless browsing.
+    public func refresh() {
+        lock.lock()
+        guard wantsRunning, let old = browser else {
+            lock.unlock()
+            return
+        }
+        browser = nil
+        failures = 0
+        lock.unlock()
+        // The old browser's callbacks are ignored from here on (`isCurrent`).
+        old.cancel()
+        start()
+    }
+
     public func stop() {
         lock.lock()
         wantsRunning = false

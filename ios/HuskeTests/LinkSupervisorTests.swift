@@ -101,6 +101,7 @@ class SyncScenarioTestCase: XCTestCase {
         presences: [String: FakePresence] = [:],
         retryDelay: @escaping (Int) -> Duration = { _ in .milliseconds(40) },
         discoveryWait: Duration = .milliseconds(300),
+        lookAgainInterval: Duration = .seconds(60),
         backgroundPollingWindow: TimeInterval = 20,
         inBackground: Bool = false,
         now: (() -> Date)? = nil
@@ -123,6 +124,7 @@ class SyncScenarioTestCase: XCTestCase {
             applicationIsInBackground: { inBackground },
             makePathSource: { path },
             discoveryWait: discoveryWait,
+            lookAgainInterval: lookAgainInterval,
             journal: journal,
             now: now ?? { fixedNow })
         managers.append(manager)
@@ -200,10 +202,12 @@ final class LinkSupervisorTests: SyncScenarioTestCase {
 
         sync.recordingSaved("a")
         sync.scenePhaseChanged(isActive: true)
-        await settle()
+        // A recording just saved looks for the Mac for a moment (a fresh
+        // browse), then leaves it to the browse result.
+        let ended = await waitUntil(timeout: 2) { !sync.isRunning }
 
+        XCTAssertTrue(ended, "gives up after the discovery wait")
         XCTAssertEqual(mac.connects, 0, "nothing to connect to")
-        XCTAssertFalse(sync.isRunning, "and nothing to wait for: the browse result starts the next pass")
         XCTAssertEqual(sync.activity, .idle)
         XCTAssertNil(sync.lastError, "not being nearby is not an error")
         XCTAssertEqual(sync.link, .searching)
@@ -235,6 +239,56 @@ final class LinkSupervisorTests: SyncScenarioTestCase {
         let uploaded = await waitUntil { mac.uploaded == ["a"] }
         XCTAssertTrue(uploaded, "the browse result is the trigger")
         XCTAssertEqual(mac.connects, 1)
+    }
+
+    // MARK: looking again (peer-to-peer results drop off Wi-Fi)
+
+    /// Seen on a real iPhone 15 Pro with Wi-Fi switched off in Control
+    /// Center: the Mac showed up over peer-to-peer, its result dropped 11 s
+    /// later, and the recording saved next sat on "Waiting for your Mac".
+    /// Only a fresh browse finds it again.
+    func testASavedRecordingLooksAgainForAMacThatDroppedOutOfSight() async {
+        let mac = FakeMac("Studio")
+        let presence = FakePresence(reachable: false)
+        presence.appearOnNextRefresh()
+        addRecording("a")
+        let sync = makeManager(paired: mac, presence: presence, discoveryWait: .seconds(5))
+        await settle()
+
+        sync.recordingSaved("a")
+
+        let uploaded = await waitUntil { mac.uploaded == ["a"] }
+        XCTAssertTrue(uploaded, "the fresh browse found the Mac and the recording went")
+        XCTAssertGreaterThanOrEqual(presence.refreshes, 1)
+    }
+
+    func testAnUnseenMacIsLookedForAgainWhileOnScreen() async {
+        let mac = FakeMac("Studio")
+        let presence = FakePresence(reachable: false)
+        let sync = makeManager(paired: mac, presence: presence, lookAgainInterval: .milliseconds(50))
+
+        let looked = await waitUntil(timeout: 2) { presence.refreshes >= 2 }
+        XCTAssertTrue(looked, "a browse that can't see the Mac is started over, repeatedly")
+        XCTAssertEqual(journal.entries.filter { $0.text.contains("starting the browse over") }.count, 1,
+                       "said once, not every time")
+
+        presence.set(true)
+        await settle()
+        let seenAt = presence.refreshes
+        try? await Task.sleep(for: .milliseconds(250))
+        XCTAssertEqual(presence.refreshes, seenAt, "a visible Mac needs no more looking")
+        XCTAssertTrue(sync.isMacReachable)
+    }
+
+    func testNoLookingAgainWhileNotBrowsing() async {
+        let mac = FakeMac("Studio")
+        let presence = FakePresence(reachable: false)
+        _ = makeManager(paired: mac, presence: presence, lookAgainInterval: .milliseconds(50), inBackground: true)
+        await settle()
+
+        try? await Task.sleep(for: .milliseconds(300))
+        XCTAssertFalse(presence.isBrowsing, "in the background with nothing to send, nobody browses")
+        XCTAssertEqual(presence.refreshes, 0, "and nobody looks again")
     }
 
     /// "Sync now" is someone waiting for an answer: look for a moment, then

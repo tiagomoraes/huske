@@ -81,6 +81,10 @@ protocol PresenceSource: AnyObject, Sendable {
     var presenceUpdates: AsyncStream<MacPresence> { get }
     func start()
     func stop()
+    /// Starts the browse over (fresh queries on every interface); nothing
+    /// unless browsing. How a Mac whose peer-to-peer result dropped is found
+    /// again.
+    func refresh()
 }
 
 extension SyncSession: MacSession {}

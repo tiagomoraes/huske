@@ -220,6 +220,24 @@ final class FakePresence: PresenceSource, @unchecked Sendable {
 
     var starts: Int { lock.withLock { startCount } }
     var isBrowsing: Bool { lock.withLock { browsing } }
+    private var refreshCount = 0
+    /// A Mac that only a fresh browse finds again (peer-to-peer after the
+    /// iPhone left Wi-Fi): the next `refresh()` makes it visible.
+    private var appearsOnRefresh = false
+    var refreshes: Int { lock.withLock { refreshCount } }
+
+    func refresh() {
+        let appear: Bool = lock.withLock {
+            guard browsing else { return false }
+            refreshCount += 1
+            return appearsOnRefresh
+        }
+        if appear { set(true) }
+    }
+
+    func appearOnNextRefresh() {
+        lock.withLock { appearsOnRefresh = true }
+    }
 
     func start() {
         lock.withLock {
