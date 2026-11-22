@@ -20,9 +20,10 @@ python -m http.server 8000 --directory website
   The docs page links to shared assets with `../` so it resolves both locally
   and under the `/huske/` project base.
 - React 18 (UMD) + Babel Standalone via unpkg, JSX compiled in the browser
-- IBM Plex (Sans / Mono / Serif) bundled under `fonts/`
+- IBM Plex (Sans, Mono, Serif and Serif Italic) bundled under `fonts/`
 - Logo assets under `assets/`
-- Theme toggle persists in `localStorage` (`huske-theme`)
+- Follows the system appearance; the theme toggle's choice persists in
+  `localStorage` (`huske-theme`)
 
 The Babel-in-browser approach keeps the site dependency-free (no `npm`, no
 toolchain) at the cost of a one-time ~1 MB compiler download. Acceptable for a
@@ -39,13 +40,33 @@ Actions** (one-time setup).
 
 ## Editing
 
-The page is composed from three component files loaded via
+The page is composed from component files loaded via
 `<script type="text/babel">`:
 
-- `components-shell.jsx` — `Mark` logo, `Nav`, `Footer`, theme controller
-- `components-hero.jsx` — `Hero`, `InstallTabs`, `LiveDemo` (animated TUI)
-- `components-sections.jsx` — `Pillars`, `HowItWorks`, `OutputPreview`,
-  `Privacy`, `Releases`, `Community`, `FAQ`
+- `components-shell.jsx` — `Mark` logo, `Nav`, `Footer`, theme controller,
+  `CopyButton`, `Term` (a block of copyable commands)
+- `components-hero.jsx` — `Hero`, `InstallTabs`, and the hero plate: an HTML
+  replica of Huske.app's Transcripts pane (`MacReplica`) beside a real
+  screenshot of Huske for iPhone
+- `components-sections.jsx` — `IPhone`, `HowItWorks` (with the echo
+  before/after), `Quality` (language, dictionary, cleanup, models, import),
+  `Output` (the interactive transcript ledger), `Sync`, `Privacy`,
+  `GetStarted`, `Releases`, `FAQ`, `OpenSource`
+- `components-docs.jsx` — the docs page
+
+The visual language is DESIGN.md's "Quiet instrument": sentence case, no
+eyebrow labels or pills, amber only for the primary action, rec-red only for
+recording, Plex Serif for what people said, Plex Mono only for time and code.
+Every conversation shown on the site is made up.
+
+### iPhone images
+
+`assets/iphone/*.webp` come from the iOS app's DEBUG demo mode (synthetic
+recordings, a fake "Studio MacBook Pro"), captured on a simulator with the
+`HuskeScreenshots` UI tests and `xcrun simctl io … screenshot`. To refresh
+them, see "Demo mode" in `ios/README.md`. Never use screenshots of real
+recordings, and don't publish `Huske --render-screens` output from the Mac app
+as-is: it includes the host Mac's name.
 
 ### Version — single source of truth
 
@@ -53,10 +74,10 @@ The page is composed from three component files loaded via
 plain `<script>` before React on both `index.html` and `docs/index.html`, so
 every component reads it as a global — `v{HUSKE_VERSION}` — exactly like
 `React` / `ReactDOM` from the UMD bundles. **Change the one line in `version.js`
-to update the version everywhere**: Nav, Footer, hero eyebrow, live-demo header,
-sample transcript frontmatter, and the "supported target" FAQ. `HUSKE_PYTHONS`
-likewise drives the hero install foot, the install-section sub copy, and the
-docs facts list — update that array when `requires-python` changes.
+to update the version everywhere**: Nav, Footer, the hero's download note, and
+the sample transcript frontmatter. `HUSKE_PYTHONS` likewise drives the engine
+install box and the docs facts list — update that array when `requires-python`
+changes.
 
 Never hardcode a version in a component; the historical `RELEASES` timeline in
 `components-sections.jsx` is the one intentional exception. `scripts/release.py`
@@ -69,6 +90,6 @@ release checklist in the root `CLAUDE.md` requires a deep pass on every
 release):
 
 - Release timeline data lives in `RELEASES` in `components-sections.jsx`
-- GitHub star count in `Nav` (`gh-pill .num`) is live — fetched from the GitHub
+- GitHub star count in `Nav` (`.gh .num`) is live — fetched from the GitHub
   API at runtime via `useGitHubStars`, cached in `localStorage` for 5 minutes,
   and falls back to `—` if the API is unreachable.
