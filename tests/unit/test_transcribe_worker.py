@@ -270,3 +270,38 @@ def test_compress_kept_audio_keeps_original_on_failure(tmp_path: Path) -> None:
     worker._compress_kept_audio(bad, "opus")
     assert bad.exists()  # best-effort: never lose the recording
     assert not bad.with_suffix(".opus").exists()  # no partial output left behind
+
+
+def test_chunk_to_job_carries_language_and_dictionary(tmp_path: Path) -> None:
+    from huske.config import RuntimeConfig
+
+    cfg = RuntimeConfig(
+        language="pt-BR",
+        vocabulary=["OKR"],
+        vocabulary_replacements={"husky": "Huske"},
+        parakeet_word_boost=True,
+    )
+    job = worker.chunk_to_job(_fake_chunk(tmp_path), cfg)
+    assert job["language"] == "pt"
+    assert job["vocabulary"] == ["OKR"]
+    assert job["vocabulary_replacements"] == {"husky": "Huske"}
+    assert job["parakeet_word_boost"] is True
+
+
+def test_chunk_to_job_carries_the_resolved_model(tmp_path: Path) -> None:
+    from huske.config import RuntimeConfig
+
+    job = worker.chunk_to_job(_fake_chunk(tmp_path), RuntimeConfig(asr_model="whisper-large-v3-turbo-q4"))
+    assert job["asr_engine"] == "whisper"
+    assert job["asr_repo"] == "mlx-community/whisper-large-v3-turbo-q4"
+    assert job["asr_label"] == "mlx-whisper:large-v3-turbo-q4"
+
+
+def test_job_model_reads_old_job_shapes() -> None:
+    assert worker._job_model(
+        {"asr_engine": "whisper", "config_model": "large-v3-turbo"}
+    ) == ("whisper", "mlx-community/whisper-large-v3-turbo", "mlx-whisper:large-v3-turbo")
+    assert worker._job_model(
+        {"asr_engine": "parakeet", "config_model": "base",
+         "parakeet_model": "mlx-community/parakeet-tdt-0.6b-v3"}
+    ) == ("parakeet", "mlx-community/parakeet-tdt-0.6b-v3", "parakeet:tdt-0.6b-v3")

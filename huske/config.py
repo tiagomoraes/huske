@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import platform
+import sys
 import tomllib
 from pathlib import Path
 from typing import Any, Literal
@@ -22,6 +23,7 @@ ASREngine = Literal["parakeet", "whisper"]
 # segment (speaker bleed when not wearing headphones): drop it, keep it but tag
 # it `· echo`, or skip the de-duplication entirely.
 EchoDedup = Literal["drop", "annotate", "off"]
+EchoCanceller = Literal["auto", "webrtc", "coherence"]
 # Kept for back-compat with existing config files. `compute_type` and `device`
 # were CTranslate2 knobs; the mlx-whisper backend always runs fp16 on Metal.
 # We accept and store them but the worker only honors `float32` to opt out of fp16.
@@ -33,13 +35,23 @@ SystemAudioBackend = Literal["auto", "tap", "sck", "off"]
 # smaller, speech-optimized) or `flac` (lossless, ~2x), or `wav` to keep the
 # uncompressed original. Encoded via libsndfile (soundfile) — no extra dependency.
 AudioKeepFormat = Literal["opus", "flac", "wav"]
-# Backend that turns a finalized transcript into searchable Statements.
-#   mlx    : built-in (default) — huske runs the LLM itself via mlx-lm in an
-#            isolated subprocess; the model downloads from Hugging Face on
-#            first use, exactly like the Parakeet weights. Nothing to install.
-#   ollama : delegate to a local Ollama daemon (for users who already run one
-#            or want a model MLX doesn't serve).
-DistillBackend = Literal["mlx", "ollama"]
+# Where the optional LLM post-processing of finished transcripts runs (the
+# `distill_*` keys; see huske/distill/providers.py for the full table).
+#   On this Mac:
+#     mlx               : built-in (default) — huske runs a small model itself
+#                         via mlx-lm in an isolated subprocess; downloads from
+#                         Hugging Face on first use. Nothing to install.
+#     apple             : Apple Intelligence (on-device Foundation Models,
+#                         macOS 26+), through the helper inside Huske.app.
+#     ollama            : a local Ollama daemon.
+#     openai_compatible : any OpenAI-compatible server (LM Studio, llama.cpp,
+#                         vLLM…). Local when the endpoint is loopback.
+#   Off this Mac — transcript text is sent to the provider, so these need an
+#   API key in the Keychain *and* explicit consent (`distill_cloud_consent`):
+#     openai, anthropic, openrouter
+DistillBackend = Literal[
+    "mlx", "ollama", "apple", "openai_compatible", "openai", "anthropic", "openrouter"
+]
 
 
 _MLX_WHISPER_REPO_BY_SIZE: dict[str, str] = {
@@ -101,7 +113,24 @@ class RuntimeConfig(BaseModel):
     # this directory only if you accept plaintext transcripts leaving the machine
     # — see docs/integrations.md.
     export_root: Path = Field(default=Path.home() / "huske" / "export")
+    # The engine inbox: recordings that did not come from live capture (an
+    # iPhone recording handed over by Huske.app, `huske import FILE`) wait here
+    # until whichever process holds `inbox_root/.lock` — the live `huske run`
+    # engine, or a one-shot `huske inbox process` — transcribes them into
+    # ordinary transcripts. See specs/002-phone-sync/contracts/inbox.md.
+    inbox_root: Path = Field(default=Path.home() / "huske" / "inbox")
+    # Models Huske converted for itself (`huske models convert`, and catalog
+    # entries published only in the transformers layout, e.g. Portuguese
+    # fine-tunes). Models downloaded as-is stay in the Hugging Face cache.
+    models_root: Path = Field(default=Path.home() / "huske" / "models")
 
+    # The transcription model: an id from `huske models` (e.g.
+    # "whisper-large-v3-turbo"), a Hugging Face repo, or a local folder. The
+    # family that runs it (parakeet / whisper) follows from the model. When set,
+    # it wins over the legacy `asr_engine` / `parakeet_model` / `model` keys
+    # below, which keep working when it is unset. See huske/transcribe/catalog.py
+    # and docs/transcription-models.md.
+    asr_model: str | None = None
     # Transcription backend. Parakeet by default (silence-robust, multilingual,
     # MLX-accelerated); `whisper` keeps the legacy mlx-whisper path.
     asr_engine: ASREngine = "parakeet"
@@ -120,17 +149,42 @@ class RuntimeConfig(BaseModel):
     # guard that re-decodes a window which collapsed into English (a real failure
     # mode on speech mixing a non-English language with English jargon). If your
     # transcripts must be in one language, use `asr_engine = "whisper"`.
+    # Region tags and names are normalized ("pt-BR", "Portuguese" -> "pt");
+    # `huske languages` lists the codes and what each engine does with them.
     language: str | None = None
+    # The custom dictionary (huske/transcribe/vocabulary.py). `vocabulary` lists
+    # names, products and jargon in the spelling you want, most important first:
+    # it biases Whisper (its `initial_prompt`, carried to every 30 s window) and,
+    # with `parakeet_word_boost`, Parakeet (word boosting on beam search), feeds
+    # the optional LLM post-processing, and restores distinctive capitalisation
+    # ("okr" -> "OKR", "github" -> "GitHub") after transcription.
+    # `vocabulary_replacements` maps what the engine *wrote* to what it should
+    # have written ("cube ernetes" = "Kubernetes"): case-insensitive, whole
+    # words, applied to every transcript after transcription.
+    vocabulary: list[str] = Field(default_factory=list)
+    vocabulary_replacements: dict[str, str] = Field(default_factory=dict)
+    # Let Parakeet listen for the `vocabulary` words while it decodes (word
+    # boosting, parakeet-mlx 0.7+). Off by default: boosting needs beam search,
+    # which measured ~4.5x slower than the greedy default (still ~13x real
+    # time on an M3 Pro) while spelling far more jargon right. Whisper needs
+    # no switch — its prompt costs nothing.
+    parakeet_word_boost: bool = False
     # When recording mic + system audio on speakers (no headphones), the system
     # output is played acoustically and re-captured by the mic. `echo_cancel`
-    # *reduces* it before transcription via coherence-based echo suppression
-    # (it attenuates the mic content coherent with the clean system channel).
-    # Self-gating — with headphones there is no echo and the mic is untouched —
-    # and it cannot remove the local voice (incoherent with the system). Audio
-    # capture uses independent clocks (PortAudio mic, Core Audio system tap), so
-    # sample-precise cancellation is infeasible; this suppresses rather than
-    # eliminates, and `echo_dedup` below removes the residual at the text level.
+    # removes it from the mic before transcription with WebRTC AEC3, using the
+    # clean system channel as the reference (ADR 0012). Self-gating — with
+    # headphones there is no echo path and the mic passes through — and it keeps
+    # the local voice, including when both sides talk at once.
     echo_cancel: bool = True
+    # Which canceller `echo_cancel` uses: `auto` (WebRTC AEC3, falling back to
+    # coherence suppression if the binding is unavailable), `webrtc`, or
+    # `coherence` (the pre-0.15 suppressor; reduces rather than removes).
+    echo_canceller: EchoCanceller = "auto"
+    # Record mic + system audio from one Core Audio aggregate device so both
+    # channels share one clock and stay sample-aligned for the whole session
+    # (what echo cancellation and mic/system timestamps need). Falls back to
+    # independent streams when the aggregate cannot be built.
+    capture_sync: bool = True
     # Primary removal of the duplicate: a mic run that echoes a near-simultaneous
     # system run (full or partial) is dropped (default), tagged (`· echo`), or
     # kept. One-way, so the local voice and the clean system line are never lost.
@@ -239,24 +293,41 @@ class RuntimeConfig(BaseModel):
     sync_root: Path = Field(default=Path.home() / "huske" / "sync")
     sync_push_timeout_seconds: float = Field(default=60.0, ge=5.0, le=600.0)
 
-    # --- LLM correction of ASR transcripts (opt-in) -------------------------
-    # See docs/adr/0005-llm-distillation.md. When enabled, each finalized
-    # transcript is polished by a tiny LOCAL LLM (typos, obvious ASR
-    # mishears). The raw snapshot stays in `<name>.asr.txt`; the canonical
-    # `.md` is rewritten in place. Off by default; failures never block
-    # recording or Git sync.
+    # --- LLM post-processing of transcripts (opt-in) -----------------------
+    # See docs/adr/0005-llm-distillation.md and ADR 0013. When enabled, each
+    # finished transcript is cleaned up by an LLM (ASR mishears, punctuation,
+    # your dictionary's spellings). The raw transcript is written first and
+    # kept in `<name>.asr.txt`; the canonical `.md` is then rewritten and its
+    # frontmatter records `postprocessed_by`. Off by default; any failure or
+    # timeout leaves the raw transcript in place and never blocks recording
+    # or Git sync.
     distill_enabled: bool = False
     # Where the LLM runs (see DistillBackend). "mlx" is self-contained.
     distill_backend: DistillBackend = "mlx"
-    # The model. For the built-in mlx backend this is a Hugging Face repo
-    # (default: Qwen3.5 0.8B 4-bit, ~0.6 GB — small enough to only correct
-    # the transcript). 2B / 4B repos stay selectable. The known Ollama tags
-    # (`qwen3.5:0.8b`, `:2b`, `:4b`) are auto-mapped to their MLX builds so
-    # older configs keep working. For the ollama backend this is the daemon's
-    # tag (e.g. `qwen3.5:0.8b`).
-    distill_model: str = "mlx-community/Qwen3.5-0.8B-4bit"
-    # Loopback endpoint of the local LLM daemon (Ollama's default).
-    distill_endpoint: str = "http://127.0.0.1:11434"
+    # The model; unset means the backend's default (huske/distill/providers.py):
+    # Qwen3.5 0.8B 4-bit for mlx, `qwen3.5:0.8b` for ollama, Apple's system
+    # model for apple, `claude-haiku-5-5` for anthropic, the first model the
+    # server lists for openai_compatible. OpenAI and OpenRouter need an explicit
+    # choice (`huske llm models` lists them). Known Ollama tags are auto-mapped
+    # to their MLX builds on the mlx backend so older configs keep working.
+    distill_model: str | None = None
+    # Base URL for `ollama` (default http://127.0.0.1:11434) and
+    # `openai_compatible` (default http://127.0.0.1:1234/v1, LM Studio). The
+    # named cloud providers always use their official endpoint. Never put
+    # credentials in the URL — keys live in the Keychain (`huske llm key`).
+    distill_endpoint: str | None = None
+    # The one host you agreed to send transcript text to (e.g.
+    # `api.openai.com`). Any target off this Mac — a cloud provider, or a
+    # non-loopback endpoint — is refused until this matches its host, so
+    # switching provider asks again. Set with `huske llm allow-cloud`.
+    distill_cloud_consent: str | None = None
+    # Extra instructions appended to the built-in cleanup rules, e.g.
+    # "Remove filler words." The rules that keep timestamps, speakers and
+    # meaning intact always apply.
+    distill_instructions: str = ""
+    # The model's context window in tokens, used to size the text sent per
+    # request. Unset uses the backend's default (4,096 for Apple Intelligence).
+    distill_context_tokens: int | None = Field(default=None, ge=1024, le=2_000_000)
     # Per-call ceiling. A local model is slow; this bounds one run's correction.
     distill_timeout_seconds: float = Field(default=120.0, gt=0.0)
     # Kept for config compatibility. Correction is one-in/one-out per run, so
@@ -287,12 +358,143 @@ class RuntimeConfig(BaseModel):
         "logs_root",
         "screenshots_root",
         "export_root",
+        "inbox_root",
+        "models_root",
         "sync_root",
         mode="before",
     )
     @classmethod
     def _expand(cls, v: Any) -> Path:
         return Path(str(v)).expanduser()
+
+    @field_validator("asr_model", mode="before")
+    @classmethod
+    def _valid_asr_model(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("asr_model must be a model id, a repo or a folder")
+        text = value.strip()
+        if not text:
+            return None
+        from huske.transcribe.catalog import lookup
+
+        lookup(text)  # raises ValueError with a plain explanation
+        return text
+
+    @field_validator("language", mode="before")
+    @classmethod
+    def _valid_language(cls, value: Any) -> str | None:
+        from huske.languages import normalize_language
+
+        return normalize_language(value)
+
+    @field_validator("vocabulary", mode="before")
+    @classmethod
+    def _valid_vocabulary(cls, value: Any) -> list[str]:
+        from huske.transcribe.vocabulary import MAX_ENTRIES, MAX_ENTRY_CHARS
+
+        if value is None:
+            return []
+        if not isinstance(value, (list, tuple)):
+            raise ValueError("vocabulary must be a list of words")
+        out: list[str] = []
+        seen: set[str] = set()
+        for raw in value:
+            if not isinstance(raw, str):
+                raise ValueError("vocabulary entries must be strings")
+            _check_entry(raw, MAX_ENTRY_CHARS)
+            text = " ".join(raw.split())
+            if not text or text.casefold() in seen:
+                continue
+            seen.add(text.casefold())
+            out.append(text)
+        if len(out) > MAX_ENTRIES:
+            raise ValueError(f"vocabulary holds at most {MAX_ENTRIES} entries")
+        return out
+
+    @field_validator("vocabulary_replacements", mode="before")
+    @classmethod
+    def _valid_replacements(cls, value: Any) -> dict[str, str]:
+        from huske.transcribe.vocabulary import MAX_ENTRIES, MAX_ENTRY_CHARS
+
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError("vocabulary_replacements must map heard -> written")
+        out: dict[str, str] = {}
+        folded: dict[str, str] = {}
+        for raw_heard, raw_written in value.items():
+            if not isinstance(raw_heard, str) or not isinstance(raw_written, str):
+                raise ValueError("vocabulary_replacements must map text to text")
+            _check_entry(raw_heard, MAX_ENTRY_CHARS)
+            _check_entry(raw_written, MAX_ENTRY_CHARS)
+            heard, written = " ".join(raw_heard.split()), " ".join(raw_written.split())
+            if not heard and not written:
+                continue
+            if not heard or not written:
+                raise ValueError("each replacement needs both what was heard and what to write")
+            key = heard.casefold()
+            if key in folded:
+                out.pop(folded[key])
+            folded[key] = heard
+            out[heard] = written
+        if len(out) > MAX_ENTRIES:
+            raise ValueError(f"vocabulary_replacements holds at most {MAX_ENTRIES} entries")
+        return out
+
+    @field_validator("distill_endpoint", mode="before")
+    @classmethod
+    def _valid_distill_endpoint(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("distill_endpoint must be a URL")
+        url = value.strip().rstrip("/")
+        if not url:
+            return None
+        from urllib.parse import urlsplit
+
+        parts = urlsplit(url)
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            raise ValueError("distill_endpoint must be an http(s) URL with a host")
+        if parts.username or parts.password or "@" in parts.netloc:
+            raise ValueError(
+                "distill_endpoint must not carry credentials; store the key with "
+                "`huske llm key set`"
+            )
+        if any(ch.isspace() for ch in url):
+            raise ValueError("distill_endpoint must not contain spaces")
+        return url
+
+    @field_validator("distill_cloud_consent", mode="before")
+    @classmethod
+    def _valid_cloud_consent(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("distill_cloud_consent must be a host name")
+        host = value.strip().lower().rstrip(".")
+        if not host:
+            return None
+        if not all(ch.isalnum() or ch in ".-:[]" for ch in host) or "//" in host:
+            raise ValueError(
+                "distill_cloud_consent is a bare host such as api.openai.com "
+                "(set it with `huske llm allow-cloud`)"
+            )
+        return host
+
+    @field_validator("distill_instructions", mode="before")
+    @classmethod
+    def _valid_instructions(cls, value: Any) -> str:
+        if value is None:
+            return ""
+        if not isinstance(value, str):
+            raise ValueError("distill_instructions must be text")
+        text = value.strip()
+        if len(text) > 4000:
+            raise ValueError("distill_instructions is limited to 4000 characters")
+        return text
 
     @field_validator("control_socket", mode="before")
     @classmethod
@@ -374,6 +576,13 @@ class RuntimeConfig(BaseModel):
         return self.chunk_minutes * 60.0
 
 
+def _check_entry(raw: str, max_chars: int) -> None:
+    if any(ord(ch) < 32 for ch in raw):
+        raise ValueError("dictionary entries must be a single line of text")
+    if len(" ".join(raw.split())) > max_chars:
+        raise ValueError(f"dictionary entries are limited to {max_chars} characters")
+
+
 def _read_toml(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -408,6 +617,31 @@ def without_retired_config(values: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in values.items() if key not in _RETIRED_CONFIG_KEYS}
 
 
+_warned_unknown: set[str] = set()
+
+
+def _without_unknown_keys(values: dict[str, Any], source: Path) -> dict[str, Any]:
+    """Drop config-file keys this engine doesn't know, with one warning.
+
+    Several engines share one config file (a uv tool, a Homebrew keg, a branch
+    checkout), and they upgrade at different times. A key written by a newer
+    or different engine (e.g. `diarize`) must not stop this one from starting.
+    Typos are still caught: `huske config set` validates keys before writing,
+    and the warning names what was ignored.
+    """
+    known = set(RuntimeConfig.model_fields)
+    unknown = sorted(k for k in values if k not in known)
+    fresh = [k for k in unknown if k not in _warned_unknown]
+    if fresh:
+        _warned_unknown.update(fresh)
+        print(
+            f"huske: ignoring config key(s) this version doesn't know in {source}: "
+            + ", ".join(fresh),
+            file=sys.stderr,
+        )
+    return {k: v for k, v in values.items() if k in known}
+
+
 def default_user_config_path() -> Path:
     return Path.home() / ".config" / "huske" / "config.toml"
 
@@ -429,6 +663,7 @@ def load_config(
 
     file_path = config_path or default_user_config_path()
     file_data = without_retired_config(_read_toml(file_path)) if file_path.exists() else {}
+    file_data = _without_unknown_keys(file_data, file_path)
     overrides = {k: v for k, v in (cli_overrides or {}).items() if v is not None}
     merged = {**file_data, **overrides}
     return RuntimeConfig(**merged)

@@ -32,6 +32,7 @@ final class PythonInteropTests: XCTestCase {
             warnings={"heartbeat": "test warning"},
             events=[{"ts": "2026-07-21T09:00:01-03:00", "severity": "info",
                      "message": "hello from python"}],
+            distill_label="Apple Intelligence",
         )
         got = None
         deadline = time.time() + 20
@@ -75,6 +76,7 @@ final class PythonInteropTests: XCTestCase {
             XCTAssertEqual(snap.warnings["heartbeat"], "test warning")
             XCTAssertEqual(snap.events.first?.message, "hello from python")
             XCTAssertNotNil(snap.chunkStartedAt) // microsecond fraction parses
+            XCTAssertEqual(snap.distillLabel, "Apple Intelligence")
             snapshotReceived.fulfill()
         }
         let deadline = Date().addingTimeInterval(10)
@@ -125,6 +127,188 @@ final class PythonInteropTests: XCTestCase {
         XCTAssertEqual(snapshot.string("sync_provider"), "git")
         XCTAssertEqual(snapshot.string("sync_branch"), "main")
         XCTAssertNil(snapshot.string("sync_remote"))
+    }
+
+    /// Transcript cleanup is configured through `huske llm` and `huske
+    /// languages`. Drive the real CLI — isolated from the developer's config,
+    /// Keychain and installed Huske.app — and decode it with the app's bridge.
+    func testCleanupJSONDecodesWithTheSwiftBridge() throws {
+        guard let python = ProcessInfo.processInfo.environment["HUSKE_INTEROP_PYTHON"] else {
+            throw XCTSkip("set HUSKE_INTEROP_PYTHON to run the cross-language interop test")
+        }
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("huske-llm-interop-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        var env = ProcessInfo.processInfo.environment
+        env["HUSKE_NO_UPDATE_CHECK"] = "1"
+        env["HOME"] = home.path
+        // A keychain file that does not exist: every lookup says "no key".
+        env["HUSKE_KEYCHAIN"] = home.appendingPathComponent("none.keychain-db").path
+        env["HUSKE_APPLE_LLM_HELPER"] = home.appendingPathComponent("no-helper").path
+
+        func run(_ arguments: [String]) throws -> String {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: python)
+            process.arguments = ["-m", "huske"] + arguments
+            process.environment = env
+            let out = Pipe()
+            process.standardOutput = out
+            process.standardError = Pipe()
+            try process.run()
+            let data = out.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return String(data: data, encoding: .utf8) ?? ""
+        }
+
+        let config = home.appendingPathComponent("config.toml").path
+        let status = try LLMBridge.parseStatus(
+            try run(["llm", "status", "--json", "--config", config]))
+        XCTAssertEqual(status.backend, "mlx")
+        XCTAssertFalse(status.enabled)
+        XCTAssertFalse(status.leavesMac)
+        XCTAssertTrue(status.consent)
+        XCTAssertFalse(status.detail.isEmpty)
+        XCTAssertEqual(
+            Set(status.keys.keys), ["openai", "anthropic", "openrouter", "openai_compatible"])
+        XCTAssertFalse(status.keys.values.contains(true))
+        XCTAssertEqual(status.apple?.available, false)
+        XCTAssertFalse(status.apple?.detail.isEmpty ?? true)
+        let names = status.providers.map(\.name)
+        for name in ["apple", "mlx", "ollama", "openai_compatible", "openai", "anthropic", "openrouter"] {
+            XCTAssertTrue(names.contains(name), "engine no longer offers \(name)")
+        }
+        XCTAssertEqual(status.provider(named: "anthropic")?.placement, .cloud)
+        XCTAssertEqual(status.provider(named: "anthropic")?.needsKey, true)
+        XCTAssertEqual(status.provider(named: "apple")?.placement, .onDevice)
+
+        let cloud = try LLMBridge.parseStatus(
+            try run(["llm", "status", "--json", "--config", config, "--backend", "openai"]))
+        XCTAssertEqual(cloud.backend, "openai")
+        XCTAssertTrue(cloud.leavesMac)
+        XCTAssertEqual(cloud.host, "api.openai.com")
+        XCTAssertEqual(cloud.reason, "needs_key")
+
+        let models = try LLMBridge.parseModels(
+            try run(["llm", "models", "--json", "--config", config, "--backend", "mlx"]))
+        XCTAssertNil(models.error)
+        XCTAssertFalse(models.models.isEmpty)
+
+        let languages = try LLMBridge.parseLanguages(try run(["languages", "--json"]))
+        XCTAssertGreaterThanOrEqual(languages.count, 25)
+        XCTAssertEqual(languages.first { $0.code == "pt" }?.parakeetSupported, true)
+        XCTAssertEqual(languages.first { $0.code == "ja" }?.parakeetSupported, false)
+        // The app's fallback list must agree with the engine's.
+        XCTAssertEqual(
+            Set(languages.filter(\.parakeetSupported).map(\.code)), LanguageInfo.parakeetCodes)
+    }
+
+    /// The transcription-model catalog: drive the real `huske models` with an
+    /// isolated HOME (no config, no model cache of the developer's) and decode
+    /// every answer the Configuration pane reads. Nothing is downloaded.
+    func testModelsJSONDecodesWithTheSwiftBridge() throws {
+        guard let python = ProcessInfo.processInfo.environment["HUSKE_INTEROP_PYTHON"] else {
+            throw XCTSkip("set HUSKE_INTEROP_PYTHON to run the cross-language interop test")
+        }
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("huske-models-interop-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        var env = ProcessInfo.processInfo.environment
+        env["HUSKE_NO_UPDATE_CHECK"] = "1"
+        env["HOME"] = home.path
+        // An empty Hugging Face cache: "downloaded" is false everywhere.
+        env["HF_HOME"] = home.appendingPathComponent("hf").path
+        env["HF_HUB_OFFLINE"] = "1"
+
+        func run(_ arguments: [String]) throws -> (status: Int32, stdout: String) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: python)
+            process.arguments = ["-m", "huske"] + arguments
+            process.environment = env
+            let out = Pipe()
+            process.standardOutput = out
+            process.standardError = Pipe()
+            try process.run()
+            let data = out.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return (process.terminationStatus, String(data: data, encoding: .utf8) ?? "")
+        }
+
+        let catalog = try ModelsBridge.parseCatalog(
+            try run(["models", "--json", "--config", "/nonexistent.toml"]).stdout)
+        XCTAssertGreaterThanOrEqual(catalog.models.count, 2)
+        XCTAssertEqual(Set(catalog.models.map(\.id)).count, catalog.models.count, "ids are unique")
+        for family in ["parakeet", "whisper"] {
+            XCTAssertTrue(catalog.families.contains { $0.name == family }, "engine lost \(family)")
+        }
+        XCTAssertEqual(catalog.families.first { $0.name == "whisper" }?.pinsLanguage, true)
+        let current = try XCTUnwrap(catalog.current, "the default config picks a model")
+        XCTAssertTrue(current.inUse)
+        XCTAssertTrue(current.isDefault)
+        XCTAssertEqual(catalog.models.filter(\.inUse).map(\.id), [current.id])
+        XCTAssertTrue(catalog.models.contains { $0.recommended })
+        XCTAssertNotNil(catalog.languageLockingChoice)
+        for model in catalog.models {
+            XCTAssertTrue(model.inCatalog, "\(model.id)")
+            XCTAssertFalse(model.downloaded, "\(model.id): the isolated cache is empty")
+            XCTAssertFalse(model.name.isEmpty, "\(model.id)")
+            XCTAssertFalse(model.summary.isEmpty, "\(model.id)")
+            XCTAssertNotNil(model.sizeMB, "\(model.id)")
+            XCTAssertTrue(["prompt", "boost", "none"].contains(model.dictionary), "\(model.id)")
+            XCTAssertNotNil(ModelWords.speedAndAccuracy(model), "\(model.id) is rated")
+            if model.pinsLanguage {
+                XCTAssertNil(model.languages, "\(model.id): pinning models take any language")
+            }
+        }
+        // The `list` subcommand answers the same.
+        let listed = try ModelsBridge.parseCatalog(
+            try run(["models", "list", "--json", "--config", "/nonexistent.toml"]).stdout)
+        XCTAssertEqual(listed.models.map(\.id), catalog.models.map(\.id))
+
+        let tiny = try ModelsBridge.parseModel(
+            try run(["models", "info", "whisper-tiny", "--json", "--config", "/nonexistent.toml"]).stdout)
+        XCTAssertEqual(tiny.family, "whisper")
+        XCTAssertTrue(tiny.pinsLanguage)
+        XCTAssertEqual(tiny.dictionary, "prompt")
+
+        // Choosing writes the config through the engine; a refusal is JSON.
+        // CI's interpreter has no MLX runtimes (the contract job installs no
+        // ML packages), and the engine rightly refuses a model whose runtime
+        // is missing — so check whichever answer this interpreter gives.
+        let config = home.appendingPathComponent("config.toml").path
+        let whisperInstalled = catalog.families.first { $0.name == "whisper" }?.available ?? false
+        let usedRun = try run(["models", "use", "whisper-tiny", "--json", "--config", config])
+        let used = try ModelsBridge.parseUse(usedRun.stdout)
+        let after = try ModelsBridge.parseCatalog(try run(["models", "--json", "--config", config]).stdout)
+        if whisperInstalled {
+            XCTAssertNil(used.error)
+            XCTAssertEqual(used.model?.id, "whisper-tiny")
+            XCTAssertEqual(used.model?.inUse, true)
+            XCTAssertEqual(used.written["asr_model"], .string("whisper-tiny"))
+            XCTAssertEqual(after.current?.id, "whisper-tiny")
+        } else {
+            XCTAssertEqual(usedRun.status, 2)
+            XCTAssertTrue(used.error?.contains("mlx-whisper") ?? false, "\(String(describing: used.error))")
+            XCTAssertNil(used.model)
+            XCTAssertEqual(after.current?.id, current.id, "a refused choice leaves the config alone")
+        }
+
+        let refused = try run(["models", "use", "foo/bar", "--json", "--config", config])
+        XCTAssertEqual(refused.status, 2)
+        let refusal = try ModelsBridge.parseUse(refused.stdout)
+        XCTAssertNil(refusal.model)
+        XCTAssertFalse(refusal.error?.isEmpty ?? true)
+
+        let unknown = try run(["models", "download", "nope", "--json", "--config", config])
+        XCTAssertNotEqual(unknown.status, 0)
+        let event = unknown.stdout.split(separator: "\n").compactMap {
+            ModelsBridge.parseDownloadLine(String($0))
+        }.last
+        guard case .failed(let message)? = event else {
+            return XCTFail("expected a refusal, got \(String(describing: event))")
+        }
+        XCTAssertFalse(message.isEmpty)
     }
 
     /// Cloud sync's GitHub sign-in is rendered from `huske sync status --json`.

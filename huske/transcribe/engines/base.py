@@ -12,12 +12,15 @@ transcription has no hidden CLI dependency.
 from __future__ import annotations
 
 import abc
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import numpy as np
     import numpy.typing as npt
+
+    from huske.transcribe.vocabulary import Vocabulary
 
 # Both engines run on 16 kHz mono.
 TARGET_SAMPLE_RATE = 16000
@@ -47,26 +50,26 @@ class Segment:
 _LOAD_BLOCK_FRAMES = 65_536
 
 
-def load_mono_16k(path: str) -> npt.NDArray[np.float32]:
-    """Load ``path`` as a 16 kHz mono float32 numpy array (no ffmpeg).
+def iter_mono_16k(path: str) -> Iterator[npt.NDArray[np.float32]]:
+    """Yield ``path`` as consecutive 16 kHz mono float32 blocks (no ffmpeg).
 
-    Streams the file in blocks so a 30-minute 48 kHz WAV is never fully
-    materialized as float32 before resampling. Raises if the file can't be
-    read — the worker treats that as a per-chunk failure.
+    The streaming core of :func:`load_mono_16k`: a long file is decoded,
+    downmixed, and resampled one block at a time, so a caller that writes the
+    blocks straight back out (the engine inbox) never holds the whole
+    recording in memory. Raises if ``soundfile`` cannot read the file.
     """
     import numpy as np
     import soundfile as sf
 
     with sf.SoundFile(path) as handle:
         sr = int(handle.samplerate)
-        parts: list[npt.NDArray[np.float32]] = []
         if sr == TARGET_SAMPLE_RATE:
             while True:
                 block = handle.read(_LOAD_BLOCK_FRAMES, dtype="float32", always_2d=True)
                 if len(block) == 0:
                     break
                 mono = block.mean(axis=1) if block.shape[1] > 1 else block[:, 0]
-                parts.append(np.ascontiguousarray(mono, dtype=np.float32))
+                yield np.ascontiguousarray(mono, dtype=np.float32)
         else:
             import soxr
 
@@ -80,12 +83,24 @@ def load_mono_16k(path: str) -> npt.NDArray[np.float32]:
                     np.ascontiguousarray(mono, dtype=np.float32), last=False
                 )
                 if resampled.size:
-                    parts.append(np.ascontiguousarray(resampled, dtype=np.float32))
+                    yield np.ascontiguousarray(resampled, dtype=np.float32)
             flushed = stream.resample_chunk(
                 np.zeros(0, dtype=np.float32), last=True
             )
             if flushed.size:
-                parts.append(np.ascontiguousarray(flushed, dtype=np.float32))
+                yield np.ascontiguousarray(flushed, dtype=np.float32)
+
+
+def load_mono_16k(path: str) -> npt.NDArray[np.float32]:
+    """Load ``path`` as a 16 kHz mono float32 numpy array (no ffmpeg).
+
+    Streams the file in blocks so a 30-minute 48 kHz WAV is never fully
+    materialized as float32 before resampling. Raises if the file can't be
+    read — the worker treats that as a per-chunk failure.
+    """
+    import numpy as np
+
+    parts = list(iter_mono_16k(path))
     if not parts:
         return np.zeros(0, dtype=np.float32)
     out: npt.NDArray[np.float32] = np.ascontiguousarray(
@@ -106,6 +121,17 @@ class TranscriptionEngine(abc.ABC):
     #: ``<engine>:<short-model>`` recorded in transcript frontmatter, e.g.
     #: ``parakeet:tdt-0.6b-v3`` or ``mlx-whisper:medium``.
     model_label: str = "unknown"
+
+    def set_options(
+        self, *, language: str | None, vocabulary: Vocabulary | None, word_boost: bool = False
+    ) -> None:
+        """Per-job spoken language and dictionary (an import can differ from live).
+
+        Cheap by contract: the worker calls it before every job, and it must
+        never reload the model. Engines that can't use an option ignore it.
+        """
+        self._language = language
+        self._vocabulary = vocabulary
 
     @abc.abstractmethod
     def transcribe(self, audio: npt.NDArray[np.float32]) -> list[Segment]:

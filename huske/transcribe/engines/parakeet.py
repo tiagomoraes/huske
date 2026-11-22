@@ -22,6 +22,14 @@ that collapsed into English and we re-decode it (see ``_decode_window``); a
 caller that needs a *guaranteed* language wants ``asr_engine = "whisper"``,
 whose decoder takes a real language token.
 
+**The custom dictionary** can bias decoding through parakeet-mlx's word
+boosting (0.7+), which only works with beam search. It is opt-in
+(``parakeet_word_boost``) because beam decoding is several times slower than
+the greedy default: on 52 s of synthetic Portuguese speech, greedy took 0.9 s
+and got 8 of 14 jargon terms right; beam 5 + boost (weight 3.5) took 4.0 s and
+got 12 of 14, and a jargon-free control came out identical to greedy (no
+inserted terms). See ADR 0013.
+
 We deliberately bypass ``parakeet_mlx``'s own ``transcribe(path)`` because it
 shells out to ffmpeg to decode audio. Instead we load 16 kHz mono via
 ``soundfile`` + ``soxr`` (see ``base.load_mono_16k``), compute the log-mel, and
@@ -51,6 +59,12 @@ _GUARD_MIN_WINDOW_SECONDS = 20.0
 #: Bounds the extra decodes a pathological window can trigger: depth 2 means one
 #: 120 s window costs at most 1 + 2 + 4 = 7 decodes instead of 1.
 _GUARD_MAX_DEPTH = 2
+#: Word-boost weight per dictionary entry (log-prob bonus on a completed word).
+#: 2.0 recovered 11/14 terms in our measurement, 3.5 recovered 12/14 with no
+#: insertions on a control; higher risks forcing terms into similar sounds.
+_BOOST_WEIGHT = 3.5
+#: parakeet-mlx's CLI beam defaults (its library defaults are tuned differently).
+_BEAM = {"beam_size": 5, "length_penalty": 0.013, "patience": 3.5, "duration_reward": 0.67}
 
 
 def _short_model_name(model_id: str) -> str:
@@ -86,6 +100,44 @@ class ParakeetEngine(TranscriptionEngine):
         self._language = language
         self.model_label = f"parakeet:{_short_model_name(model_id)}"
         self._model: Any = None
+        self._vocabulary: Any = None
+        self._word_boost = False
+        self._decoding_cache: tuple[tuple[str, ...], Any] | None = None
+
+    def set_options(
+        self, *, language: str | None, vocabulary: Any, word_boost: bool = False
+    ) -> None:
+        self._language = language
+        self._vocabulary = vocabulary
+        self._word_boost = word_boost
+
+    def boost_terms(self) -> tuple[str, ...]:
+        """Dictionary spellings to boost, or ``()`` when boosting is off."""
+        if not self._word_boost or self._vocabulary is None:
+            return ()
+        return tuple(self._vocabulary.spellings())
+
+    def _decoding_config(self, model: Any) -> Any:
+        """Greedy by default; beam search + word boosting for the dictionary."""
+        from parakeet_mlx.parakeet import DecodingConfig
+
+        terms = self.boost_terms()
+        if not terms:
+            return DecodingConfig()
+        if self._decoding_cache is not None and self._decoding_cache[0] == terms:
+            return self._decoding_cache[1]
+        try:
+            from parakeet_mlx import boost
+            from parakeet_mlx.parakeet import Beam
+        except ImportError:
+            # parakeet-mlx < 0.7 has no word boosting; transcribe as before.
+            return DecodingConfig()
+        booster = boost.lift(
+            boost.words({term: _BOOST_WEIGHT for term in terms}), model.vocabulary
+        )
+        config = DecodingConfig(decoding=Beam(**_BEAM, booster=booster))
+        self._decoding_cache = (terms, config)
+        return config
 
     # -- model lifecycle ----------------------------------------------------
 
@@ -98,6 +150,7 @@ class ParakeetEngine(TranscriptionEngine):
 
     def unload(self) -> None:
         self._model = None
+        self._decoding_cache = None  # the booster is lifted onto the model vocabulary
         try:
             import mlx.core as mx
 
@@ -110,7 +163,6 @@ class ParakeetEngine(TranscriptionEngine):
     def transcribe(self, audio_np: npt.NDArray[np.float32]) -> list[Segment]:
         import numpy as np
         from parakeet_mlx.alignment import sentences_to_result, tokens_to_sentences
-        from parakeet_mlx.parakeet import DecodingConfig
 
         if audio_np.size == 0:
             return []
@@ -120,7 +172,7 @@ class ParakeetEngine(TranscriptionEngine):
 
         length_seconds = audio_np.shape[0] / float(sr)
         if length_seconds <= self._chunk_duration:
-            decoding = DecodingConfig()
+            decoding = self._decoding_config(model)
             tokens = self._decode_window(model, audio_np, 0, audio_np.shape[0], sr, decoding)
             result = sentences_to_result(tokens_to_sentences(tokens, decoding.sentence))
         else:
@@ -198,14 +250,13 @@ class ParakeetEngine(TranscriptionEngine):
     ) -> Any:
         """Sliding-window transcription with token-stream merging (long audio)."""
         from parakeet_mlx.alignment import sentences_to_result, tokens_to_sentences
-        from parakeet_mlx.parakeet import DecodingConfig
 
         cfg = model.preprocessor_config
         chunk_samples = int(self._chunk_duration * sr)
         overlap_samples = int(self._overlap_duration * sr)
         stride = max(1, chunk_samples - overlap_samples)
         hop = int(cfg.hop_length)
-        decoding = DecodingConfig()
+        decoding = self._decoding_config(model)
 
         all_tokens: list[Any] = []
         n = audio_np.shape[0]

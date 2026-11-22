@@ -5,13 +5,18 @@ import SwiftUI
 struct HuskeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @Environment(\.openWindow) private var openWindow
-    @State private var model = AppModel()
+    @State private var model: AppModel
 
     init() {
         BrandFonts.registerAll()
         if ScreenRenderer.runIfRequested() {
             exit(0)
         }
+        let model = AppModel()
+        _model = State(initialValue: model)
+        // The delegate starts everything at launch; it must not have to wait
+        // for a window to hand it the model (there may never be one).
+        AppDelegate.launchModel = model
     }
 
     var body: some Scene {
@@ -25,7 +30,7 @@ struct HuskeApp: App {
                 .task {
                     delegate.model = model
                     delegate.openMainWindow = { openWindow(id: "main") }
-                    await model.bootstrap()
+                    await model.bootstrapFromWindow()
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -96,6 +101,20 @@ struct HuskeApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor var model: AppModel?
     @MainActor var openMainWindow: (() -> Void)?
+    /// Set by `HuskeApp.init`, before the app finishes launching.
+    @MainActor static var launchModel: AppModel?
+
+    /// Start-up, window or not. Opened at login, or with its main window
+    /// closed at the last quit, Huske launches with no window — and start-up
+    /// used to run only from that window's task, so nothing listened for the
+    /// iPhone until someone opened it.
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        MainActor.assumeIsolated {
+            guard let model = Self.launchModel else { return }
+            self.model = model
+            model.bootstrapAtLaunch()
+        }
+    }
 
     func applicationShouldHandleReopen(
         _ sender: NSApplication, hasVisibleWindows: Bool

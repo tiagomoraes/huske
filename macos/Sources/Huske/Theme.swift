@@ -86,7 +86,7 @@ extension Text {
         font(.brandSans(size, weight))
     }
 
-    /// Terminal voice (IBM Plex Mono) — timestamps, ids, dB, filenames.
+    /// IBM Plex Mono — time, numbers that tick, file names. Never labels.
     func mono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Text {
         font(.brandMono(size, weight))
     }
@@ -106,60 +106,120 @@ struct Card<Content: View>: View {
                 RoundedRectangle(cornerRadius: Theme.radiusLG, style: .continuous)
                     .fill(Theme.bgElevated)
             )
+            // No outline: a soft surface on the paper, not a box in a box.
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.radiusLG, style: .continuous)
-                    .strokeBorder(Theme.cardBorder, lineWidth: 1)
+                    .strokeBorder(Theme.cardBorder.opacity(0.35), lineWidth: 1)
             )
     }
 }
 
-/// The website's `.eyebrow`: mono, uppercase, +0.12em, muted.
+/// A section label: sentence case, sans, muted (was a mono uppercase
+/// eyebrow — DESIGN.md "Quiet instrument").
 struct SectionLabel: View {
     let text: String
 
     init(_ text: String) { self.text = text }
 
     var body: some View {
-        Text(text.uppercased())
-            .font(.brandMono(11, .medium))
-            .kerning(1.3)
+        Text(text)
+            .font(.brandSans(12.5, .medium))
             .foregroundStyle(Theme.fgMuted)
+            .accessibilityAddTraits(.isHeader)
     }
 }
 
+/// A state, in plain words beside one small glyph — never a pill. Live
+/// states (`pulsing`) get a filled dot that breathes; a resting state
+/// (faint colour) gets a hollow ring. Text is sentence case.
 struct StatusPill: View {
     let text: String
     let color: Color
     var pulsing = false
-    /// Tighter geometry for the sidebar rail. Same type scale — only the
-    /// padding and dot shrink, so the pill still reads as the same component.
+    /// Slightly smaller type for the sidebar rail.
     var compact = false
 
     @State private var pulse = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private var resting: Bool { color == Theme.fgFaint || color == Theme.fgMuted }
+
     var body: some View {
         HStack(spacing: compact ? 6 : 7) {
-            Circle()
-                .fill(color)
-                .frame(width: compact ? 6 : 7, height: compact ? 6 : 7)
-                .opacity(pulsing && !reduceMotion ? (pulse ? 1.0 : 0.35) : 1.0)
-                .animation(
-                    pulsing && !reduceMotion
-                        ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true)
-                        : .default,
-                    value: pulse
-                )
-                .onAppear { pulse = true }
-            Text(text.uppercased())
-                .font(.brandMono(11, .semibold))
-                .kerning(1.1)
-                .foregroundStyle(Theme.fg)
+            Group {
+                if resting {
+                    Circle().strokeBorder(Theme.fgFaint, lineWidth: 1.25)
+                } else {
+                    Circle().fill(color)
+                        .padding(1)
+                        .opacity(pulsing && !reduceMotion ? (pulse ? 1.0 : 0.3) : 1.0)
+                        .animation(
+                            pulsing && !reduceMotion
+                                ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true)
+                                : .default,
+                            value: pulse
+                        )
+                        .onAppear { pulse = true }
+                }
+            }
+            .frame(width: compact ? 7 : 8, height: compact ? 7 : 8)
+            Text(Self.sentenceCase(text))
+                .font(.brandSans(compact ? 12.5 : 13.5, .medium))
+                .foregroundStyle(resting ? Theme.fgMuted : Theme.fg)
+                .monospacedDigit()
         }
-        .padding(.horizontal, compact ? 8 : 12)
-        .padding(.vertical, compact ? 3.5 : 6)
-        .background(Capsule().fill(color.opacity(0.13)))
-        .overlay(Capsule().strokeBorder(color.opacity(0.38), lineWidth: 1))
+        .accessibilityElement(children: .combine)
+    }
+
+    /// "recording" → "Recording"; leaves "Receiving 42%" and "iPhone" alone.
+    static func sentenceCase(_ text: String) -> String {
+        guard let first = text.first, first.isLowercase else { return text }
+        if text.hasPrefix("iP") { return text }
+        return first.uppercased() + text.dropFirst()
+    }
+}
+
+/// The state ring (shared with the iPhone app): a small circle that fills as
+/// a recording moves through the pipeline. Hairline = waiting, ink = held,
+/// amber arc = work happening now (proportional when known), check = done,
+/// err ring = failed.
+struct StateRing: View {
+    enum Kind: Equatable {
+        case waiting
+        case held
+        case progress(Double?)
+        case done
+        case failed
+    }
+
+    let kind: Kind
+    var size: CGFloat = 11
+
+    var body: some View {
+        ZStack {
+            switch kind {
+            case .waiting:
+                Circle().strokeBorder(Theme.fgFaint, lineWidth: 1.25)
+            case .held:
+                Circle().strokeBorder(Theme.fgMuted, lineWidth: 1.25)
+            case .progress(let fraction):
+                Circle().strokeBorder(Theme.fgFaint.opacity(0.7), lineWidth: 1.25)
+                Circle()
+                    .trim(from: 0, to: fraction.map { max(0.06, min($0, 1)) } ?? 0.28)
+                    .stroke(Theme.amber, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .padding(1)
+            case .done:
+                Image(systemName: "checkmark")
+                    .font(.system(size: size * 0.8, weight: .semibold))
+                    .foregroundStyle(Theme.fgMuted)
+            case .failed:
+                Circle().strokeBorder(Theme.err, lineWidth: 1.25)
+                Circle().fill(Theme.err).frame(width: size * 0.3, height: size * 0.3)
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 }
 

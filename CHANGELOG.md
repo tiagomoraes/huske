@@ -6,6 +6,87 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+### Added
+
+- **Choose the transcription model from a catalog.** `huske models` lists the
+  models with what matters for choosing: whether a model locks the language,
+  the languages it covers, its download size, whether it's downloaded, and
+  how fast it ran on a reference Mac.
+  - `huske models use` switches (or offers a numbered list), `download`
+    fetches ahead of time with progress, and `try` transcribes a sample and
+    shows the speed on your Mac.
+  - The new `asr_model` key takes a catalog id, any compatible Hugging Face
+    repo, or a local folder, so a model released today can be used today.
+    `asr_engine` / `parakeet_model` / `model` keep working.
+  - New in the catalog: Whisper large-v3 turbo in 4-bit (same accuracy in a
+    third of the memory), Whisper small 4-bit, and Parakeet 110M for English.
+  - Huske.app shows the models as a list with download progress and a "try
+    it" check.
+  - `huske models convert <repo>` converts a Whisper fine-tune published in
+    the `transformers` layout (most language fine-tunes, including every
+    Brazilian Portuguese one) to run in Huske, without PyTorch. Huske.app
+    offers "Convert and use" for such a repo.
+    - On synthetic tests the PT-BR fine-tune lost English jargon
+      ("Cubernets"), so turbo stays the recommendation for mixed-language
+      meetings.
+  - Engines are now families in a registry, and models are data in
+    `huske/transcribe/models.toml`. Adding a model is one catalog entry, and a
+    new runtime is one module.
+  - See `docs/transcription-models.md` and
+    `docs/adr/0014-transcription-model-catalog.md`.
+
+- **Choose the spoken language — and know what it does.** `language` is
+  normalized (`pt-BR` and `Portuguese` become `pt`) and checked, so a typo is
+  caught by `huske config set` instead of failing a chunk. `huske languages`
+  lists the codes and what each engine does with them. Whisper pins the
+  language; Parakeet can't be told one (the model has no language input, so
+  the setting only guards against windows that slip into English), and the
+  CLI, the app and the docs now say so. An imported recording can carry its
+  own language: `huske import --language pt`, `huske inbox add --language`.
+- **A custom dictionary.** `vocabulary` lists names, products and jargon in
+  your spelling; `vocabulary_replacements` maps what the engine wrote to what
+  it should have written.
+  - Corrections apply to every transcript, live and imported, on every
+    engine (case-insensitive, whole words), and distinctive casing like `OKR`
+    or `GitHub` is restored.
+  - Whisper hears the words as its prompt, now carried to every 30-second
+    window instead of only the first: on a synthetic Portuguese meeting it
+    spelled 11 of 12 jargon terms right instead of 8.
+  - Parakeet can listen for them with `parakeet_word_boost` (beam search with
+    word boosting; 12 of 14 terms instead of 8, at about 4–5× the decoding
+    time, so it's off by default).
+- **Transcript cleanup with the model you choose.** The opt-in LLM pass
+  (`distill_enabled`) now runs on Apple Intelligence (on-device, through a
+  small helper inside Huske.app), the built-in model, Ollama, any
+  OpenAI-compatible server (LM Studio, llama.cpp, vLLM), or OpenAI, Anthropic
+  and OpenRouter with your own API key.
+  - The raw transcript is always written first and kept as `<name>.asr.txt`.
+    The cleaned one records `postprocessed_by`, `postprocessed_at` and
+    `raw_transcript` in its frontmatter.
+  - Any failure or timeout leaves the raw transcript in place.
+  - Text is sent in small, line-numbered batches that timestamps never enter,
+    so a model can't damage them, and each returned line is checked on its
+    own.
+  - API keys are stored in the macOS Keychain (`huske llm key set`), never in
+    the config, logs or app state.
+  - Nothing is sent off your Mac until you allow that exact host (`huske llm
+    allow-cloud`); switching provider asks again.
+  - `huske llm status|models|test` check the setup without sending
+    transcripts.
+  - One-shot `huske inbox process` now cleans up iPhone recordings too.
+  - See `docs/adr/0013-transcript-quality-language-dictionary-llm-cleanup.md`.
+
+### Changed
+
+- **Transcript cleanup prompts and batching.** Cleanup sends a few runs per
+  request as numbered lines instead of one JSON request per run (about 7×
+  faster on the built-in model), with an editor's brief tuned on Apple's
+  on-device model. `distill_model` and `distill_endpoint` are now unset by
+  default and resolve per backend; existing values keep working.
+- **Huske.app: "Distillation" is now "Transcript cleanup"**, with provider,
+  key, consent and a "Try it" check in Configuration, a Dictionary section,
+  and a "Show original" switch on cleaned-up transcripts.
+
 ### Fixed
 
 - **Cloud sync stopped for good once distillation was on.** Sync published a
@@ -36,6 +117,33 @@ This project uses semantic versioning after the first public release.
   `~/huske/sync` by hand; the old checkout is now moved aside automatically.
   "Sync now" and the recording engine can no longer collide on the same
   checkout, and a stale `index.lock` left by a crash is cleared.
+- **An engine no longer refuses to start over a config key it doesn't
+  know.** Several engines (a uv tool, a Homebrew keg, a checkout) share one
+  `~/.config/huske/config.toml` and upgrade at different times; a key written
+  by a newer or different one (e.g. `diarize`) used to stop the others cold.
+  Unknown keys in the file are now ignored with a one-line warning naming
+  them; `huske config set` still rejects typos.
+- **`keep_audio = true` in the config file is honored by `huske run`.** The
+  run command's `--keep-audio` flag defaulted to off and silently overrode the
+  config, so chunk audio was deleted anyway.
+- **Remote voices no longer show up twice when you're on speakers.** The
+  meeting audio your speakers play leaks into the microphone. Huske used to
+  only *attenuate* that leak, and the attenuated copy still transcribed, so
+  remote lines kept reappearing as `mic` lines. Huske now *cancels* it with
+  WebRTC AEC3, the echo canceller Chrome and Meet use, against the clean system
+  channel before transcription. On a MacBook Pro's own speakers and mic, a
+  remote monologue that the old suppressor still let through word for word
+  (55 of 55 words) now leaks 2. Your own voice is kept, even
+  when both sides talk at once, and with headphones nothing changes.
+  - **Mic and system now share one clock.** Both are recorded from one Core
+    Audio aggregate device, so they stay sample-aligned for the whole session.
+    Before, an underrun could permanently shift the system channel later than
+    the mic, which also skewed the `system` timestamps in transcripts.
+  - **New config keys.** `echo_canceller = auto | webrtc | coherence` and
+    `capture_sync` (both on by default). If the aggregate cannot be built,
+    capture falls back to independent streams, and the canceller still
+    re-aligns them.
+  - See `docs/adr/0012-webrtc-aec3-and-single-clock-capture.md`.
 
 - **"Your huske engine needs an update" with no way out.** An engine that
   cannot *run* — most often a checkout whose virtualenv was rebuilt, leaving a
@@ -54,6 +162,115 @@ This project uses semantic versioning after the first public release.
 - **Recording controls reflect the real reason they're off.** The transport
   dock, ⌘K palette, and ⌘R menu item gate on "the engine is usable", not on
   "the engine is old", and the dock's tooltip names which of the two it is.
+- **A phone recording's transcription could hang for hours.** Huske.app read
+  a command's output and then its errors, one after the other. `huske inbox
+  process` sends everything its transcriber prints (a first model download's
+  progress bars, for one) to the error stream and prints its result only at
+  the end, so once more than 64 KB of messages piled up, both sides waited on
+  each other until a 6-hour watchdog killed the transcription. The app now
+  reads both streams at once.
+- **Starting a recording no longer runs two transcription models at once.**
+  If you started a meeting while Huske was still transcribing a phone
+  recording, the phone pass kept its own model loaded next to the meeting's
+  until it had worked through the whole queue. It now hands the queue to the
+  recording session within about a second: the recording it was on goes back
+  to "queued" without using up a retry, and the session transcribes it.
+- **A phone recording that failed can be tried again from the Mac.** After
+  three failed attempts (say, the first one ran offline before the model was
+  downloaded) a recording stayed "Couldn't transcribe" for good: the iPhone's
+  Retry only re-sends audio the Mac already has, and the Mac offered nothing
+  short of `huske inbox retry` in a terminal. The iPhone pane now has
+  **Try again** on those rows.
+- **A transcription pass that died no longer stops phone recordings from
+  being transcribed until Huske is relaunched.** If the background pass that
+  transcribes phone recordings was stopped mid-recording, its transcriber kept
+  running for nobody at full CPU and kept the app waiting for it, so no later
+  recording was ever started and the phone showed "Transcribing · 1 of 3" for
+  good. Three things changed:
+  - The transcriber now exits within about a second when the process that
+    started it is gone.
+  - A pass that is told to stop puts its recording back in the queue without
+    using up one of its three attempts.
+  - The app stops the whole group of processes on a timeout, and no longer
+    waits on output that only a leftover process still holds.
+- **Your iPhone keeps finding your Mac with Wi-Fi switched off.** With Wi-Fi
+  off in Control Center, the iPhone can still reach the Mac directly
+  (peer-to-peer). But it lost sight of it after a few seconds, and a
+  recording saved then sat on "Waiting for your Mac". Now, while Huske is
+  open or a recording is on its way, the iPhone looks for the Mac again
+  when it can't see it: after 2 s, then 5 s, then every 15 s. A recording
+  that just stopped also looks for a few seconds before it waits. Off Wi-Fi,
+  the header keeps your Mac's name and says "Looking nearby…" instead of
+  "Not on Wi-Fi", which read as if nothing could work.
+- **The Mac no longer drops out of your iPhone's reach until Huske is
+  relaunched.** If the part of Huske that listens for the iPhone failed, it
+  stayed down while the pane still said "Ready". It now restarts itself (after
+  1 s, then 2, 4 … up to 30), and it only says your iPhone can reach the Mac
+  once the system has confirmed that the Mac is announced on the network. If
+  that announcement never appears or is withdrawn, Huske announces again. After
+  the Mac wakes or the network changes, it checks that it can still be found
+  and repairs it right away.
+- **Huske listens for your iPhone even when it opens without a window.**
+  Start-up ran only from the main window. Opened at login, or with the window
+  closed the last time you quit, Huske sat in the menu bar doing nothing: no
+  phone sync, and "Start recording when Huske opens" did not start. It now
+  starts when the app launches.
+- **A recording that stopped arriving no longer says "Receiving" for ever.**
+  If the iPhone walked away mid-upload, or Huske was relaunched, the row stayed
+  at "Receiving · 42%" and the menu bar kept saying a recording was arriving.
+  The row now reads "Waiting for iPhone · 42%" until the phone resumes, and it
+  goes away if the Mac no longer holds that upload.
+- **Retry on the iPhone reaches the Mac.** When the iPhone offers a recording
+  again that the Mac had given up on, the Mac now queues it for another try,
+  the same as **Try again** in the iPhone pane. Before, it answered "already
+  have it" and the recording stayed failed.
+- **A recording that keeps failing says so in about a minute.** Each new
+  attempt waited two minutes for its turn, so a recording that could not be
+  transcribed took three and a half minutes to show "Couldn't transcribe" on
+  the phone. A recording waiting to be retried now gets its next attempt
+  within about 20 seconds.
+- **Sending a recording no longer times out when the engine is slow to
+  start.** The Mac answered the iPhone only after handing the recording to the
+  transcriber, and the phone stops waiting after 30 seconds. The Mac now
+  answers as soon as the recording is safely on its disk and hands it over
+  right after.
+- **An iPhone that pairs again no longer leaves a silent duplicate.** Pairing
+  again (after "Forget this Mac", say) used to add a new entry while the old
+  one stayed paired, with a key that still worked. With both apps updated, the
+  Mac now recognises the same install of the iPhone app and replaces the
+  earlier entry by itself, once the new pairing is confirmed (trying a new code
+  never costs the pairing that works). With an older iPhone app the iPhone
+  pane points out the old entry as what looks like an earlier pairing, not
+  used since, next to **Remove**, and leaves it to you: two different iPhones
+  can have the same name and model.
+- **The Mac no longer drops off your iPhone's radar every ninth pairing
+  code.** Huske kept eight spare keys ready for pairing codes; the ninth
+  restarted the part that listens for the iPhone, and every iPhone watching
+  saw the Mac vanish for a moment. It now keeps 64 and tops them up only when
+  nothing is connected, nothing has happened for a minute and no code is
+  waiting to be scanned.
+- **"Isn't accepting connections" when Huske on the Mac isn't open.** A Mac
+  that turned the connection away read on the iPhone as "Couldn't send a
+  recording: network error…", and a network drop during an upload marked
+  that recording failed, then the next one. The iPhone now says "*Mac* isn't
+  accepting connections — open Huske on your Mac", and a network problem
+  never marks a recording failed: it ends the sync and is tried again. Only a
+  recording whose audio really can't be read on the iPhone fails, on its own,
+  and the others still go out.
+- **A session that crashed no longer holds up phone recordings.** A crashed
+  `huske run` leaves a lock file with its process ID. When macOS later gave
+  that ID to another program, Huske took the dead session for a live one:
+  recordings from the iPhone waited, and the crashed session's audio was not
+  recovered, until the next `huske run`. Huske now also checks that the
+  program is older than the lock.
+- **A recording tried again on the Mac shows up on the iPhone.** After **Try
+  again** in the Mac's iPhone pane, the phone kept saying "Couldn't
+  transcribe": it had stopped asking about that recording. It now asks once
+  each time you open the app, and brings the transcript back.
+- **Stopping Huske while it decodes a phone recording no longer counts as a
+  failed attempt.** The stop also ended the audio converter, which looked like
+  a file that could not be decoded. The recording now goes back in the queue
+  with its three attempts intact.
 
 ### Added
 
@@ -78,7 +295,129 @@ This project uses semantic versioning after the first public release.
   prefilled and private. The pane says which Git sign-in Huske uses, and that
   automatic sync starts with the next session. It also shows how to connect
   AI tools to the repository directly.
-
+- **Huske for iPhone: record anywhere, transcribe on your Mac.** A new iPhone
+  app (`ios/`) is a simple recorder with Voice Memos ergonomics. It keeps
+  recording in the background, with a Live Activity on the Lock Screen and in
+  the Dynamic Island that has pause/resume and stop buttons. When a recording
+  stops, it syncs to *your* Mac and enters the normal transcription queue there.
+  The transcript then comes back and is readable on the phone. No cloud, no
+  account.
+  - **Pairing** is one QR code: *Huske.app → iPhone → Pair iPhone*, then point
+    the iPhone camera at it.
+  - **Transfer** is direct and encrypted (TLS with a per-phone key) over your
+    Wi-Fi, or over peer-to-peer Wi-Fi when the two devices are merely near each
+    other. It is resumable, and idempotent, so nothing is transcribed twice.
+  - **On the Mac**, the new **iPhone** pane lists paired phones and each
+    recording's progress (receiving → queued → transcribing → transcribed).
+  - Phone transcripts are ordinary transcripts, tagged `origin: phone`,
+    `device`, `title`.
+  - **Action button and Control Center.** The *Huske Record* control starts a
+    recording without opening the app, the way Voice Memos does; the next
+    press stops and saves it.
+  - **Shortcuts and Siri.** Start (optionally named), Start or Stop, Stop,
+    Pause or Resume, Get Latest Transcript, Get Transcript (plain text or
+    Markdown with timecodes), Open Recording and Find Recordings. Requires
+    iOS 18.
+  - See `docs/adr/0011-iphone-recorder-and-mac-sync.md` and
+    `specs/002-phone-sync/`.
+- **"Why isn't it syncing?" has an answer on the Mac.** The iPhone pane says
+  whether your iPhone can reach this Mac right now and, when it can't, why and
+  what to do (for example, turn on Local Network access for Huske). Each paired
+  iPhone shows "Connected" or when it was last seen.
+  - **Copy details** copies that state with the recent sync log, and **Show
+    log** opens the log in the Finder. The log is small (under 400 KB) and
+    holds states, recording IDs, sizes and errors. It never holds titles, audio
+    or transcript text.
+- **The iPhone reconnects the moment your Mac is back, and says why when it
+  can't.** Instead of retrying on a timer, the iPhone app reconnects when your
+  Mac reappears on the network, when the network changes or when you open the
+  app, and it doesn't try while the Mac isn't there. It looks for the Mac only
+  while the app is open or a sync is running, which saves battery during long
+  recordings. The Mac screen shows the link in plain words (Local Network off,
+  looking for your Mac, connected over Wi-Fi or directly, retrying in a few
+  seconds) with the way out, and **Copy details** copies a short sync log.
+  - **A rejected or stale pairing code no longer breaks a working pairing.**
+    A new code replaces the old pairing only after the Mac accepts it, and a
+    code the Mac refuses says so at once instead of timing out.
+  - **Retry works end to end.** "Couldn't send — Retry" sends again, and Retry
+    on a recording your Mac couldn't transcribe asks the Mac to try again.
+    Deleting a recording stops its upload.
+- **A pairing code stops working once your iPhone has used it.** The QR code
+  (or the copied link) used to be the iPhone's key for good: anyone who kept a
+  copy — clipboard history, a forwarded screenshot — could connect as that
+  iPhone. Right after pairing, the two apps now swap it for a key that never
+  leaves the two devices (sent sealed, so even a recording of the exchange
+  plus the code doesn't reveal it), and the code's key stops working.
+  - There is nothing to do. It takes a fraction of a second; a swap that is
+    interrupted (the Mac quits halfway, the connection drops) finishes the
+    next time the iPhone sees the Mac, and the iPhone always keeps a key the
+    Mac accepts.
+  - A pairing made before this is swapped the first time both apps are
+    updated, without pairing again.
+- **"Forget this Mac" on the iPhone also removes the iPhone on the Mac**, when
+  the Mac is nearby. When it isn't, the iPhone forgets it anyway and the Mac
+  lists the iPhone until you remove it there.
+  - This and the two items above need the new version on both devices; with an
+    older app on either side, pairing works exactly as before.
+- **Name your Mac on the iPhone.** Two Macs that both call themselves
+  "MacBook Pro" can be told apart. Under **Mac** on the iPhone, type a name
+  such as "Office" in **Name**. Only this iPhone uses it, and the Mac's own
+  name stays visible underneath. Pairing the same Mac again keeps the name.
+  Clear the field to go back to the Mac's own name.
+- **Copy a transcript on the iPhone in one tap.** **Copy** sits above every
+  transcript, including partial ones, and puts just what was said on the
+  clipboard, without times or sources, ready to paste. It answers in place
+  with "Copied". The **…** menu now has **Copy with Timestamps** for the
+  full Markdown version.
+- **Uploads are faster on slow links.** Each piece of a recording waits for
+  the Mac's answer before the next is sent, so on a slow link most of the time
+  went to waiting. The iPhone now sends larger pieces (up to 1 MB) while the
+  link keeps up and smaller ones when it doesn't: a two-hour recording (58 MB)
+  over a link with 25 ms of delay each way takes about 4 s instead of 14. It
+  works with older versions of Huske.app too.
+- **The Mac's iPhone pane says how much of a failed recording was
+  transcribed**: "Partly transcribed · 2 of 3 parts" rather than "Couldn't
+  transcribe", when the parts that worked can be read.
+- **An offer to open Huske at login once an iPhone is paired.** Your iPhone can
+  only send recordings while Huske is running. After pairing, Huske offers to
+  open at login. It never turns this on by itself, and it stops asking once it
+  is on or you say no.
+- **A long recording shows progress inside each part.** A recording split
+  into parts showed "Transcribing · 1 of 3" for the several minutes each part
+  takes, which looked stuck. The percentage now moves within a part too. It is
+  an estimate from how fast this Mac transcribed earlier recordings, so it
+  first appears after one recording has been transcribed.
+- **A long recording that fails partway keeps what it got.** Long recordings
+  are transcribed in parts. When one part could not be transcribed, the whole
+  recording used to show "Couldn't transcribe" and the finished parts never
+  reached the phone. Now the other parts are still transcribed, and the iPhone
+  shows them with a note: "Part of this recording couldn't be transcribed — 2
+  of 3 parts are below." **Retry** is still there, and it transcribes only the
+  missing part before the whole transcript replaces the partial one. The same
+  goes for `huske inbox retry` and for Huske's own retries. `status.json`
+  lists the missing parts in `missing_chunks`. The iPhone app and Huske.app
+  both need this version; with an older one on either side a failed recording
+  looks as it did before.
+- **"Trying again on your Mac" says which attempt it is.** The Mac now tells
+  the iPhone that it will retry, and which attempt comes next ("attempt 2 of
+  3"), as data. The phone used to work it out from the wording of the Mac's
+  status text, which it still does with an older Huske.app.
+- **The Mac stays awake while a recording from your iPhone is on its way.** It
+  does not go to sleep on its own while a recording is arriving, being handed
+  to the transcriber, or being transcribed by Huske's own background pass. It
+  goes back to normal as soon as that is done, and also if the iPhone walks
+  away mid-upload.
+- **`huske import FILE…`** transcribes any audio file (m4a, caf, wav, flac,
+  mp3, …) into ordinary transcripts dated from the recording.
+  - It goes through a new engine inbox (`inbox_root`, default `~/huske/inbox`;
+    `huske inbox add|process|status|retry`). A running `huske run` picks inbox
+    items up with its own worker, so no second model is loaded; otherwise a
+    one-shot process transcribes them.
+  - AAC is decoded with macOS's built-in `afconvert`, so there is still no
+    ffmpeg dependency.
+- **`huske echo-test`** plays a short phrase on your speakers and reports how
+  much of the bleed into the mic the echo canceller removes on *your* hardware.
+  Nothing is saved.
 - **Huske.app is signed with a Developer ID certificate and notarized by
   Apple.** It opens straight from the download — no right-click → Open, no
   System Settings → "Open Anyway". The ticket is stapled to the bundle, so a

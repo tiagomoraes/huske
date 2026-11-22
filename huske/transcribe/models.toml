@@ -1,0 +1,152 @@
+# Transcription models Huske offers by name (`huske models`, Huske.app).
+#
+# Adding a model of an existing family is one entry here — no code. The family
+# must be registered in huske/transcribe/engines/__init__.py (today: parakeet,
+# whisper). Check before adding: the repo loads with that family's runtime
+# (`huske models try <repo>` transcribes a sample and prints the speed), and
+# give the measured speed so people can compare. See docs/transcription-models.md.
+#
+# Fields
+#   id          stable handle people type (`huske models use <id>`); never reuse
+#   family      parakeet | whisper (a registered engine family)
+#   repo        Hugging Face repo (or a local folder)
+#   name        display name
+#   summary     one plain sentence: what it's good at
+#   languages   ISO 639-1 codes it transcribes; omit = every language the family knows
+#   size_mb     download size (weights), MB
+#   speed       fastest | fast | moderate | slow
+#   accuracy    basic | good | very good | best
+#   measured    how fast it ran on a reference Mac (synthetic speech, warm model)
+#   note        anything people must know before choosing it
+#   default     the model used when nothing is configured (exactly one)
+#   recommended suggested for its use case
+#
+# Measured 2026-11-22 on an M3 Pro, macOS 27.2, synthetic speech: 52 s of
+# Portuguese meeting talk dense with English jargon (and 35 s of English for
+# English-only models), counting how many of 10 jargon terms came out right.
+
+[[model]]
+id = "parakeet-tdt-0.6b-v3"
+family = "parakeet"
+repo = "mlx-community/parakeet-tdt-0.6b-v3"
+name = "Parakeet v3"
+summary = "Fast and quiet on silence; 25 European languages, recognised automatically."
+languages = ["bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu", "it", "lv", "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk"]
+size_mb = 2508
+speed = "fastest"
+accuracy = "very good"
+measured = "51x real time on an M3 Pro; 5 of 10 jargon terms right in Portuguese, 9 in English"
+note = "Can't be told the language: mixed Portuguese and English can slip into English."
+default = true
+recommended = true
+
+[[model]]
+id = "whisper-large-v3-turbo"
+family = "whisper"
+repo = "mlx-community/whisper-large-v3-turbo"
+name = "Whisper large-v3 turbo"
+summary = "Locks the language you choose and spells jargon well; the pick for mixed-language meetings."
+size_mb = 1614
+speed = "fast"
+accuracy = "very good"
+measured = "24x real time on an M3 Pro; 7 of 10 jargon terms right in Portuguese, 10 in English"
+recommended = true
+
+[[model]]
+id = "whisper-large-v3-turbo-q4"
+family = "whisper"
+repo = "mlx-community/whisper-large-v3-turbo-q4"
+name = "Whisper large-v3 turbo, compact"
+summary = "Same accuracy as turbo in a third of the memory (4-bit), slightly slower."
+size_mb = 464
+speed = "fast"
+accuracy = "very good"
+measured = "20x real time on an M3 Pro; 7 of 10 jargon terms right in Portuguese"
+
+[[model]]
+id = "whisper-large-v3"
+family = "whisper"
+repo = "mlx-community/whisper-large-v3-mlx"
+name = "Whisper large-v3"
+summary = "The most accurate, and the slowest and heaviest."
+size_mb = 3084
+speed = "slow"
+accuracy = "best"
+measured = "8x real time on an M3 Pro; 9 of 10 jargon terms right in Portuguese"
+
+[[model]]
+id = "whisper-medium"
+family = "whisper"
+repo = "mlx-community/whisper-medium-mlx"
+name = "Whisper medium"
+summary = "Older middle ground; turbo is faster and more accurate."
+size_mb = 1525
+speed = "moderate"
+accuracy = "good"
+
+[[model]]
+id = "whisper-small"
+family = "whisper"
+repo = "mlx-community/whisper-small-mlx"
+name = "Whisper small"
+summary = "Light and quick; misses more names and jargon."
+size_mb = 481
+speed = "fast"
+accuracy = "good"
+measured = "34x real time on an M3 Pro; 3 of 10 jargon terms right in Portuguese"
+
+[[model]]
+id = "whisper-small-q4"
+family = "whisper"
+repo = "mlx-community/whisper-small-mlx-q4"
+name = "Whisper small, compact"
+summary = "The smallest useful Whisper (4-bit): quick, but rough on jargon."
+size_mb = 197
+speed = "fastest"
+accuracy = "good"
+measured = "46x real time on an M3 Pro; 3 of 10 jargon terms right in Portuguese"
+
+[[model]]
+id = "whisper-base"
+family = "whisper"
+repo = "mlx-community/whisper-base-mlx"
+name = "Whisper base"
+summary = "Tiny download for quick tests; not for real meetings."
+size_mb = 144
+speed = "fastest"
+accuracy = "basic"
+
+[[model]]
+id = "whisper-tiny"
+family = "whisper"
+repo = "mlx-community/whisper-tiny-mlx"
+name = "Whisper tiny"
+summary = "The smallest Whisper; for trying Huske out, not for keeping."
+size_mb = 74
+speed = "fastest"
+accuracy = "basic"
+
+[[model]]
+id = "parakeet-tdt-0.6b-v2"
+family = "parakeet"
+repo = "mlx-community/parakeet-tdt-0.6b-v2"
+name = "Parakeet v2, English"
+summary = "English only; the previous Parakeet, still excellent for English."
+languages = ["en"]
+size_mb = 2472
+speed = "fastest"
+accuracy = "very good"
+note = "English only."
+
+[[model]]
+id = "parakeet-tdt_ctc-110m"
+family = "parakeet"
+repo = "mlx-community/parakeet-tdt_ctc-110m"
+name = "Parakeet 110M, English"
+summary = "English only and very light: the fastest model here."
+languages = ["en"]
+size_mb = 459
+speed = "fastest"
+accuracy = "good"
+measured = "81x real time on an M3 Pro; 6 of 10 jargon terms right in English"
+note = "English only."

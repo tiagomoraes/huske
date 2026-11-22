@@ -20,6 +20,20 @@ public struct EngineCapabilities: Equatable, Sendable {
     public let configCLI: Bool
     /// `huske devices` subcommand exists.
     public let devicesCLI: Bool
+    /// `huske inbox` subcommand exists — the engine can take recordings that
+    /// did not come from live capture (iPhone uploads). Optional: an engine
+    /// without it still records; phone recordings wait until it is upgraded.
+    public let inboxCLI: Bool
+    /// `huske llm` subcommand exists — transcript cleanup with a choice of
+    /// provider (Apple Intelligence, local, cloud with a key). Without it the
+    /// Configuration pane keeps the old built-in-model-only controls.
+    public let llmCLI: Bool
+    /// `huske languages` exists — which engines support which language codes.
+    public let languagesCLI: Bool
+    /// `huske models` exists — the transcription-model catalog (list, use,
+    /// download, try). Without it the Configuration pane keeps the old
+    /// engine / Parakeet model / Whisper model pickers.
+    public let modelsCLI: Bool
     /// Why this binary cannot be used *at all*, in prose fit for the UI.
     /// `nil` when it answered — including when it answered as an old engine.
     public let failure: String?
@@ -29,12 +43,20 @@ public struct EngineCapabilities: Equatable, Sendable {
         controlSocket: Bool,
         configCLI: Bool,
         devicesCLI: Bool,
+        inboxCLI: Bool = false,
+        llmCLI: Bool = false,
+        languagesCLI: Bool = false,
+        modelsCLI: Bool = false,
         failure: String? = nil
     ) {
         self.version = version
         self.controlSocket = controlSocket
         self.configCLI = configCLI
         self.devicesCLI = devicesCLI
+        self.inboxCLI = inboxCLI
+        self.llmCLI = llmCLI
+        self.languagesCLI = languagesCLI
+        self.modelsCLI = modelsCLI
         self.failure = failure
     }
 
@@ -55,7 +77,11 @@ public struct EngineCapabilities: Equatable, Sendable {
             version: version.isEmpty ? nil : version,
             controlSocket: runHelp.contains("--control-socket"),
             configCLI: containsCommand(mainHelp, "config"),
-            devicesCLI: containsCommand(mainHelp, "devices")
+            devicesCLI: containsCommand(mainHelp, "devices"),
+            inboxCLI: containsCommand(mainHelp, "inbox"),
+            llmCLI: containsCommand(mainHelp, "llm"),
+            languagesCLI: containsCommand(mainHelp, "languages"),
+            modelsCLI: containsCommand(mainHelp, "models")
         )
     }
 
@@ -113,6 +139,10 @@ public struct EngineCapabilities: Equatable, Sendable {
             controlSocket: caps.controlSocket,
             configCLI: caps.configCLI,
             devicesCLI: caps.devicesCLI,
+            inboxCLI: caps.inboxCLI,
+            llmCLI: caps.llmCLI,
+            languagesCLI: caps.languagesCLI,
+            modelsCLI: caps.modelsCLI,
             failure: failure
         )
     }

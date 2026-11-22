@@ -25,6 +25,8 @@ huske autostart <verb>       Manage the macOS LaunchAgent that runs huske on log
 huske distill [OPTIONS]      Distil transcripts into statement sidecars with a local LLM.
 huske export [OPTIONS]       Write one Markdown digest per day for file-reading tools.
 huske sync [OPTIONS]         Publish transcripts to the configured Git repository.
+huske inbox <verb>           Hand external recordings (iPhone, audio files) to the engine.
+huske import FILE...         Transcribe audio files now (inbox add + inbox process).
 huske --version              Print version and exit.
 huske --help                 Print help.
 ```
@@ -253,6 +255,54 @@ config error.
 
 ---
 
+## `huske inbox` and `huske import`
+
+**Purpose**: Turn a recording that did not come from live capture (an iPhone
+recording handed over by Huske.app, a voice memo, any audio file) into ordinary
+transcripts under `output_root/YYYY-MM-DD/`. Files are staged in the engine
+inbox (`inbox_root`, default `~/huske/inbox`) and transcribed by whichever
+process holds `inbox_root/.lock`: the live `huske run` engine (through its
+existing ASR worker, so only one model is ever in RAM) or a one-shot
+`huske inbox process`. The full contract, including the on-disk layout and the
+`status.json` that Huske.app reads directly, is
+[`specs/002-phone-sync/contracts/inbox.md`](../../002-phone-sync/contracts/inbox.md).
+
+```text
+huske inbox add FILE [--id ID] [--title T] [--device NAME] [--origin phone|file]
+                     [--started-at ISO8601] [--duration SECONDS] [--move] [--json]
+huske inbox process [--json]
+huske inbox status [ID ...] [--json]
+huske import FILE ... [--title T] [--started-at ISO8601] [--json]
+```
+
+Every subcommand also takes `--config`.
+
+| Command | Behavior |
+|---|---|
+| `inbox add` | Stage FILE (copy, or move with `--move`) as an inbox item and print it. Idempotent per `--id`; without `--id` the id is a hash of the file's bytes, so re-adding the same file is also a no-op. `--origin` defaults to `file`; `--started-at` defaults to the file's modification time minus its duration. |
+| `inbox process` | Transcribe every `queued` (or retryable `failed`) item, then exit. Returns at once with `deferred_to_engine: true` when another process (normally the live engine) holds the inbox lock. Never starts the ASR worker when nothing is queued. Runs a best-effort Git publication afterwards when `sync_enabled`. Progress lines go to stderr. |
+| `inbox status` | List items, newest first. Unknown IDs come back as `{"id": …, "state": "unknown"}`. |
+| `import` | `inbox add` for each FILE (`origin=file`), then `inbox process`. |
+
+**`--json` output** (one object on stdout):
+
+- `inbox add`: the item (`recording.json` fields + status object) plus
+  `"created": true|false`.
+- `inbox process`: `{"deferred_to_engine": bool, "items": [<item>…]}` — the
+  items attempted by this invocation.
+- `inbox status`: `{"items": [<item>…]}`.
+- `import`: `{"deferred_to_engine": bool, "items": [<item per FILE>…],
+  "errors": [{"file", "error"}…]}` (`errors` only when a FILE was rejected).
+- Validation failures: `{"error": "…"}`.
+
+**Exit codes**: `0` success (including deferred), `1` validation error (bad
+id/origin/timestamp, missing file, invalid config), `2` processing ran and an
+item ended `failed`. As with every huske command, a command-line parsing error
+(unknown flag, missing FILE) is reported by the CLI framework with exit `2`
+and no JSON.
+
+---
+
 ## Config file format
 
 Path: `~/.config/huske/config.toml` (override with `--config`). Optional. Same field names as CLI flags but underscore-separated, with `chunk_minutes` instead of `--chunk-minutes`.
@@ -272,6 +322,7 @@ log_level = "INFO"
 sync_enabled = true
 sync_remote = "git@github.com:you/huske-transcripts.git"
 sync_branch = "main"
+inbox_root = "~/huske/inbox"
 ```
 
 CLI flags always win over config file values.
@@ -281,7 +332,7 @@ CLI flags always win over config file values.
 ## Stability guarantees for v1
 
 - Command names (`run`, `recover`, `doctor`, `autostart`, `distill`, `export`,
-  `sync`) and exit codes are stable.
+  `sync`, `inbox`, `import`) and exit codes are stable.
 - Flag names will not be renamed in v1.x; new flags may be added.
 - Config TOML key names are stable; unknown keys are rejected as config errors.
 - The transcript file format is governed by `transcript-format.md` and is the primary interface for downstream LLM consumers.

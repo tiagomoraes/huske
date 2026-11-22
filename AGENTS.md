@@ -11,6 +11,13 @@ add local workflow notes, but this file is the shared baseline.
 - `macos/`: native macOS app (SwiftPM; SwiftUI shell over the engine's
   control socket — see `docs/adr/0006-native-macos-app.md`). Check with
   `cd macos && swift build && swift test`.
+- `macos/Sources/HuskeSync`: the phone ↔ Mac sync library (Bonjour + TLS-PSK),
+  shared by the Mac app and the iPhone app — the wire contract is
+  `specs/002-phone-sync/contracts/sync-protocol.md`.
+- `ios/`: the iPhone recorder app (SwiftUI, XcodeGen). Generate with
+  `cd ios && ./scripts/generate.sh`, then `xcodebuild test -project
+  Huske.xcodeproj -scheme Huske -destination 'platform=iOS Simulator,name=…'`.
+  See `docs/adr/0011-iphone-recorder-and-mac-sync.md`.
 - `services/huske_mcp/`: independent Linux/VPS distribution that pulls the
   private transcript Git repository, indexes its replica, and serves MCP.
 - `tests/`: unit and integration tests (Python; Swift tests live in
