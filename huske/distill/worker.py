@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from huske.distill.client import DistillError
-from huske.distill.distiller import Distiller, distill_transcript, source_sha256_for
+from huske.distill.distiller import TranscriptCorrector, distill_transcript, source_sha256_for
 from huske.distill.sidecar import read_sidecar, sidecar_is_current, write_sidecar
 from huske.search.parser import ParseError
 
@@ -36,14 +36,13 @@ class DistillWorker:
     def __init__(
         self,
         output_root: Path,
-        distiller: Distiller,
+        distiller: TranscriptCorrector | Any,
         *,
-        max_statements_per_passage: int = 8,
         reconcile_on_start: bool = False,
+        **_legacy: Any,
     ) -> None:
         self._output_root = output_root.resolve()
         self._distiller = distiller
-        self._max = max_statements_per_passage
         self._reconcile_on_start = reconcile_on_start
         self._queue: queue.Queue[str] = queue.Queue()
         self._events: queue.Queue[dict[str, Any]] = queue.Queue()
@@ -143,16 +142,18 @@ class DistillWorker:
             return
 
         try:
-            sidecar = distill_transcript(
-                path, self._distiller, max_statements_per_passage=self._max
-            )
+            sidecar = distill_transcript(path, self._distiller)
         except ParseError as exc:
             self._emit(ok=False, path=path_str, error=f"unparseable transcript: {exc}")
             return
         except DistillError as exc:
-            # Daemon unreachable / model missing — surface as "unavailable" so the
-            # run loop can show one sticky warning instead of spamming per chunk.
-            self._emit(ok=False, path=path_str, error=str(exc), unavailable=exc.retryable)
+            # Daemon unreachable, model missing, no key, no consent — surface as
+            # "unavailable" so the run loop shows one sticky warning instead of
+            # spamming per chunk. The raw transcript is untouched either way.
+            sticky = exc.retryable or exc.kind in ("auth", "consent", "config")
+            self._emit(
+                ok=False, path=path_str, error=str(exc), unavailable=sticky, kind=exc.kind
+            )
             return
         except Exception as exc:  # never let one bad transcript kill the thread
             self._emit(ok=False, path=path_str, error=f"distill failed: {exc}")

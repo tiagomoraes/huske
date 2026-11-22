@@ -30,15 +30,14 @@ from multiprocessing.connection import Connection
 from typing import Any
 
 from huske.distill.client import DistillError
-from huske.distill.distiller import apply_correction, build_prompt
+from huske.distill.providers import DEFAULT_MLX_MODEL
 
-DEFAULT_MLX_MODEL = "mlx-community/Qwen3.5-0.8B-4bit"
+__all__ = ["DEFAULT_MLX_MODEL", "MLXDistiller", "resolve_mlx_model"]
 
 _FAKE_ENV = "HUSKE_DISTILL_MLX_FAKE"
 _IDLE_UNLOAD_SECONDS = 120.0
 _MAX_KV_SIZE = 2048
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
-_JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 # Configs written for the old Ollama-only default keep working: the known
 # tags map onto the equivalent 4-bit MLX community builds.
@@ -79,15 +78,12 @@ def model_is_cached(repo: str) -> bool:
         return False
 
 
+_SPECIAL_RE = re.compile(r"<\|(?:im_end|im_start|endoftext|eot_id|end)\|>")
+
+
 def _clean_reply(raw: str) -> str:
-    """Strip thinking blocks and markdown fences; isolate the JSON object."""
-    text = _THINK_RE.sub("", raw).strip()
-    if text.startswith("```"):
-        text = text.strip("`").strip()
-        if text.lower().startswith("json"):
-            text = text[4:].strip()
-    match = _JSON_RE.search(text)
-    return match.group(0) if match else text
+    """Strip thinking blocks and chat-template control tokens from a reply."""
+    return _SPECIAL_RE.sub("", _THINK_RE.sub("", raw)).strip()
 
 
 def _generate_unwired(
@@ -134,9 +130,9 @@ def _generate_unwired(
     try:
         for token, _logprobs in generate_step(prompt_arr, model, **kwargs):
             tid = int(token)
-            out.append(tid)
             if tid in eos_ids:
-                break
+                break  # never decode the end-of-turn token into the reply
+            out.append(tid)
         if hasattr(tokenizer, "decode"):
             return str(tokenizer.decode(out))
         return str(tokenizer.detokenizer.decode(out) if hasattr(tokenizer, "detokenizer") else "")
@@ -183,9 +179,14 @@ def _child_main(conn: Connection, model_id: str) -> None:  # pragma: no cover â€
         if msg is None:
             return
         prompt = str(msg.get("prompt", ""))
+        system = str(msg.get("system", ""))
+        max_tokens = int(msg.get("max_tokens", 512) or 512)
         try:
             if fake:
-                raw = '{"text": "fake statement"}'
+                # Echo the numbered lines: exercises the protocol, no weights.
+                raw = "\n".join(
+                    line for line in prompt.splitlines() if line.startswith("[")
+                )
             else:
                 from mlx_lm import load
 
@@ -199,6 +200,8 @@ def _child_main(conn: Connection, model_id: str) -> None:  # pragma: no cover â€
                     loaded = load(model_id)
                     model, tokenizer = loaded[0], loaded[1]
                 chat = [{"role": "user", "content": prompt}]
+                if system:
+                    chat.insert(0, {"role": "system", "content": system})
                 try:
                     templated = tokenizer.apply_chat_template(
                         chat, add_generation_prompt=True, tokenize=False,
@@ -216,7 +219,7 @@ def _child_main(conn: Connection, model_id: str) -> None:  # pragma: no cover â€
                 except Exception:
                     pass
                 raw = _generate_unwired(
-                    model, tokenizer, str(templated), max_tokens=512, sampler=sampler
+                    model, tokenizer, str(templated), max_tokens=max_tokens, sampler=sampler
                 )
             conn.send({"ok": True, "raw": raw})
         except Exception as exc:
@@ -224,12 +227,13 @@ def _child_main(conn: Connection, model_id: str) -> None:  # pragma: no cover â€
 
 
 class MLXDistiller:
-    """Drop-in :class:`~huske.distill.distiller.Distiller` backed by mlx-lm."""
+    """Post-processing backend backed by mlx-lm in a private subprocess."""
 
-    def __init__(self, model: str, *, max_statements: int = 8, timeout: float = 120.0) -> None:
-        self.model_id = resolve_mlx_model(model)
-        self.backend = "mlx"
-        self._max = max_statements
+    provider = "mlx"
+    backend = "mlx"
+
+    def __init__(self, model: str, *, timeout: float = 120.0, **_legacy: Any) -> None:
+        self.model_id = resolve_mlx_model(model or DEFAULT_MLX_MODEL)
         self._timeout = timeout
         self._ctx = mp.get_context("spawn")
         self._proc: Any = None
@@ -243,10 +247,7 @@ class MLXDistiller:
         pid = getattr(self._proc, "pid", None)
         return int(pid) if isinstance(pid, int) and pid > 0 else None
 
-    def distill_passage(self, text: str, *, sources: list[str], language: str) -> list[str]:
-        prompt = build_prompt(
-            text, sources=sources, language=language, max_statements=self._max
-        )
+    def complete(self, instructions: str, prompt: str, *, max_tokens: int) -> str:
         self._ensure_process()
         assert self._conn is not None
 
@@ -257,24 +258,25 @@ class MLXDistiller:
             deadline = max(self._timeout, 900.0 if not model_is_cached(self.model_id) else 240.0)
 
         try:
-            self._conn.send({"prompt": prompt})
+            self._conn.send({"system": instructions, "prompt": prompt, "max_tokens": max_tokens})
             if not self._conn.poll(deadline):
                 self._terminate()
                 raise DistillError(
                     f"built-in model {self.model_id!r} timed out after {deadline:.0f}s "
-                    "(the first run downloads and loads the model)"
+                    "(the first run downloads and loads the model)",
+                    kind="timeout",
                 )
             reply = self._conn.recv()
         except DistillError:
             raise
         except (BrokenPipeError, EOFError, OSError) as exc:
             self._terminate()
-            raise DistillError(f"built-in LLM process died: {exc}") from exc
+            raise DistillError(f"built-in LLM process died: {exc}", kind="unavailable") from exc
 
         self._warmed = True
         if not reply.get("ok"):
             raise DistillError(str(reply.get("error", "unknown built-in LLM error")))
-        return [apply_correction(text, _clean_reply(str(reply.get("raw", ""))))]
+        return _clean_reply(str(reply.get("raw", "")))
 
     def close(self) -> None:
         """Stop the LLM subprocess. Idempotent."""

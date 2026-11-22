@@ -9,7 +9,8 @@ contribution rules live in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 - Python CLI package in `huske/` (entry point: `huske.cli:app`, exposed as
   the `huske` console script — subcommands: `run` (headless engine), `recover`,
-  `doctor`, `devices`, `config`, `distill`, `export`, and `sync`). There is no
+  `doctor`, `devices`, `config`, `models`, `languages`, `llm`, `distill`,
+  `export`, and `sync`). There is no
   terminal UI anymore — the macOS app is the face; `--no-ui` survives as a
   hidden no-op (ADR 0007).
 - Native macOS app in `macos/` (SwiftPM: `HuskeKit` library + `Huske` SwiftUI
@@ -63,8 +64,11 @@ modules that pass audio through a single pipeline:
    `chunk_minutes` cap — so silent gaps aren't recorded; `speech_gated = false`
    restores fixed-interval rotation. Calls `on_finalized(AudioChunk)` per file.
 3. **`transcribe/worker.py`** is a `multiprocessing` (spawn) subprocess. It
-   builds a pluggable engine from `transcribe/engines/` — `parakeet` (default,
-   via `parakeet-mlx`) or `whisper` (legacy `mlx-whisper`) — transcribes each
+   builds the engine for the resolved model (`transcribe/catalog.py`:
+   `asr_model` or the legacy keys) through the family registry in
+   `transcribe/engines/` — `parakeet` (default, via `parakeet-mlx`) or
+   `whisper` (`mlx-whisper`); models are data in `transcribe/models.toml`,
+   ADR 0014 — transcribes each
    per-source WAV, tags segments with their source, runs `transcribe/dedup.py`
    to drop mic echo of system audio, and renders the transcript. MLX inference
    releases the GIL but model loads / audio decode do not, so it must not run

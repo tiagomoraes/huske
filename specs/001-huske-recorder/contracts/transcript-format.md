@@ -82,16 +82,23 @@ huske_version: 0.5.0
 | `duration_actual_seconds` | float | Seconds of audio actually recorded in the chunk. |
 | `gap_seconds` | float | Total silence/disconnect gaps within the chunk; 0 if continuous. |
 | `audio_sources` | list[string] | Subset of `["microphone", "system"]`. Reflects what was effectively captured (may shrink if a source dropped mid-chunk). |
-| `model` | string | `<engine>:<size>`, e.g. `parakeet:tdt-0.6b-v3` (default) or `mlx-whisper:medium`. |
-| `language` | string | The *configured* language (ISO 639-1), or `auto` when none was set. Note this records intent, not a detection: only the `whisper` engine can be pinned to a language: Parakeet infers one per decode window, does not report it, and can disagree with this field on code-switched speech. |
+| `model` | string | `<family>:<model>`, e.g. `parakeet:tdt-0.6b-v3` (default), `mlx-whisper:large-v3-turbo` or `mlx-whisper:large-v3-turbo-q4`. The model part is the repo name without the family prefix or `-mlx` (ADR 0014), so values written before the model catalog are unchanged. |
+| `language` | string | The *configured* language (ISO 639-1), or `auto` when none was set. Note this records intent, not a detection: only the `whisper` engine can be pinned to a language: Parakeet infers one per decode window, does not report it, and can disagree with this field on code-switched speech. An imported recording may carry its own language (`huske import --language`), which then appears here. |
 | `incomplete` | boolean | `true` if produced from recovery, graceful-stop short chunk, or partial transcription. |
 | `huske_version` | string | Semver of the producing huske binary. |
 | `origin` | string, optional | Imported recordings only: `phone` (handed over by Huske.app from the iPhone) or `file` (`huske import`, `huske inbox add`). |
 | `device` | string, optional | Imported recordings only, when known: the recording device's name. |
 | `title` | string, optional | Imported recordings only, when given: the recording's title. |
 | `import_id` | string, optional | Imported recordings only: the engine-inbox item id the transcript came from. |
+| `postprocessed_by` | string, optional | Only on a transcript cleaned up by an LLM (`distill_enabled`): `<provider>:<model>`, e.g. `apple:apple-on-device`, `mlx:mlx-community/Qwen3.5-0.8B-4bit`, `anthropic:claude-haiku-5-5`. Absent means the body is the raw ASR output. |
+| `postprocessed_at` | string, optional | With `postprocessed_by`: ISO 8601 time of the cleanup. |
+| `raw_transcript` | string, optional | With `postprocessed_by`: filename of the sibling `<name>.asr.txt` holding the untouched ASR transcript (same format). Local only; never synced. |
 
-The four optional keys appear only on transcripts of **imported recordings**
+The three `post…`/`raw_transcript` keys are written together, after every
+other key, and only by the optional LLM cleanup (ADR 0013); a re-run replaces
+them instead of adding more.
+
+The four optional keys above them appear only on transcripts of **imported recordings**
 (the engine inbox, `specs/002-phone-sync/contracts/inbox.md`), after
 `huske_version`; live-capture transcripts never carry them. An import is split
 into pieces of at most `chunk_minutes` at quiet points, so it produces one
@@ -108,6 +115,15 @@ the same filenames.
 > arbitrary 15-minute tick. Setting `speech_gated = false` restores the legacy
 > fixed-interval rotation. Filenames, frontmatter keys, and sort order are
 > unchanged.
+>
+> **Custom dictionary and cleanup (ADR 0013).** With a `vocabulary` /
+> `vocabulary_replacements` configured, the body already reflects the
+> deterministic dictionary pass (case-insensitive whole-word replacements and
+> distinctive casing such as `OKR`). With `distill_enabled`, the raw `.md` is
+> written first, snapshotted to `<name>.asr.txt`, then atomically rewritten
+> with corrected run texts — timestamps, sources, run boundaries and every
+> other frontmatter key are unchanged — and marked with `postprocessed_by`.
+> If cleanup fails, the raw `.md` stays as written.
 >
 > **Echo handling (v0.9+, AEC3 since v0.15).** When mic + system audio are
 > recorded on speakers, the system output that bleeds into the mic is handled in
@@ -179,7 +195,7 @@ read files by date/time. No bespoke tooling is required.
 2. **Stable frontmatter keys** listed above. New keys may be added; existing keys will not be removed in v1.x.
 3. **Authoritative time window** is `start_time` / `end_time` in frontmatter, not filename.
 4. **Sort order**: directory listing sort = chronological order, both within a day and across days.
-5. **Companion files**: the transcript itself is a single self-contained `.md` file. Audio is not a sibling unless `--keep-audio`. When LLM correction is enabled (opt-in, off by default), a `<name>.asr.txt` snapshot of the uncorrected Markdown and a `<name>.statements.json` skip-hash sidecar may sit beside the transcript; they are derived, regenerable, and not part of this transcript contract or the Git sync surface. The published `.md` may be the polished body. See `docs/adr/0005-llm-distillation.md`.
+5. **Companion files**: the transcript itself is a single self-contained `.md` file. Audio is not a sibling unless `--keep-audio`. When LLM cleanup is enabled (opt-in, off by default), a `<name>.asr.txt` snapshot of the uncorrected Markdown and a `<name>.statements.json` skip-hash sidecar may sit beside the transcript; they are derived and not part of the Git sync surface. The published `.md` may be the cleaned-up body, in which case its frontmatter names the provider (`postprocessed_by`) and the raw file (`raw_transcript`). See `docs/adr/0005-llm-distillation.md` and `docs/adr/0013-transcript-quality-language-dictionary-llm-cleanup.md`.
 
 ## What is NOT a contract
 

@@ -328,6 +328,7 @@ class InboxStore:
         started_at: datetime | None = None,
         duration_seconds: float | None = None,
         move: bool = False,
+        language: str | None = None,
     ) -> tuple[InboxItem, bool]:
         """Stage ``source`` as an inbox item. Returns ``(item, created)``.
 
@@ -341,6 +342,12 @@ class InboxStore:
             raise InboxError(f"no such file: {source}")
         if origin not in ORIGINS:
             raise InboxError(f"invalid origin {origin!r} (expected one of: {', '.join(ORIGINS)})")
+        try:
+            from huske.languages import normalize_language
+
+            language = normalize_language(language)
+        except ValueError as exc:
+            raise InboxError(str(exc)) from exc
         if duration_seconds is not None and (
             not math.isfinite(duration_seconds) or duration_seconds < 0
         ):
@@ -375,6 +382,8 @@ class InboxStore:
             "source_filename": source.name,
             "added_at": iso(now),
         }
+        if language:
+            recording["language"] = language
         status = initial_status(item_id, session_id_for(item_id, started_at), now)
 
         staging_root = self.root / STAGING_DIR

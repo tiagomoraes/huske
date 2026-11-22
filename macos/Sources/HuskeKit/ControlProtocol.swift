@@ -63,6 +63,9 @@ public struct ControlSnapshot: Equatable, Sendable {
     public var asrRssMb: Double
     public var distillRssMb: Double
     public var engineRssMb: Double
+    /// v4 — where transcript cleanup runs, in words ("Apple Intelligence",
+    /// "Anthropic · claude-haiku-5-5"); "" from older engines.
+    public var distillLabel: String
 
     public init(
         sessionId: String,
@@ -88,7 +91,8 @@ public struct ControlSnapshot: Equatable, Sendable {
         events: [SessionEvent] = [],
         asrRssMb: Double = 0,
         distillRssMb: Double = 0,
-        engineRssMb: Double = 0
+        engineRssMb: Double = 0,
+        distillLabel: String = ""
     ) {
         self.sessionId = sessionId
         self.recording = recording
@@ -114,6 +118,7 @@ public struct ControlSnapshot: Equatable, Sendable {
         self.asrRssMb = asrRssMb
         self.distillRssMb = distillRssMb
         self.engineRssMb = engineRssMb
+        self.distillLabel = distillLabel
     }
 }
 
@@ -232,7 +237,8 @@ public enum ControlProtocol {
             events: events,
             asrRssMb: doubleValue(obj["asr_rss_mb"]) ?? 0,
             distillRssMb: doubleValue(obj["distill_rss_mb"]) ?? 0,
-            engineRssMb: doubleValue(obj["engine_rss_mb"]) ?? 0
+            engineRssMb: doubleValue(obj["engine_rss_mb"]) ?? 0,
+            distillLabel: obj["distill_label"] as? String ?? ""
         )
     }
 

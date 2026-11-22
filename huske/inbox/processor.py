@@ -59,6 +59,8 @@ from huske.inbox.store import (
     now_local,
     session_id_for,
 )
+from huske.languages import normalize_language
+from huske.transcribe.worker import asr_job_fields
 
 JOB_ID_PREFIX = "inbox:"
 SCAN_INTERVAL_SECONDS = 5.0
@@ -869,6 +871,12 @@ class InboxProcessor:
             "import_id": a.item.id,
         }
         extra = {k: v for k, v in extra_raw.items() if isinstance(v, str) and v}
+        language = cfg.language
+        if rec.get("language"):
+            try:
+                language = normalize_language(rec.get("language")) or cfg.language
+            except ValueError:
+                language = cfg.language  # producer-written; never fail the item on it
         return {
             "job_id": job_id,
             "chunk_seq": piece.seq,
@@ -882,12 +890,10 @@ class InboxProcessor:
             "audio_sources": ["microphone"],
             "incomplete": False,
             "output_root": str(cfg.output_root),
-            "asr_engine": cfg.asr_engine,
-            "config_model": cfg.model,
-            "parakeet_model": cfg.parakeet_model,
+            **asr_job_fields(cfg),
+            "language": language,
             "config_compute_type": cfg.compute_type,
             "config_device": cfg.device,
-            "language": cfg.language,
             # One source, no far-end reference: echo handling does not apply.
             "echo_cancel": False,
             "echo_dedup": "off",

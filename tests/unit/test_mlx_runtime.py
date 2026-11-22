@@ -73,14 +73,14 @@ def test_gated_distiller_releases_on_error() -> None:
 
     class Boom:
         model_id = "x"
-        backend = "fake"
+        provider = "fake"
 
-        def distill_passage(self, text: str, *, sources: list[str], language: str) -> list[str]:
+        def complete(self, instructions: str, prompt: str, *, max_tokens: int) -> str:
             raise RuntimeError("nope")
 
     wrapped = GatedDistiller(Boom(), gate)  # type: ignore[arg-type]
     try:
-        wrapped.distill_passage("hi", sources=["mic"], language="en")
+        wrapped.complete("rules", "[1] hi", max_tokens=8)
     except RuntimeError:
         pass
     assert gate.llm_held is False

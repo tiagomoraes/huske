@@ -63,6 +63,10 @@ class FakeEngine:
     def __init__(self, fail_times: int = 0) -> None:
         self.fail_times = fail_times
         self.calls = 0
+        self.options: list[dict[str, object]] = []
+
+    def set_options(self, **options: object) -> None:
+        self.options.append(options)
 
     def transcribe(self, audio: np.ndarray) -> list[Segment]:
         self.calls += 1

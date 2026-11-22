@@ -692,7 +692,7 @@ struct ExtrasCard: View {
                     set: { _ in model.session.toggleDistill() }
                 )) {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("LLM distillation")
+                        Text("Transcript cleanup")
                             .font(.brandSans(12))
                             .foregroundStyle(Theme.fg)
                         Text(distillSubtitle)
@@ -705,8 +705,8 @@ struct ExtrasCard: View {
                 .toggleStyle(.switch)
                 .controlSize(.small)
                 .help(
-                    "Correct typos and ASR errors in finished transcripts with "
-                        + "huske's tiny built-in local model (downloads on first use).")
+                    "Clean up each finished transcript with a language model. "
+                        + "Choose where it runs in Configuration.")
 
                 Rectangle().fill(Theme.divider).frame(height: 1)
 
@@ -725,10 +725,15 @@ struct ExtrasCard: View {
         if let warning = snapshot.warnings["distill"] {
             return warning
         }
+        // v4 engines say where cleanup runs ("Apple Intelligence",
+        // "Anthropic · claude-haiku-5-5"); older ones leave it empty.
+        let label = snapshot.distillLabel.trimmingCharacters(in: .whitespaces)
         if snapshot.distillEnabled {
-            return "correcting typos and ASR errors"
+            return label.isEmpty
+                ? "Fixing punctuation and misheard words" : "Cleaning up with \(label)"
         }
-        return "tiny local model — correct ASR errors"
+        return label.isEmpty
+            ? "Fixes punctuation and misheard words" : "Uses \(label) when on"
     }
 }
 

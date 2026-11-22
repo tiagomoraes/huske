@@ -113,6 +113,7 @@ def build_control_snapshot(
         asr_rss_mb=round(float(state.asr_rss_mb), 1),
         distill_rss_mb=round(float(state.distill_rss_mb), 1),
         engine_rss_mb=round(float(state.engine_rss_mb), 1),
+        distill_label=state.distill_label,
     )
 
 
@@ -150,12 +151,24 @@ def run_session(
     # language token. Parakeet infers the language per decode window and can
     # collapse code-switched speech into English; huske re-decodes windows it
     # catches, but say once, up front, that the setting is a hint here.
-    if cfg.language and cfg.asr_engine == "parakeet":
-        _print(
-            f"[warn] language={cfg.language!r} cannot be enforced by the parakeet "
-            'engine — set asr_engine = "whisper" to pin it'
-        )
-        log.warning("language_not_enforceable", language=cfg.language, engine=cfg.asr_engine)
+    from huske.transcribe.catalog import resolve_model
+
+    asr_spec = resolve_model(cfg)
+    _print(f"[huske] transcription model: {asr_spec.name} ({asr_spec.repo})")
+    if cfg.language:
+        support = asr_spec.language_support(cfg.language)
+        if support == "unsupported":
+            _print(
+                f"[warn] {asr_spec.name} does not transcribe {cfg.language!r} — "
+                "choose another model with `huske models use`"
+            )
+            log.warning("language_unsupported", language=cfg.language, model=asr_spec.id)
+        elif support == "detected":
+            _print(
+                f"[warn] language={cfg.language!r} cannot be enforced by {asr_spec.name} — "
+                "`huske models use whisper-large-v3-turbo` pins it"
+            )
+            log.warning("language_not_enforceable", language=cfg.language, model=asr_spec.id)
 
     # Resolve + validate input device.
     device_resolution = resolve_input_device_with_fallback(cfg.input_device)
@@ -230,47 +243,54 @@ def run_session(
     metal_gate = MetalGate()
 
     def _build_distill_worker() -> Any:
-        from huske.distill.distiller import build_distiller
+        from huske.distill.distiller import build_backend, build_distiller
+        from huske.distill.providers import resolve_target
         from huske.distill.worker import DistillWorker
 
-        distiller = build_distiller(
-            cfg.distill_model,
-            backend=cfg.distill_backend,
-            endpoint=cfg.distill_endpoint,
-            timeout=cfg.distill_timeout_seconds,
-            max_statements=cfg.distill_max_statements_per_passage,
-            think=cfg.distill_think,
-        )
-        return DistillWorker(
-            cfg.output_root,
-            GatedDistiller(distiller, metal_gate),
-            max_statements_per_passage=cfg.distill_max_statements_per_passage,
-        )
+        target = resolve_target(cfg)
+        backend = build_backend(cfg, target)
+        # Local GPU models (built-in MLX, Ollama, a local server) share Metal
+        # with ASR and wait for it; Apple Intelligence and cloud providers
+        # don't touch our Metal heap, so gating them would only stall ASR.
+        if target.provider.gpu_gated and not target.leaves_mac:
+            backend = GatedDistiller(backend, metal_gate)
+        return DistillWorker(cfg.output_root, build_distiller(cfg, backend=backend))
+
+    def _distill_label() -> str:
+        from huske.distill.providers import resolve_target
+
+        try:
+            target = resolve_target(cfg)
+        except ValueError:
+            return ""
+        if target.name in ("mlx", "apple"):
+            return target.provider.label
+        return f"{target.provider.label} · {target.model or 'default model'}"
 
     distill_worker = None
     if cfg.distill_enabled:
         try:
             distill_worker = _build_distill_worker()
             distill_worker.start()
-            _print(
-                f"[huske] distillation enabled — transcripts corrected for ASR errors "
-                f"({cfg.distill_model} via {cfg.distill_backend})"
-            )
+            _print(f"[huske] transcript cleanup on — {_distill_label()}")
         except Exception as exc:
             log.warning("distill_worker_start_failed", error=str(exc))
+            state.set_warning("distill", f"cleanup unavailable: {exc}")
             distill_worker = None
-    state.update(distill_enabled=distill_worker is not None)
-    if distill_worker is not None and cfg.distill_auto_manage:
+    state.update(distill_enabled=distill_worker is not None, distill_label=_distill_label())
+    if distill_worker is not None and cfg.distill_auto_manage and cfg.distill_backend == "ollama":
         # Make Ollama ready off the hot path so the worker (already running)
         # succeeds without the user pre-starting the daemon or pulling the model.
         # Best-effort: a failure leaves the worker's own graceful degradation.
         def _prepare_ollama() -> None:
             from huske.distill import ollama_manage
+            from huske.distill.providers import resolve_target
 
+            target = resolve_target(cfg)
             ollama_manage.ensure_ready(
-                cfg.distill_model,
-                backend=cfg.distill_backend,
-                endpoint=cfg.distill_endpoint,
+                target.model or "",
+                backend="ollama",
+                endpoint=target.endpoint or "",
                 auto_manage=True,
                 emit=lambda sev, msg: state.push_event(sev, msg),  # type: ignore[arg-type]
                 serve_log=cfg.logs_root / f"ollama_{session.session_id}.log",
@@ -316,7 +336,7 @@ def run_session(
             if "reconcile" in evt:
                 pending = int(evt.get("reconcile", 0))
                 if pending:
-                    on_event("info", f"distillation: catching up {pending} transcript(s)")
+                    on_event("info", f"cleanup: catching up {pending} transcript(s)")
             elif evt.get("ok"):
                 # A success clears any prior "unavailable" sticky warning.
                 state.clear_warning("distill")
@@ -332,12 +352,13 @@ def run_session(
                     if polished:
                         sync_worker.submit(str(polished))
             elif evt.get("unavailable"):
-                # Daemon down / model missing — one sticky warning, not per-chunk spam.
+                # Daemon down / no key / no consent — one sticky warning, not
+                # per-chunk spam. The raw transcript stays as written.
                 detail = str(evt.get("error", "")).splitlines()[0]
-                state.set_warning("distill", f"distillation unavailable: {detail}")
+                state.set_warning("distill", f"cleanup unavailable, raw transcript kept: {detail}")
             else:
                 detail = str(evt.get("error", "")).splitlines()[0]
-                on_event("warn", f"distillation failed: {detail}")
+                on_event("warn", f"cleanup failed, raw transcript kept: {detail}")
 
     def _on_tick() -> None:
         _pump_inbox()
@@ -623,24 +644,30 @@ def run_session(
                 distill_worker = None  # stop submitting before the (slow) drain
                 state.update(distill_enabled=False)
                 state.clear_warning("distill")
-                on_event("info", "distillation off")
+                on_event("info", "cleanup off")
                 w.stop(drain_timeout=15.0)
                 return
 
             from huske.distill import ollama_manage
+            from huske.distill.health import probe_postprocess
+            from huske.distill.providers import resolve_target
 
-            on_event("info", f"distillation: checking {cfg.distill_model}…")
-            r = ollama_manage.ensure_ready(
-                cfg.distill_model,
-                backend=cfg.distill_backend,
-                endpoint=cfg.distill_endpoint,
-                auto_manage=cfg.distill_auto_manage,
-                emit=on_event,
-                should_abort=stop_flag.is_set,
-                serve_log=cfg.logs_root / f"ollama_{session.session_id}.log",
-            )
+            on_event("info", f"cleanup: checking {_distill_label()}…")
+            if cfg.distill_backend == "ollama":
+                target = resolve_target(cfg)
+                r = ollama_manage.ensure_ready(
+                    target.model or "",
+                    backend="ollama",
+                    endpoint=target.endpoint or "",
+                    auto_manage=cfg.distill_auto_manage,
+                    emit=on_event,
+                    should_abort=stop_flag.is_set,
+                    serve_log=cfg.logs_root / f"ollama_{session.session_id}.log",
+                )
+            else:
+                r = probe_postprocess(cfg)
             if not r.ok:
-                msg = f"distillation unavailable: {r.detail}"
+                msg = f"cleanup unavailable: {r.detail}"
                 state.set_warning("distill", msg)
                 on_event("warn", msg + (f" — {r.hint}" if r.hint else ""))
                 return
@@ -650,18 +677,18 @@ def run_session(
                 worker = _build_distill_worker()
                 worker.start()
             except Exception as exc:
-                on_event("error", f"distillation: could not start: {exc}")
+                on_event("error", f"cleanup: could not start: {exc}")
                 return
             distill_worker = worker
             state.update(distill_enabled=True)
             state.clear_warning("distill")
-            on_event("info", f"distillation on ({cfg.distill_model})")
+            on_event("info", f"cleanup on ({_distill_label()})")
         finally:
             distill_toggle_lock.release()
 
     def _toggle_distill() -> None:
         if not distill_toggle_lock.acquire(blocking=False):
-            on_event("info", "distillation: still switching — hold on")
+            on_event("info", "cleanup: still switching — hold on")
             return
         threading.Thread(
             target=_distill_toggle_run, name="huske-distill-toggle", daemon=True

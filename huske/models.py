@@ -121,6 +121,9 @@ class RenderState:
     screenshots_count: int = 0
     last_screenshot_at: datetime | None = None
     distill_enabled: bool = False
+    # Where post-processing runs, in words ("Apple Intelligence",
+    # "Anthropic · claude-haiku-5-5"); empty when unknown.
+    distill_label: str = ""
     asr_rss_mb: float = 0.0
     distill_rss_mb: float = 0.0
     engine_rss_mb: float = 0.0

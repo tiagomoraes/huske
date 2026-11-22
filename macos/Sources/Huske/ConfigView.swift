@@ -39,10 +39,17 @@ struct ConfigView: View {
                         errorBanner(error)
                     } else if config.snapshot != nil {
                         transcriptionCard
+                        if hasCleanupCLI {
+                            DictionaryCard()
+                        }
                         chunkingCard
                         audioCard
                         storageCard
-                        distillationCard
+                        if hasCleanupCLI {
+                            TranscriptCleanupCard()
+                        } else {
+                            legacyCleanupCard
+                        }
                         extrasCard
                     } else if config.loading {
                         ProgressView()
@@ -62,11 +69,17 @@ struct ConfigView: View {
                 await model.config.reload(binary: model.binaryURL)
             }
             model.refreshDevices()
+            await model.cleanup.loadLanguagesIfNeeded(
+                binary: model.binaryURL, supported: model.capabilities?.languagesCLI == true)
         }
         .onChange(of: config.snapshot?.string("output_root")) {
             model.syncTranscriptRoot()
         }
     }
+
+    /// The engine speaks `huske llm` (provider choice, keys, consent) and
+    /// knows the dictionary keys that came with it.
+    private var hasCleanupCLI: Bool { model.capabilities?.llmCLI == true }
 
     private var outdatedNotice: some View {
         Card {
@@ -143,38 +156,28 @@ struct ConfigView: View {
         Card {
             VStack(alignment: .leading, spacing: 13) {
                 SectionLabel("This app")
-                Toggle(
+                SettingToggle(
                     isOn: Binding(
                         get: { model.openAtLogin },
                         set: { model.setOpenAtLogin($0) }
-                    )
-                ) {
-                    settingLabel(
-                        "Open Huske at login",
-                        model.canManageLoginItem
-                            ? "Launches this app when you log in to your Mac."
-                            : "Available when running the packaged Huske.app.")
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
+                    ),
+                    title: "Open Huske at login",
+                    subtitle: model.canManageLoginItem
+                        ? "Launches this app when you log in to your Mac."
+                        : "Available when running the packaged Huske.app.")
                 .disabled(!model.canManageLoginItem)
                 if let error = model.loginItemError {
                     Text(error)
                         .font(.brandSans(11))
                         .foregroundStyle(Theme.err)
                 }
-                Toggle(
+                SettingToggle(
                     isOn: Binding(
                         get: { model.autoStartRecording },
                         set: { model.autoStartRecording = $0 }
-                    )
-                ) {
-                    settingLabel(
-                        "Start recording when Huske opens",
-                        "Together with login, your Mac records from the moment you sign in.")
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
+                    ),
+                    title: "Start recording when Huske opens",
+                    subtitle: "Together with login, your Mac records from the moment you sign in.")
                 engineRow
             }
         }
@@ -216,46 +219,19 @@ struct ConfigView: View {
         }
     }
 
+    /// The engine has a model catalog (`huske models`): one Model row and a
+    /// picker sheet replace the engine / per-engine model pickers.
+    private var hasModelsCLI: Bool { model.capabilities?.modelsCLI == true }
+
     private var transcriptionCard: some View {
         let config = model.config
         return Card {
             VStack(alignment: .leading, spacing: 13) {
                 SectionLabel("Transcription")
-                LabeledRow("Engine", explicit: config.isExplicit("asr_engine")) {
-                    Picker("", selection: config.stringBinding("asr_engine", default: "parakeet")) {
-                        Text("Parakeet — silence-robust, multilingual").tag("parakeet")
-                        Text("Whisper (legacy)").tag("whisper")
-                    }
-                    .labelsHidden()
-                    .frame(maxWidth: 340)
-                }
-                if config.string("asr_engine", default: "parakeet") == "whisper" {
-                    LabeledRow("Whisper model", explicit: config.isExplicit("model")) {
-                        Picker("", selection: config.stringBinding("model", default: "base")) {
-                            Text("tiny — fastest").tag("tiny")
-                            Text("base — default").tag("base")
-                            Text("small").tag("small")
-                            Text("medium").tag("medium")
-                            Text("large-v3-turbo — recommended").tag("large-v3-turbo")
-                            Text("large-v3 — heaviest").tag("large-v3")
-                        }
-                        .labelsHidden()
-                        .frame(maxWidth: 240)
-                    }
+                if hasModelsCLI {
+                    modelRow
                 } else {
-                    CuratedPicker(
-                        label: "Parakeet model",
-                        explicit: config.isExplicit("parakeet_model"),
-                        options: [
-                            ("mlx-community/parakeet-tdt-0.6b-v3",
-                             "Parakeet TDT 0.6B v3 — multilingual (default)"),
-                            ("mlx-community/parakeet-tdt-0.6b-v2",
-                             "Parakeet TDT 0.6B v2 — English only"),
-                        ],
-                        value: config.string(
-                            "parakeet_model", default: "mlx-community/parakeet-tdt-0.6b-v3"),
-                        customPrompt: "Hugging Face repo or local path"
-                    ) { config.set("parakeet_model", to: .string($0)) }
+                    legacyModelPickers
                 }
                 CuratedPicker(
                     label: "Language",
@@ -272,7 +248,8 @@ struct ConfigView: View {
                         ("zh", "中文"),
                     ],
                     value: config.string("language"),
-                    customPrompt: "ISO 639-1 code, e.g. nl"
+                    customPrompt: "ISO 639-1 code, e.g. nl",
+                    note: languageNote
                 ) { newValue in
                     if newValue.isEmpty {
                         config.unset("language")
@@ -280,14 +257,160 @@ struct ConfigView: View {
                         config.set("language", to: .string(newValue))
                     }
                 }
-                Toggle(isOn: config.boolBinding("whisper_idle_unload", default: true)) {
-                    settingLabel(
-                        "Unload model when idle",
-                        "Recycles the ASR process after 2 min idle so macOS can reclaim Metal RAM.")
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
+                SettingToggle(
+                    isOn: config.boolBinding("whisper_idle_unload", default: true),
+                    title: "Unload model when idle",
+                    subtitle: "Recycles the ASR process after 2 min idle so macOS can reclaim Metal RAM.")
             }
+        }
+        // Ask again whenever the saved choice (or the language it is judged
+        // against) changes — after a write, a Reload, or a choice in the sheet.
+        .task(id: modelsTrigger) {
+            guard hasModelsCLI else { return }
+            await model.models.refresh(binary: model.binaryURL)
+        }
+        .sheet(
+            isPresented: Binding(
+                get: { model.models.pickerVisible },
+                set: { model.models.pickerVisible = $0 })
+        ) {
+            ModelPickerSheet()
+                .environment(model)
+                .frame(height: 720)
+        }
+    }
+
+    private var modelsTrigger: String {
+        let saved = model.config.snapshot
+        return [hasModelsCLI ? "1" : "0"]
+            + ["asr_model", "asr_engine", "parakeet_model", "model", "language"]
+            .map { saved?.string($0) ?? "" }
+            .joined(separator: "|")
+    }
+
+    /// What the Language picker's setting does, from the model in use; the
+    /// engine-name wording when the catalog isn't known.
+    private var languageNote: String? {
+        let config = model.config
+        if hasModelsCLI, let current = model.models.current {
+            return ModelWords.languageNote(
+                model: current,
+                code: config.string("language"),
+                names: model.cleanup.languages,
+                lockingChoice: model.models.catalog?.languageLockingChoice)
+        }
+        guard hasCleanupCLI else { return nil }
+        return CleanupWords.languageNote(
+            engine: config.string("asr_engine", default: "parakeet"),
+            code: config.string("language"),
+            languages: model.cleanup.languages)
+    }
+
+    /// The model in use, in words, and the way to change it.
+    private var modelRow: some View {
+        let config = model.config
+        let store = model.models
+        let explicit = ["asr_model", "asr_engine", "parakeet_model", "model"]
+            .contains { config.isExplicit($0) }
+        return LabeledRow("Model", explicit: explicit) {
+            VStack(alignment: .leading, spacing: 4) {
+                if let current = store.current {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Text(current.name)
+                            .font(.brandSans(13, .medium))
+                            .foregroundStyle(Theme.fg)
+                        Spacer(minLength: 8)
+                        Button("Change…") { store.pickerVisible = true }
+                            .buttonStyle(SecondaryButtonStyle(size: .small))
+                    }
+                    if !current.summary.isEmpty {
+                        Text(current.summary)
+                            .font(.brandSans(12))
+                            .foregroundStyle(Theme.fgMuted)
+                            .lineSpacing(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if !current.inCatalog {
+                        Text(current.repo)
+                            .font(.brandMono(11))
+                            .foregroundStyle(Theme.fgMuted)
+                            .textSelection(.enabled)
+                    }
+                    if let download = store.downloads[current.id] {
+                        HStack(spacing: 6) {
+                            StateRing(kind: .progress(download.fraction), size: 10)
+                            Text(
+                                download.fraction.map { "Downloading · \(Int(($0 * 100).rounded(.down))) %" }
+                                    ?? "Downloading")
+                                .font(.brandSans(11.5))
+                                .foregroundStyle(Theme.fg)
+                                .monospacedDigit()
+                        }
+                    } else {
+                        Text(ModelWords.cardFacts(current, names: model.cleanup.languages))
+                            .font(.brandSans(11.5))
+                            .foregroundStyle(Theme.fgMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 2)
+                    }
+                } else if let error = store.loadError {
+                    FieldNote("Couldn't list the models: \(CleanupWords.sentence(error))", color: Theme.err)
+                    Button("Try again") {
+                        Task { await store.refresh(binary: model.binaryURL) }
+                    }
+                    .buttonStyle(LinkButtonStyle(fontSize: 12, tint: Theme.fgMuted, hoverTint: Theme.fg))
+                } else {
+                    HStack(spacing: 8) {
+                        StateRing(kind: .progress(nil), size: 10)
+                        Text("Looking up the model…")
+                            .font(.brandSans(12))
+                            .foregroundStyle(Theme.fgMuted)
+                    }
+                }
+            }
+            .frame(maxWidth: 400, alignment: .leading)
+        }
+    }
+
+    /// Engines before `huske models`: pick the runtime, then its model.
+    @ViewBuilder
+    private var legacyModelPickers: some View {
+        let config = model.config
+        LabeledRow("Engine", explicit: config.isExplicit("asr_engine")) {
+            OptionPicker(
+                selection: config.stringBinding("asr_engine", default: "parakeet"),
+                options: [
+                    ("parakeet", "Parakeet — silence-robust, multilingual"),
+                    ("whisper", "Whisper (legacy)"),
+                ])
+        }
+        if config.string("asr_engine", default: "parakeet") == "whisper" {
+            LabeledRow("Whisper model", explicit: config.isExplicit("model")) {
+                OptionPicker(
+                    selection: config.stringBinding("model", default: "base"),
+                    options: [
+                        ("tiny", "tiny — fastest"),
+                        ("base", "base — default"),
+                        ("small", "small"),
+                        ("medium", "medium"),
+                        ("large-v3-turbo", "large-v3-turbo — recommended"),
+                        ("large-v3", "large-v3 — heaviest"),
+                    ],
+                    width: 240)
+            }
+        } else {
+            CuratedPicker(
+                label: "Parakeet model",
+                explicit: config.isExplicit("parakeet_model"),
+                options: [
+                    ("mlx-community/parakeet-tdt-0.6b-v3",
+                     "Parakeet TDT 0.6B v3 — multilingual (default)"),
+                    ("mlx-community/parakeet-tdt-0.6b-v2",
+                     "Parakeet TDT 0.6B v2 — English only"),
+                ],
+                value: config.string(
+                    "parakeet_model", default: "mlx-community/parakeet-tdt-0.6b-v3"),
+                customPrompt: "Hugging Face repo or local path"
+            ) { config.set("parakeet_model", to: .string($0)) }
         }
     }
 
@@ -296,13 +419,10 @@ struct ConfigView: View {
         return Card {
             VStack(alignment: .leading, spacing: 13) {
                 SectionLabel("Chunking")
-                Toggle(isOn: config.boolBinding("speech_gated", default: true)) {
-                    settingLabel(
-                        "Split on pauses in speech",
-                        "Chunks close on real silence instead of a fixed clock; quiet gaps aren't recorded.")
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
+                SettingToggle(
+                    isOn: config.boolBinding("speech_gated", default: true),
+                    title: "Split on pauses in speech",
+                    subtitle: "Chunks close on real silence instead of a fixed clock; quiet gaps aren't recorded.")
                 if config.bool("speech_gated", default: true) {
                     CommittingSlider(
                         label: "Split after silence",
@@ -361,20 +481,14 @@ struct ConfigView: View {
                     .labelsHidden()
                     .frame(maxWidth: 340)
                 }
-                Toggle(isOn: config.boolBinding("echo_cancel", default: true)) {
-                    settingLabel(
-                        "Echo cancellation",
-                        "Removes what your speakers play from the mic (WebRTC AEC3), so remote voices aren't transcribed twice. No effect with headphones.")
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                Toggle(isOn: config.boolBinding("capture_sync", default: true)) {
-                    settingLabel(
-                        "Record mic and system on one clock",
-                        "Keeps the two channels sample-aligned for echo cancellation. Falls back to separate streams if your mic can't join.")
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
+                SettingToggle(
+                    isOn: config.boolBinding("echo_cancel", default: true),
+                    title: "Echo cancellation",
+                    subtitle: "Removes what your speakers play from the mic (WebRTC AEC3), so remote voices aren't transcribed twice. No effect with headphones.")
+                SettingToggle(
+                    isOn: config.boolBinding("capture_sync", default: true),
+                    title: "Record mic and system on one clock",
+                    subtitle: "Keeps the two channels sample-aligned for echo cancellation. Falls back to separate streams if your mic can't join.")
                 LabeledRow("Echo de-duplication", explicit: config.isExplicit("echo_dedup")) {
                     Picker("", selection: config.stringBinding("echo_dedup", default: "drop")) {
                         Text("Drop duplicated lines").tag("drop")
@@ -401,13 +515,10 @@ struct ConfigView: View {
                     label: "Working audio",
                     path: config.string("audio_root")
                 ) { config.set("audio_root", to: .string($0)) }
-                Toggle(isOn: config.boolBinding("keep_audio")) {
-                    settingLabel(
-                        "Keep audio after transcription",
-                        "Retains a compressed copy of each chunk next to the transcript.")
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
+                SettingToggle(
+                    isOn: config.boolBinding("keep_audio"),
+                    title: "Keep audio after transcription",
+                    subtitle: "Retains a compressed copy of each chunk next to the transcript.")
                 if config.bool("keep_audio") {
                     LabeledRow("Kept audio format", explicit: config.isExplicit("keep_audio_format")) {
                         Picker("", selection: config.stringBinding("keep_audio_format", default: "opus")) {
@@ -423,26 +534,26 @@ struct ConfigView: View {
         }
     }
 
-    private var distillationCard: some View {
+    /// Engines before `huske llm` only know the built-in model and Ollama;
+    /// keep their controls, and say what an update brings.
+    private var legacyCleanupCard: some View {
         let config = model.config
         let backend = config.string("distill_backend", default: "mlx")
         return Card {
             VStack(alignment: .leading, spacing: 13) {
-                SectionLabel("Distillation")
-                Toggle(isOn: config.boolBinding("distill_enabled")) {
-                    settingLabel(
-                        "Correct transcript typos with a tiny local LLM",
-                        "Fixes ASR errors in each finished transcript. Raw copy stays in .asr.txt.")
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
+                SectionLabel("Transcript cleanup")
+                SettingToggle(
+                    isOn: config.boolBinding("distill_enabled"),
+                    title: "Clean up transcripts with a language model",
+                    subtitle: "Fixes misheard words in each finished transcript. The original stays next to it.")
                 LabeledRow("Runs on", explicit: config.isExplicit("distill_backend")) {
-                    Picker("", selection: config.stringBinding("distill_backend", default: "mlx")) {
-                        Text("Built-in — huske runs the model itself (recommended)").tag("mlx")
-                        Text("Ollama daemon — bring your own").tag("ollama")
-                    }
-                    .labelsHidden()
-                    .frame(maxWidth: 400)
+                    OptionPicker(
+                        selection: config.stringBinding("distill_backend", default: "mlx"),
+                        options: [
+                            ("mlx", "Built-in model (Qwen, downloads once)"),
+                            ("ollama", "Ollama"),
+                        ],
+                        width: 400)
                 }
                 if backend == "ollama" {
                     CuratedPicker(
@@ -484,6 +595,9 @@ struct ConfigView: View {
                         .font(.brandSans(11))
                         .foregroundStyle(Theme.fgFaint)
                 }
+                FieldNote(
+                    "Update the engine to clean up with Apple Intelligence, a local server, "
+                        + "or a cloud provider with your own key.")
             }
         }
     }
@@ -493,13 +607,10 @@ struct ConfigView: View {
         return Card {
             VStack(alignment: .leading, spacing: 13) {
                 SectionLabel("Extras")
-                Toggle(isOn: config.boolBinding("screenshots_enabled")) {
-                    settingLabel(
-                        "Periodic screenshots",
-                        "Capture every display on an interval alongside the transcript.")
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
+                SettingToggle(
+                    isOn: config.boolBinding("screenshots_enabled"),
+                    title: "Periodic screenshots",
+                    subtitle: "Capture every display on an interval alongside the transcript.")
                 if config.bool("screenshots_enabled") {
                     CommittingSlider(
                         label: "Screenshot interval",
@@ -508,26 +619,11 @@ struct ConfigView: View {
                         format: { "\(Int($0))s" }
                     ) { config.set("screenshots_interval_seconds", to: .number($0)) }
                 }
-                Toggle(isOn: config.boolBinding("menu_bar_enabled", default: true)) {
-                    settingLabel(
-                        "Menu bar icon for terminal sessions",
-                        "Shown when recording with `huske run` in a terminal — this app has its own.")
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
+                SettingToggle(
+                    isOn: config.boolBinding("menu_bar_enabled", default: true),
+                    title: "Menu bar icon for terminal sessions",
+                    subtitle: "Shown when recording with `huske run` in a terminal — this app has its own.")
             }
-        }
-    }
-
-    private func settingLabel(_ title: String, _ subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(title)
-                .font(.brandSans(12.5))
-                .foregroundStyle(Theme.fg)
-            // Subtitles are authored literals and may carry Markdown code spans.
-            Text(.init(subtitle))
-                .font(.brandSans(11))
-                .foregroundStyle(Theme.fgMuted)
         }
     }
 }
@@ -543,9 +639,15 @@ struct CuratedPicker: View {
     let options: [(String, String)] // (value, title)
     let value: String
     var customPrompt: String = ""
+    /// One plain line under the picker (what the setting does, or why a list
+    /// is empty).
+    var note: String?
+    /// A small control beside the picker (e.g. Refresh).
+    var accessory: AnyView?
     let onChange: (String) -> Void
 
     @State private var customMode = false
+    @Environment(\.screenRendering) private var rendering
 
     private static let customTag = "__custom__"
 
@@ -555,28 +657,11 @@ struct CuratedPicker: View {
     var body: some View {
         LabeledRow(label, explicit: explicit) {
             VStack(alignment: .leading, spacing: 6) {
-                Picker(
-                    "",
-                    selection: Binding(
-                        get: { showCustomField ? Self.customTag : value },
-                        set: { selected in
-                            if selected == Self.customTag {
-                                customMode = true
-                            } else {
-                                customMode = false
-                                onChange(selected)
-                            }
-                        }
-                    )
-                ) {
-                    ForEach(options, id: \.0) { option in
-                        Text(option.1).tag(option.0)
-                    }
-                    Divider()
-                    Text("Custom…").tag(Self.customTag)
+                HStack(spacing: 8) {
+                    picker
+                        .frame(maxWidth: 400)
+                    if let accessory { accessory }
                 }
-                .labelsHidden()
-                .frame(maxWidth: 400)
                 if showCustomField {
                     CommittingTextField(value: isKnown ? "" : value, prompt: customPrompt) {
                         customMode = false
@@ -584,8 +669,175 @@ struct CuratedPicker: View {
                     }
                     .frame(maxWidth: 400)
                 }
+                if let note {
+                    FieldNote(note)
+                        .frame(maxWidth: 400, alignment: .leading)
+                }
             }
         }
+    }
+
+    @ViewBuilder
+    private var picker: some View {
+        if rendering {
+            MenuStandIn(
+                title: showCustomField ? "Custom…" : (options.first { $0.0 == value }?.1 ?? value))
+        } else {
+            Picker(
+                "",
+                selection: Binding(
+                    get: { showCustomField ? Self.customTag : value },
+                    set: { selected in
+                        if selected == Self.customTag {
+                            customMode = true
+                        } else {
+                            customMode = false
+                            onChange(selected)
+                        }
+                    }
+                )
+            ) {
+                ForEach(options, id: \.0) { option in
+                    Text(option.1).tag(option.0)
+                }
+                Divider()
+                Text("Custom…").tag(Self.customTag)
+            }
+            .labelsHidden()
+        }
+    }
+}
+
+/// A plain menu of (value, title) options; draws a static stand-in under the
+/// offscreen renderer, which cannot draw AppKit pop-up buttons.
+struct OptionPicker: View {
+    let selection: Binding<String>
+    let options: [(String, String)]
+    var width: CGFloat = 340
+
+    @Environment(\.screenRendering) private var rendering
+
+    var body: some View {
+        if rendering {
+            MenuStandIn(
+                title: options.first { $0.0 == selection.wrappedValue }?.1 ?? selection.wrappedValue
+            )
+            .frame(maxWidth: width)
+        } else {
+            Picker("", selection: selection) {
+                ForEach(options, id: \.0) { option in
+                    Text(option.1).tag(option.0)
+                }
+            }
+            .labelsHidden()
+            .frame(maxWidth: width)
+        }
+    }
+}
+
+/// A switch with a title and one line of explanation — every on/off setting
+/// in the pane.
+struct SettingToggle: View {
+    let isOn: Binding<Bool>
+    let title: String
+    let subtitle: String
+
+    @Environment(\.screenRendering) private var rendering
+
+    var body: some View {
+        if rendering {
+            HStack(alignment: .center, spacing: 10) {
+                label
+                SwitchStandIn(isOn: isOn.wrappedValue)
+            }
+        } else {
+            Toggle(isOn: isOn) { label }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+        }
+    }
+
+    private var label: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(title)
+                .font(.brandSans(12.5))
+                .foregroundStyle(Theme.fg)
+            // Subtitles are authored literals and may carry Markdown code spans.
+            Text(.init(subtitle))
+                .font(.brandSans(11))
+                .foregroundStyle(Theme.fgMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// One plain explanatory line under a control.
+struct FieldNote: View {
+    let text: String
+    var color: Color = Theme.fgMuted
+
+    init(_ text: String, color: Color = Theme.fgMuted) {
+        self.text = text
+        self.color = color
+    }
+
+    var body: some View {
+        Text(.init(text))
+            .font(.brandSans(11.5))
+            .foregroundStyle(color)
+            .lineSpacing(2)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+// MARK: offscreen stand-ins
+// ImageRenderer draws AppKit-backed controls (pop-up buttons, switches, text
+// fields) as placeholders. Under `screenRendering` these draw the same shape
+// statically, so a rendered pane can be reviewed as a whole.
+
+struct MenuStandIn: View {
+    let title: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .font(.brandSans(12.5))
+                .foregroundStyle(Theme.fg)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.system(size: 8.5, weight: .semibold))
+                .foregroundStyle(Theme.fgMuted)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3.5)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(Theme.bgElevated)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .strokeBorder(Theme.cardBorder, lineWidth: 1)
+        )
+    }
+}
+
+struct SwitchStandIn: View {
+    let isOn: Bool
+
+    var body: some View {
+        Capsule()
+            .fill(isOn ? Theme.amber : Theme.bgSunken)
+            .overlay(Capsule().strokeBorder(Theme.cardBorder.opacity(isOn ? 0 : 0.8), lineWidth: 1))
+            .frame(width: 28, height: 16)
+            .overlay(alignment: isOn ? .trailing : .leading) {
+                Circle()
+                    .fill(Color.white)
+                    .shadow(color: .black.opacity(0.18), radius: 0.8, y: 0.5)
+                    .frame(width: 13, height: 13)
+                    .padding(1.5)
+            }
     }
 }
 
@@ -625,19 +877,16 @@ struct LabeledRow<Content: View>: View {
 struct CommittingTextField: View {
     let value: String
     var prompt: String = ""
+    /// Mono for ids, paths and URLs; sans for words people read.
+    var font: Font = .brandMono(11.5)
     let onCommit: (String) -> Void
 
     @State private var draft = ""
     @FocusState private var focused: Bool
+    @Environment(\.screenRendering) private var rendering
 
     var body: some View {
-        TextField(
-            "", text: $draft,
-            prompt: Text(prompt).font(.brandMono(11.5)).foregroundStyle(Theme.fgFaint)
-        )
-            .textFieldStyle(.plain)
-            .font(.brandMono(11.5))
-            .foregroundStyle(Theme.fg)
+        field
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .background(
@@ -661,9 +910,107 @@ struct CommittingTextField: View {
             }
     }
 
+    @ViewBuilder
+    private var field: some View {
+        if rendering {
+            Text(value.isEmpty ? prompt : value)
+                .font(font)
+                .foregroundStyle(value.isEmpty ? Theme.fgFaint : Theme.fg)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            TextField(
+                "", text: $draft,
+                prompt: Text(prompt).font(font).foregroundStyle(Theme.fgFaint)
+            )
+            .textFieldStyle(.plain)
+            .font(font)
+            .foregroundStyle(Theme.fg)
+        }
+    }
+
     private func commit() {
         let trimmed = draft.trimmingCharacters(in: .whitespaces)
         guard trimmed != value else { return }
+        onCommit(trimmed)
+    }
+}
+
+/// Multi-line text that writes only on focus loss or ⌘↩ — the Dictionary's
+/// word list and the cleanup instructions.
+struct CommittingTextEditor: View {
+    let value: String
+    var placeholder: String = ""
+    var font: Font = .brandSans(12.5)
+    var minHeight: CGFloat = 60
+    let onCommit: (String) -> Void
+
+    @State private var draft = ""
+    @FocusState private var focused: Bool
+    @Environment(\.screenRendering) private var rendering
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if rendering {
+                Text(value.isEmpty ? placeholder : value)
+                    .font(font)
+                    .foregroundStyle(value.isEmpty ? Theme.fgFaint : Theme.fg)
+                    .lineSpacing(3)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+            } else {
+                TextEditor(text: $draft)
+                    .font(font)
+                    .foregroundStyle(Theme.fg)
+                    .lineSpacing(3)
+                    .scrollContentBackground(.hidden)
+                    .focused($focused)
+                    .padding(.horizontal, 3)
+                    .padding(.vertical, 6)
+                if draft.isEmpty {
+                    Text(placeholder)
+                        .font(font)
+                        .foregroundStyle(Theme.fgFaint)
+                        .lineSpacing(3)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.radiusSM, style: .continuous)
+                .fill(Theme.bgSunken.opacity(0.5))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.radiusSM, style: .continuous)
+                .strokeBorder(focused ? Theme.amber.opacity(0.55) : Theme.divider, lineWidth: 1)
+        )
+        .animation(Theme.easeFast, value: focused)
+        // ⌘↩ commits without leaving the field. Mounted only while focused,
+        // so two editors on one pane never fight over the shortcut.
+        .background {
+            if focused {
+                Button("") { commit() }
+                    .keyboardShortcut(.return, modifiers: [.command])
+                    .opacity(0)
+                    .frame(width: 0, height: 0)
+                    .accessibilityHidden(true)
+            }
+        }
+        .onAppear { draft = value }
+        .onChange(of: value) { _, newValue in
+            if !focused { draft = newValue }
+        }
+        .onChange(of: focused) { _, isFocused in
+            if !isFocused { commit() }
+        }
+    }
+
+    private func commit() {
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != value.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
         onCommit(trimmed)
     }
 }

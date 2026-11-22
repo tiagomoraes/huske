@@ -33,6 +33,18 @@ public struct HuskeConfigSnapshot: Sendable, Equatable {
         guard let d = double(key) else { return nil }
         return Int(d)
     }
+
+    /// A list of strings (`vocabulary`); non-strings are skipped.
+    public func stringList(_ key: String) -> [String]? {
+        guard case .array(let items)? = effective[key] else { return nil }
+        return items.compactMap { if case .string(let s) = $0 { return s } else { return nil } }
+    }
+
+    /// A string → string table (`vocabulary_replacements`).
+    public func stringMap(_ key: String) -> [String: String]? {
+        guard case .object(let table)? = effective[key] else { return nil }
+        return table.compactMapValues { if case .string(let s) = $0 { return s } else { return nil } }
+    }
 }
 
 /// Minimal JSON tree, decodable from any `huske … --json` output.
@@ -58,6 +70,41 @@ public enum JSONValue: Sendable, Equatable {
         case let a as [Any]: return .array(a.map { from(any: $0) })
         case let o as [String: Any]: return .object(o.mapValues { from(any: $0) })
         default: return .null
+        }
+    }
+}
+
+/// The `VALUE` argument of `huske config set KEY VALUE`. The engine reads it
+/// as JSON when it parses and as a bare string otherwise, so strings are
+/// always sent JSON-quoted — free text such as `distill_instructions` must not
+/// turn into a number or `null` because of what the user typed — and lists
+/// and tables are sent as JSON. Numbers keep the engine's float spelling
+/// (`15.0`); whole-number keys go through `ConfigStore.setInt`.
+public enum ConfigLiteral {
+    public static func encode(_ value: JSONValue) -> String? {
+        switch value {
+        case .null: return nil
+        case .bool(let b): return b ? "true" : "false"
+        case .number(let n):
+            return n == n.rounded() && abs(n) < 1e15 ? String(format: "%.1f", n) : String(n)
+        case .string, .array, .object:
+            guard
+                let data = try? JSONSerialization.data(
+                    withJSONObject: foundation(value),
+                    options: [.fragmentsAllowed, .sortedKeys, .withoutEscapingSlashes])
+            else { return nil }
+            return String(data: data, encoding: .utf8)
+        }
+    }
+
+    private static func foundation(_ value: JSONValue) -> Any {
+        switch value {
+        case .string(let s): return s
+        case .number(let n): return n
+        case .bool(let b): return b
+        case .null: return NSNull()
+        case .array(let items): return items.map(foundation)
+        case .object(let table): return table.mapValues(foundation)
         }
     }
 }

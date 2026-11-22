@@ -58,7 +58,11 @@ Config key `inbox_root` (default `~/huske/inbox`).
 ```
 
 `origin` is `phone` or `file`. `title`, `device`, and `duration_seconds` are
-optional (`null` when absent). `started_at` defaults to the file's modification
+optional (`null` when absent). An optional `language` (ISO 639-1, e.g. `"pt"`;
+absent when not given) is the recording's spoken language: it overrides the
+config's `language` for this item only (`huske import --language`, `huske
+inbox add --language`). An unknown code is rejected when adding; one that a
+producer wrote by hand is ignored in favour of the config. `started_at` defaults to the file's modification
 time minus its duration when the producer does not know it (the duration is
 probed with `soundfile`, then `/usr/bin/afinfo`); a timestamp without a UTC
 offset is taken as the Mac's local time.
@@ -230,7 +234,10 @@ Per item:
    decides the `YYYY-MM-DD` folder and the `HHMMSS` filename prefix). `chunk_seq`
    runs 1…N. `start_time` is `started_at` + the piece offset. Audio source is
    `microphone`; echo handling does not apply. The ASR settings (`asr_engine`,
-   `language`, …) are the config's. Pieces are at most `chunk_minutes` long; the
+   `language`, the dictionary, …) are the config's, except `language` when the
+   item carries its own. With `distill_enabled`, a one-shot `huske inbox
+   process` cleans up the new transcripts before publishing them, exactly like
+   the live engine (ADR 0013). Pieces are at most `chunk_minutes` long; the
    cut is the quietest point (smoothed over 0.5 s) in the last
    `min(60 s, chunk_minutes / 4)` before each boundary. Audio that decodes to
    nothing is `done` with no transcripts.

@@ -17,6 +17,9 @@ let package = Package(
     products: [
         .library(name: "HuskeSync", targets: ["HuskeSync"]),
         .executable(name: "Huske", targets: ["Huske"]),
+        // Apple Intelligence for the engine (ADR 0013): bundled in
+        // Huske.app/Contents/Helpers by scripts/build-app.sh.
+        .executable(name: "huske-apple-llm", targets: ["HuskeAppleLLM"]),
     ],
     targets: [
         .target(
@@ -35,6 +38,20 @@ let package = Package(
             resources: [
                 .copy("Resources/Fonts")
             ]
+        ),
+        .target(
+            name: "HuskeAppleLLMCore",
+            path: "Sources/HuskeAppleLLMCore"
+        ),
+        .executableTarget(
+            name: "HuskeAppleLLM",
+            dependencies: ["HuskeAppleLLMCore"],
+            path: "Sources/HuskeAppleLLM"
+        ),
+        .testTarget(
+            name: "HuskeAppleLLMTests",
+            dependencies: ["HuskeAppleLLMCore"],
+            path: "Tests/HuskeAppleLLMTests"
         ),
         .testTarget(
             name: "HuskeKitTests",
