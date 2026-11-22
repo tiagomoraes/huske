@@ -21,7 +21,8 @@ Do not use "segment" for the retrieval unit.
 
 **Transcript**:
 The canonical Markdown-plus-YAML-frontmatter file written for one Chunk under
-`output_root/YYYY-MM-DD/`. A finalized Transcript is immutable.
+`output_root/YYYY-MM-DD/`. A finalized Transcript is only rewritten in place
+by Huske itself (distillation); the raw ASR stays in `<name>.asr.txt`.
 
 **Source**:
 The audio origin: `mic` or `system`. Huske does not perform speaker diarization.

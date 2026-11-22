@@ -24,9 +24,11 @@ it never re-implements recording or transcription logic (see
   transcript from the sibling `.asr.txt`.
 - **Cloud sync** — configures a private Git repository, branch, and automatic
   transcript publishing without requiring a terminal. “Sync now” invokes the
-  same `huske sync` path used by the recording engine. The pane also links to
-  the separate `huske-mcp` VPS deployment guide; the app never starts an MCP
-  server itself.
+  same `huske sync` path used by the recording engine. A background sync
+  problem stays visible in the pane (and as a session warning) until a clean
+  run clears it. The pane explains how AI tools read the repository through
+  their own GitHub integration and links to the separate `huske-mcp` VPS
+  deployment guide; the app never starts an MCP server itself.
 - **iPhone** — pairs an iPhone with a QR code, receives its recordings and
   follows each one to its transcript (`docs/adr/0011-iphone-recorder-and-mac-sync.md`).
   The pane answers "why isn't it syncing": whether your iPhone can reach this

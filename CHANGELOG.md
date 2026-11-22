@@ -89,6 +89,34 @@ This project uses semantic versioning after the first public release.
 
 ### Fixed
 
+- **Cloud sync stopped for good once distillation was on.** Sync published a
+  transcript as soon as it was written. Distillation then polished the same
+  file in place, and the publisher treated its own rewrite as a foreign edit:
+  a permanent "immutable transcript conflict". The copy loop aborted at the
+  first conflict, so every transcript recorded afterwards stopped publishing
+  too. Huske now keeps a ledger of what it published and updates its own
+  copies. Macs already stuck heal on the next sync: the raw `.asr.txt`
+  snapshot proves the repository copy is Huske's. A copy someone changed in
+  the repository is still never overwritten, but it is reported on its own
+  and no longer blocks the rest.
+- **Sync errors name the real cause.** Every SSH failure (rejected key, unknown
+  host key, offline, repository not found) used to read `and the repository
+  exists.`, the last line of Git's boilerplate, and was retried as if it were
+  temporary. Each now gets a plain-language cause, the fix, and the right
+  retry behavior.
+- **A transcript deleted in the repository stays deleted.** The next sync used
+  to push it straight back. `huske sync --republish <path>` publishes one
+  again on purpose.
+- **Background sync no longer gives up after about a minute offline.** It keeps
+  retrying on a capped backoff for the whole session, and a new transcript
+  syncs immediately instead of waiting for the backoff.
+- **Sync problems stay visible.** A failing background sync used to be one line
+  in a five-entry activity feed. It is now a session warning, also shown in
+  the Cloud sync pane, until a clean run clears it.
+- **Changing the repository URL works.** Sync used to refuse until you deleted
+  `~/huske/sync` by hand; the old checkout is now moved aside automatically.
+  "Sync now" and the recording engine can no longer collide on the same
+  checkout, and a stale `index.lock` left by a crash is cleared.
 - **An engine no longer refuses to start over a config key it doesn't
   know.** Several engines (a uv tool, a Homebrew keg, a checkout) share one
   `~/.config/huske/config.toml` and upgrade at different times; a key written
@@ -246,6 +274,16 @@ This project uses semantic versioning after the first public release.
 
 ### Added
 
+- **The transcript repository explains itself to agents.** Huske maintains a
+  `README.md` and an `AGENTS.md` at the repository root (and an `AGENTS.md`
+  beside the local transcripts), covering the layout, the frontmatter, and
+  reading rules. Claude, ChatGPT, Codex, Cursor, and Copilot can then use
+  the repository through their own GitHub integration with no server. Files
+  you wrote yourself are never overwritten.
+- **Cloud sync pane.** "Create a private repository…" opens GitHub's form
+  prefilled and private. The pane says which Git sign-in Huske uses, and that
+  automatic sync starts with the next session. It also shows how to connect
+  AI tools to the repository directly.
 - **Huske for iPhone: record anywhere, transcribe on your Mac.** A new iPhone
   app (`ios/`) is a simple recorder with Voice Memos ergonomics. It keeps
   recording in the background, with a Live Activity on the Lock Screen and in

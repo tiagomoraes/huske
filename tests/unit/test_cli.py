@@ -123,7 +123,7 @@ def test_doctor_accepts_system_audio_backend_override(
 def test_sync_invokes_runner(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
-    def fake_run_sync(config_path=None, cli_overrides=None):  # type: ignore[no-untyped-def]
+    def fake_run_sync(config_path=None, cli_overrides=None, republish=()):  # type: ignore[no-untyped-def]
         captured["cli_overrides"] = dict(cli_overrides or {})
         return 0
 

@@ -108,9 +108,14 @@ ADR 0009 replaces the in-app MCP/search server and custom HTTP ingest path.
 
 - `huske/sync/` is the base-install Git publisher. `GitPublisher` owns a
   dedicated checkout, copies only canonical transcript Markdown under
-  `transcripts/`, pulls/rebases before committing, and pushes through the
-  user's existing Git/SSH credentials. `SyncWorker` keeps this off the audio
-  hot path and coalesces bursts. Git commits are the durable retry queue.
+  `transcripts/` (plus a managed root `README.md`/`AGENTS.md`), pulls/rebases
+  before committing, and pushes through the user's existing Git/SSH
+  credentials. A ledger in the checkout's `.git` records what Huske published,
+  so it may replace its own copies (distillation rewrites) but never a copy
+  changed in the repository, and never re-adds one deleted there.
+  `SyncWorker` keeps this off the audio hot path, coalesces bursts, and retries
+  retryable failures on a capped backoff. The transcript tree is the durable
+  outbox.
 - The recording CLI exposes `huske sync`; Huske.app's Cloud sync pane owns the
   everyday configuration. There is no `huske mcp`, `huske serve`, `huske
   index`, `huske setup`, or `huske connect` command.

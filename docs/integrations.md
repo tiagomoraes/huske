@@ -1,10 +1,27 @@
 # Connect agents to Huske
 
-The recording Mac no longer runs an MCP server. It publishes immutable
-transcripts to a private Git repository; the independent `huske-mcp` service on
-your VPS pulls, indexes, and serves them permanently.
+The recording Mac no longer runs an MCP server. It publishes transcripts to a
+private Git repository. From there, agents can read them in two ways.
 
-Set up the topology first: [Always-on transcript service](server.md).
+## Through the agent's own GitHub integration
+
+No server is needed. Claude (Settings → Connectors → GitHub, or *Add from
+GitHub* in a Project), ChatGPT (the GitHub app), Codex, Cursor, and GitHub
+Copilot can all read a private repository you grant them. When they ask which
+repositories to allow, pick only the transcript repository. The repository's
+`README.md` and `AGENTS.md`, which Huske maintains, explain the layout and the
+frontmatter to the agent.
+
+These vendors process what the agent reads. Before connecting, turn off any
+setting that lets the vendor train on your content: "Help improve Claude",
+ChatGPT's "Improve the model for everyone", and Copilot's "Allow GitHub to use
+my data for AI model training".
+
+## Through the always-on MCP service
+
+The independent `huske-mcp` service on your VPS pulls, indexes, and serves the
+repository permanently. Set up the topology first:
+[Always-on transcript service](server.md).
 
 ## MCP endpoint
 

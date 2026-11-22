@@ -19,7 +19,8 @@ This is the contract a downstream LLM agent (e.g., Claude Code) consumes. Anythi
 │   ├── 091500_b71e0440_001.md
 │   ├── 093000_b71e0440_002.md
 │   └── …
-└── README.md                             # auto-generated; documents this layout
+├── README.md                             # auto-generated; documents this layout
+└── AGENTS.md                             # auto-generated; reading rules for coding agents
 ```
 
 - One directory per local calendar date (`YYYY-MM-DD`) of the chunk's **start time**.
