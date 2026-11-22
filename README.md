@@ -298,9 +298,16 @@ huske sync
 ```
 
 Huske publishes only canonical transcript Markdown under
-`transcripts/YYYY-MM-DD/*.md`. Git uses your existing SSH agent or credential
-helper; Huske stores no GitHub token. Audio, screenshots, logs, config, and
-credentials are never copied.
+`transcripts/YYYY-MM-DD/*.md`, plus a `README.md` and `AGENTS.md` that explain
+the layout to agents. Git uses your existing SSH agent or credential helper;
+Huske stores no GitHub token. Audio, screenshots, logs, config, and credentials
+are never copied. A transcript that distillation polishes after publishing is
+updated in place. A transcript you delete in the repository stays deleted
+(`huske sync --republish <path>` publishes it again).
+
+Claude, ChatGPT, Codex, Cursor, and GitHub Copilot can read the repository
+directly through their own GitHub integration. Grant them only this repository
+([details](docs/integrations.md)).
 
 Run the independent `services/huske_mcp` package on an always-on Linux/VPS
 host. It pulls the private repository, incrementally indexes it into SQLite, and

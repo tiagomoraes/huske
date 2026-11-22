@@ -21,9 +21,11 @@ it never re-implements recording or transcription logic (see
   search, raw-Markdown view, Reveal in Finder, and open-in-editor.
 - **Cloud sync** — configures a private Git repository, branch, and automatic
   transcript publishing without requiring a terminal. “Sync now” invokes the
-  same `huske sync` path used by the recording engine. The pane also links to
-  the separate `huske-mcp` VPS deployment guide; the app never starts an MCP
-  server itself.
+  same `huske sync` path used by the recording engine. A background sync
+  problem stays visible in the pane (and as a session warning) until a clean
+  run clears it. The pane explains how AI tools read the repository through
+  their own GitHub integration and links to the separate `huske-mcp` VPS
+  deployment guide; the app never starts an MCP server itself.
 - **Doctor** — runs `huske doctor --json` and renders every check with its
   fix-it hint, plus the input-device inventory.
 - **Configuration** — edits `~/.config/huske/config.toml` through

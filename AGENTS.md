@@ -31,11 +31,15 @@ add local workflow notes, but this file is the shared baseline.
 ## Transcript Sync and Read Surfaces
 
 The recording package has no MCP or public read endpoint. Its only cloud write
-surface is `huske/sync/`, which publishes immutable Markdown through Git.
+surface is `huske/sync/`, which publishes transcript Markdown through Git.
 
 - Never add audio, screenshots, logs, config, credentials, model caches, or
   derived indexes to the sync checkout.
-- Never overwrite a different file at an established transcript path.
+- Only replace a transcript in the repository when the copy there is Huske's
+  own: it matches the publisher's ledger or the raw `.asr.txt` snapshot. Any
+  other copy is a conflict and is never overwritten. A path deleted in the
+  repository is not published again unless the user passes `--republish`
+  (ADR 0009, 2026-11 amendment).
 - Keep the recording callback non-blocking; Git work belongs in the sync thread.
 - Do not persist GitHub credentials. Reuse Git/SSH credential infrastructure.
 

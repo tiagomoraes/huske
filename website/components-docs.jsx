@@ -383,16 +383,22 @@ const SearchDoc = () => (
       <DocsCmd cmd="huske sync" note="initial publish or manual reconciliation" />
     </DocsTerminal>
     <p>
-      Only <code>transcripts/YYYY-MM-DD/*.md</code> enters the repository.
-      Audio, screenshots, statement sidecars, logs, configuration, and
-      credentials remain on the Mac. Huske pulls and rebases before each push;
-      if an established transcript path contains different bytes, it stops
-      instead of overwriting either copy.
+      Only <code>transcripts/YYYY-MM-DD/*.md</code> enters the repository, plus
+      a <code>README.md</code> and <code>AGENTS.md</code> that explain the layout
+      to agents. Audio, screenshots, statement sidecars, logs, configuration, and
+      credentials remain on the Mac. Huske pulls and rebases before each push. It
+      updates a transcript it published itself (for example after distillation
+      polishes it), never overwrites a copy that was changed in the repository,
+      and does not re-add one you deleted there.
+    </p>
+    <p>
+      Claude, ChatGPT, Codex, Cursor, and GitHub Copilot can read the repository
+      through their own GitHub integration. Grant them only this repository.
     </p>
     <p className="docs-aside">
-      The managed checkout is <code>~/huske/sync</code>. A local commit that
-      could not be pushed remains there as the durable retry queue and is retried
-      at the next session.
+      The managed checkout is <code>~/huske/sync</code>. Transcripts that could
+      not be pushed are retried automatically while Huske is recording, and the
+      last sync problem stays visible in the Cloud sync pane until it clears.
     </p>
   </DocsSection>
 );

@@ -100,3 +100,48 @@ memory and is selectable rather than silently exhausting the VPS.
   transcription or MCP indexing.
 - Existing `sync_endpoint`, ingest, MCP, connector, and local-index config keys
   are ignored on read and removed on the next config write.
+
+## Amendment (2026-11) — Huske-owned updates, remote deletions, repository docs
+
+"Immutable" was the wrong word for the transcript tree. Distillation
+(ADR 0005) rewrites the canonical `.md` in place after the transcript is
+written, and sync publishes it as soon as it is written, so the raw version
+almost always reached the repository first. The polished rewrite then looked
+like a "different file at an established path": a hard, non-retryable
+conflict. Because the copy loop aborted at the first conflict, every
+transcript recorded afterwards stopped publishing too.
+
+The rule is now about *ownership*, not immutability:
+
+- The publisher keeps a ledger of the content it last published for each
+  path. The ledger lives in the managed checkout's `.git` directory and is
+  never committed.
+- A repository copy that matches the ledger is Huske's own, and is replaced
+  when the local transcript changes. So is a copy that matches the raw
+  `<name>.asr.txt` snapshot distillation keeps, which heals checkouts that
+  predate the ledger.
+- Anything else at that path was written by someone else. It is reported as a
+  conflict and never overwritten, and it no longer blocks other transcripts.
+- A path Huske published that later disappears from the repository was
+  deleted there on purpose. It is not published again. Git history still holds
+  earlier versions; deletion is not a purge.
+- `huske sync --republish <path>` is the explicit override for both cases.
+
+Housekeeping that made failures unrecoverable from the app is now automatic:
+
+- One sync runs per checkout across processes. The engine's worker and
+  `huske sync` from the app share an advisory lock, and a stale `index.lock`
+  is cleared.
+- Pointing sync at another repository moves the old checkout aside instead of
+  refusing.
+- Retryable failures are retried on a capped backoff for the whole session,
+  instead of stopping after six attempts.
+- Git errors are classified from every stderr line. The last line of an SSH
+  failure is boilerplate.
+- The engine reports the last problem as a sticky `sync` warning.
+
+The repository root also carries a Huske-managed `README.md` and `AGENTS.md`,
+so an agent connected through its own GitHub integration can navigate the
+archive. A file without Huske's marker line is never overwritten. The VPS
+service reads only `transcripts/`, and its index already re-indexes a path
+whose SHA-256 changed.

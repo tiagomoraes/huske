@@ -874,7 +874,7 @@ const FAQ = () => (
         <details>
           <summary>How does the isolated MCP service work? <span className="chev">→</span></summary>
           <div className="answer">
-            <p>Huske.app pushes immutable Markdown into a private repository. The independent Linux service pulls it read-only, incrementally updates a SQLite WAL index by transcript SHA-256, and serves Streamable HTTP MCP with mandatory bearer authentication.</p>
+            <p>Huske.app pushes transcript Markdown into a private repository. The independent Linux service pulls it read-only, incrementally updates a SQLite WAL index by transcript SHA-256, and serves Streamable HTTP MCP with mandatory bearer authentication.</p>
             <p>The default <code>tiny</code> profile is FTS5-only and supports a 1 vCPU / 512 MB VPS. The optional <code>semantic</code> profile adds Model2Vec dense retrieval and reciprocal-rank fusion when more RAM is available.</p>
           </div>
         </details>
