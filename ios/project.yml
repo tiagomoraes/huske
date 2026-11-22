@@ -63,6 +63,10 @@ targets:
         CFBundleDisplayName: Huske
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # Export compliance: the only cryptography is Apple's own (Network.framework
+        # TLS-PSK, CryptoKit), which needs no documentation in App Store Connect.
+        # See docs/research/app-store-distribution.md.
+        ITSAppUsesNonExemptEncryption: false
         LSRequiresIPhoneOS: true
         UILaunchScreen:
           UIColorName: LaunchBackground
