@@ -24,6 +24,11 @@ struct Recording: Codable, Identifiable, Hashable, Sendable {
     var capture: CaptureState
     var sync: SyncRecord
     var transcript: TranscriptRecord?
+    /// What the Mac could transcribe of a recording it gave up on. Kept apart
+    /// from `transcript`, which everything else reads as "transcribed": a
+    /// recording with only this is still a failure Retry can fix. Cleared
+    /// when the whole transcript arrives.
+    var partialTranscript: PartialTranscript?
     /// A short honest note shown on the detail screen (e.g. recovered after a crash).
     var note: String?
 
@@ -99,6 +104,18 @@ struct RemoteSnapshot: Codable, Hashable, Sendable {
     var detail: String?
     var progress: Double?
     var updatedAt: Date
+    // Optional extras a Mac sends once both sides announced them
+    // (sync-protocol.md § RemoteStatus). nil from an older Mac, and in
+    // libraries saved before they existed.
+    /// The Mac gave up, but has some parts transcribed to hand over.
+    var partial: Bool?
+    var partsDone: Int?
+    var partsTotal: Int?
+    /// The Mac hit an error and will try again by itself.
+    var retrying: Bool?
+    /// The try that comes next, and how many the Mac makes.
+    var attempt: Int?
+    var maxAttempts: Int?
 }
 
 struct TranscriptRecord: Codable, Hashable, Sendable {
@@ -106,6 +123,25 @@ struct TranscriptRecord: Codable, Hashable, Sendable {
     /// transcribed the recording but found no speech.
     var markdown: String?
     var fetchedAt: Date
+}
+
+/// The parts of a recording the Mac did transcribe before giving up on it.
+struct PartialTranscript: Codable, Hashable, Sendable {
+    /// Markdown of the finished parts, in order (frontmatter stripped).
+    var markdown: String
+    /// How many of the recording's parts this is, when the Mac said.
+    var partsDone: Int?
+    var partsTotal: Int?
+    var fetchedAt: Date
+
+    /// Shown above these parts once they are no longer the latest word on
+    /// the recording (the Mac is trying again).
+    var earlierTryNote: String {
+        if let done = partsDone, let total = partsTotal, total > 0, done <= total {
+            return "\(done) of \(total) parts, from the earlier try."
+        }
+        return "Part of the recording, from the earlier try."
+    }
 }
 
 // MARK: - pipeline predicates (used by SyncManager and the badge)
@@ -127,8 +163,63 @@ extension Recording {
         return !(sync.remote?.stage.isTerminal ?? false)
     }
 
-    /// The Mac finished it but the transcript has not been fetched yet.
+    /// Sent to `macID`, which gave up on it. Final as far as polling goes,
+    /// but the Mac may be asked once more: it can be tried again there.
+    func wasGivenUpOn(by macID: String) -> Bool {
+        capture == .complete && sync.macID == macID && sync.uploadedAt != nil
+            && transcript == nil && sync.remote?.stage == .failed
+    }
+
+    /// The Mac has something to read that has not been fetched yet: the
+    /// transcript of a recording it finished, or the finished parts of one it
+    /// gave up on.
     func needsTranscript(from macID: String) -> Bool {
-        sync.macID == macID && sync.remote?.stage == .transcribed && transcript == nil
+        guard sync.macID == macID, transcript == nil else { return false }
+        return sync.remote?.stage == .transcribed || needsPartialTranscript
+    }
+
+    /// The Mac gave up and offers the parts it transcribed, and this iPhone
+    /// does not hold those parts yet (none, or fewer than the Mac has now —
+    /// a retry that failed again may have got further).
+    var needsPartialTranscript: Bool {
+        guard transcript == nil, let remote = sync.remote, remote.stage == .failed, remote.partial == true
+        else { return false }
+        guard let held = partialTranscript else { return true }
+        return held.partsDone != remote.partsDone || held.partsTotal != remote.partsTotal
+    }
+
+    /// Stores what `transcript` brought back for this recording (nil: the Mac
+    /// had nothing to give).
+    mutating func storeFetchedTranscript(_ markdown: String?, isPartial: Bool, at date: Date = Date()) {
+        guard let markdown else {
+            if sync.remote?.stage == .transcribed {
+                // Transcribed, and nothing to read: no speech.
+                transcript = TranscriptRecord(markdown: nil, fetchedAt: date)
+                partialTranscript = nil
+            } else {
+                // The parts are no longer on offer (the Mac is trying again,
+                // or they are gone): stop asking. What was fetched before
+                // stays until something better arrives.
+                sync.remote?.partial = nil
+            }
+            return
+        }
+        if isPartial {
+            partialTranscript = PartialTranscript(
+                markdown: markdown, partsDone: sync.remote?.partsDone, partsTotal: sync.remote?.partsTotal,
+                fetchedAt: date)
+            return
+        }
+        transcript = TranscriptRecord(markdown: markdown, fetchedAt: date)
+        partialTranscript = nil
+        if sync.remote?.stage == .failed {
+            // Asked for the parts and got the whole thing: the Mac finished
+            // it meanwhile (it was retried there).
+            sync.remote?.stage = .transcribed
+            sync.remote?.detail = nil
+            sync.remote?.partial = nil
+            sync.remote?.partsDone = nil
+            sync.remote?.partsTotal = nil
+        }
     }
 }

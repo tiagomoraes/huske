@@ -1,3 +1,4 @@
+import AppIntents
 import SwiftUI
 import UIKit
 
@@ -21,6 +22,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         BackgroundSync.register {
             await AppModel.shared.sync.runBackgroundPass()
         }
+        // An App Intent (Action button, Shortcuts) can be why we launched, in
+        // the background: build the model now so the recorder is listening.
+        _ = AppModel.shared
+        // Keep Siri / Spotlight / the Action button's list current.
+        HuskeShortcuts.updateAppShortcutParameters()
         return true
     }
 }

@@ -11,11 +11,45 @@ import Foundation
 // MARK: - message payloads
 
 struct HelloMessage: Codable, Sendable, Equatable {
+    /// The highest protocol version the phone speaks (sync-protocol.md §
+    /// Versioning); the Mac answers with the one the connection will use.
     var protocolVersion: Int
     var deviceID: String
     var deviceName: String
     var deviceModel: String
     var appVersion: String
+    /// Additive features the phone supports. Absent on the wire = none.
+    var capabilities: [String]
+    /// Stable for one install of the iPhone app. Sent only with the pairing
+    /// that install keeps, never while it tries a new code next to a pairing
+    /// that works: the Mac drops the install's other entries when it sees it.
+    var installID: String?
+
+    init(
+        protocolVersion: Int, deviceID: String, deviceName: String, deviceModel: String,
+        appVersion: String, capabilities: [String] = [], installID: String? = nil
+    ) {
+        self.protocolVersion = protocolVersion
+        self.deviceID = deviceID
+        self.deviceName = deviceName
+        self.deviceModel = deviceModel
+        self.appVersion = appVersion
+        self.capabilities = capabilities
+        self.installID = installID
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        protocolVersion = try container.decode(Int.self, forKey: .protocolVersion)
+        deviceID = try container.decode(String.self, forKey: .deviceID)
+        deviceName = try container.decode(String.self, forKey: .deviceName)
+        deviceModel = try container.decode(String.self, forKey: .deviceModel)
+        appVersion = try container.decode(String.self, forKey: .appVersion)
+        capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
+        // Anything that is not a usable ID is "none", not a refused hello.
+        installID = (try? container.decodeIfPresent(String.self, forKey: .installID))
+            .flatMap { $0 }.flatMap { SyncConstants.isValidID($0) ? $0 : nil }
+    }
 }
 
 struct OfferMessage: Codable, Sendable, Equatable {
@@ -65,6 +99,26 @@ struct TranscriptRequestMessage: Codable, Sendable, Equatable {
 struct TranscriptReplyMessage: Codable, Sendable, Equatable {
     var recordingID: String
     var available: Bool
+    /// `transcript.partial`: the body is what could be transcribed of a
+    /// recording the Mac gave up on. Absent on the wire = a whole transcript.
+    var partial: Bool?
+}
+
+/// `rekey`: the phone asks for a credential to replace the one it paired
+/// with. `publicKey` is an ephemeral X25519 key (base64url) the answer is
+/// sealed to, so the new key is not readable by someone who holds the old one
+/// and recorded the connection (TLS-PSK has no forward secrecy).
+struct RekeyMessage: Codable, Sendable, Equatable {
+    var publicKey: String
+}
+
+/// `rekeyed`: the new credential. `deviceID` is its PSK identity; `sealedKey`
+/// is the 32-byte key, sealed (ChaCha20-Poly1305, base64url) under the key
+/// both sides derive from the X25519 exchange.
+struct RekeyedMessage: Codable, Sendable, Equatable {
+    var deviceID: String
+    var publicKey: String
+    var sealedKey: String
 }
 
 struct ErrorMessage: Codable, Sendable, Equatable {
@@ -87,6 +141,9 @@ enum ErrorCode: String, Sendable {
     case checksumMismatch = "checksum_mismatch"
     case tooLarge = "too_large"
     case unknownRecording = "unknown_recording"
+    /// The request is fine but cannot be served right now (`rekey` with no
+    /// spare slot left); ask again on a later connection.
+    case unavailable = "unavailable"
     case `internal` = "internal"
 }
 
@@ -104,6 +161,10 @@ enum WireMessage: Sendable, Equatable {
     case statusReply(StatusReplyMessage)
     case transcript(TranscriptRequestMessage)
     case transcriptReply(TranscriptReplyMessage, body: Data)
+    case rekey(RekeyMessage)
+    case rekeyed(RekeyedMessage)
+    case unpair
+    case unpaired
     case bye
     case error(ErrorMessage)
 
@@ -121,6 +182,10 @@ enum WireMessage: Sendable, Equatable {
         case .statusReply: return "statusReply"
         case .transcript: return "transcript"
         case .transcriptReply: return "transcriptReply"
+        case .rekey: return "rekey"
+        case .rekeyed: return "rekeyed"
+        case .unpair: return "unpair"
+        case .unpaired: return "unpaired"
         case .bye: return "bye"
         case .error: return "error"
         }
@@ -233,7 +298,9 @@ enum WireCodec {
         case .transcriptReply(let m, let data):
             headerData = try header(m, bodyLength: data.count)
             body = data
-        case .bye: headerData = try header(Empty?.none)
+        case .rekey(let m): headerData = try header(m)
+        case .rekeyed(let m): headerData = try header(m)
+        case .unpair, .unpaired, .bye: headerData = try header(Empty?.none)
         case .error(let m): headerData = try header(m)
         }
         guard headerData.count <= SyncConstants.maxHeaderLength else {
@@ -282,6 +349,10 @@ enum WireCodec {
         case "transcript": return .transcript(try payload(TranscriptRequestMessage.self))
         case "transcriptReply":
             return .transcriptReply(try payload(TranscriptReplyMessage.self), body: frame.body)
+        case "rekey": return .rekey(try payload(RekeyMessage.self))
+        case "rekeyed": return .rekeyed(try payload(RekeyedMessage.self))
+        case "unpair": return .unpair
+        case "unpaired": return .unpaired
         case "bye": return .bye
         case "error": return .error(try payload(ErrorMessage.self))
         default:

@@ -46,6 +46,18 @@ STAGING_DIR = ".staging"
 RECORDING_FILE = "recording.json"
 STATUS_FILE = "status.json"
 WORK_DIR = "work"
+# Measured transcription speed, kept by the lock holder (see processor.py).
+THROUGHPUT_FILE = ".throughput.json"
+# Status fields that belong to one moment: `chunk_progress` to the piece in
+# flight, `missing_chunks` to a failed attempt. Any status write that does not
+# set one drops it, so a finished, failed or re-queued item can never carry a
+# stale value.
+TRANSIENT_STATUS_FIELDS = ("chunk_progress", "missing_chunks")
+# Status fields that are absent rather than `null`: a write that sets one to
+# None removes it, any other write leaves it as it is. `chunk_results` (the
+# pieces already transcribed, see processor.py) has to outlive a failure, a
+# re-queue and `huske inbox retry` so the next attempt only does the rest.
+OPTIONAL_STATUS_FIELDS = ("chunk_results",)
 
 _AFINFO = Path("/usr/bin/afinfo")
 _EXT_PATTERN = re.compile(r"^[a-z0-9]{1,10}$")
@@ -295,6 +307,12 @@ class InboxStore:
     def write_status(self, item: InboxItem, **changes: Any) -> dict[str, Any]:
         """Merge ``changes`` into the item's status and replace it atomically."""
         status = {**item.status, **changes, "id": item.id, "updated_at": iso(now_local())}
+        for transient in TRANSIENT_STATUS_FIELDS:
+            if changes.get(transient) is None:
+                status.pop(transient, None)
+        for optional in OPTIONAL_STATUS_FIELDS:
+            if status.get(optional) is None:
+                status.pop(optional, None)
         _write_json_atomic(item.dir / STATUS_FILE, status)
         item.status = status
         return status

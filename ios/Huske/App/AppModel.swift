@@ -66,15 +66,18 @@ final class AppModel {
                 defaults: DemoMode.defaults,
                 defaultDeviceName: "iPhone",
                 makeConnector: { _, _ in DemoData.UnreachableConnector() },
-                makePresence: { _ in nil })
+                makePresence: { _ in nil },
+                makePathSource: { nil })
             sync.applyDemoState(paired: demo.paired, uploading: DemoData.uploadingState)
         } else {
             sync = SyncManager(library: library, pairingStore: KeychainPairingStore(),
-                               defaultDeviceName: DeviceInfo.systemName)
+                               defaultDeviceName: DeviceInfo.systemName,
+                               journal: SyncJournal(fileURL: AppModel.journalURL(in: rootDirectory)))
         }
         #else
         let sync = SyncManager(library: library, pairingStore: KeychainPairingStore(),
-                               defaultDeviceName: DeviceInfo.systemName)
+                               defaultDeviceName: DeviceInfo.systemName,
+                               journal: SyncJournal(fileURL: AppModel.journalURL(in: rootDirectory)))
         #endif
 
         self.library = library
@@ -84,7 +87,7 @@ final class AppModel {
 
         recorder.onRecordingSaved = { [weak sync] id in sync?.recordingSaved(id) }
         RecordingCommandCenter.register { [weak recorder] command in
-            await recorder?.handle(command)
+            await recorder?.handle(command) ?? .unavailable
         }
         // Activities from a previous run (killed while recording) are stale.
         Task { await liveActivity.endStale(keeping: nil) }
@@ -92,6 +95,12 @@ final class AppModel {
         #if DEBUG
         applyDemoRoute(demo)
         #endif
+    }
+
+    /// The sync journal lives beside the library (same folder: not backed
+    /// up, readable while locked).
+    private static func journalURL(in rootDirectory: URL) -> URL {
+        rootDirectory.appendingPathComponent("sync-journal.json")
     }
 
     // MARK: URLs
@@ -146,7 +155,7 @@ final class AppModel {
             case .paired:
                 pendingInvite = nil
                 pairingState = .idle
-                pairingSuccessMessage = "Paired with \(invite.macName). New recordings sync automatically."
+                pairingSuccessMessage = "Paired with \(sync.name(forMacID: invite.macID, fallback: invite.macName)). New recordings sync automatically."
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             case let .savedButNotReached(message):
                 pairingState = .finished(

@@ -27,9 +27,8 @@
 	</dict>
 	<key>UIAppFonts</key>
 	<array>
-		<string>IBMPlexMono-Medium.ttf</string>
-		<string>IBMPlexMono-SemiBold.ttf</string>
 		<string>IBMPlexSans-Variable.ttf</string>
+		<string>IBMPlexSerif-Italic.ttf</string>
 	</array>
 </dict>
 </plist>

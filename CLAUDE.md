@@ -31,13 +31,16 @@ contribution rules live in [CONTRIBUTING.md](CONTRIBUTING.md).
   often has several engines that upgrade at different times. Never compare
   version strings lexically (`0.9.0` > `0.11.0`); use `EngineVersion`. See the
   0.11.1 amendment in `docs/adr/0006-native-macos-app.md`.
-- iPhone recorder app in `ios/` (SwiftUI, iOS 17+, generated with XcodeGen via
+- iPhone recorder app in `ios/` (SwiftUI, iOS 18+, generated with XcodeGen via
   `ios/scripts/generate.sh`). Recordings sync to Huske.app over the shared
   `HuskeSync` library (`macos/Sources/HuskeSync`: Bonjour + peer-to-peer,
   TLS-PSK pairing by QR) and reach the engine through the inbox CLI
   (`huske inbox add|process|status|retry`, `huske/inbox/`). Contracts:
-  `specs/002-phone-sync/contracts/`; decision: ADR 0011. A wire change bumps
-  `protocolVersion` and lands on both ends in `HuskeSync`.
+  `specs/002-phone-sync/contracts/`; decision: ADR 0011. Wire changes land on
+  both ends in `HuskeSync`. The two apps update separately, so additive
+  features are announced as `capabilities` in `hello`/`welcome`; only a
+  breaking change bumps `protocolVersion` (the Mac answers min(client, server)).
+  See "Versioning and capabilities" in `sync-protocol.md`.
 - Unit and integration tests in `tests/`.
 - Product specs and contracts in `specs/001-huske-recorder/`.
 - Public contributor documentation in `README.md`, `CONTRIBUTING.md`, and

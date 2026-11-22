@@ -25,7 +25,8 @@ struct LibraryView: View {
                         Section {
                             ForEach(section.recordings) { recording in
                                 // Hidden link: row navigation without the disclosure chevron.
-                                RecordingRow(recording: recording, badge: sync.badge(for: recording))
+                                RecordingRow(recording: recording, badge: sync.badge(for: recording),
+                                             onRetry: { sync.retry(recording.id) })
                                     .background(NavigationLink(value: recording.id) { EmptyView() }.opacity(0))
                                 .listRowBackground(Brand.bg)
                                 .listRowSeparatorTint(Brand.divider)
@@ -124,6 +125,8 @@ private struct SectionHeader: View {
 struct RecordingRow: View {
     let recording: Recording
     let badge: SyncBadge
+    /// The way out beside a failure that Retry can fix.
+    var onRetry: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -151,7 +154,7 @@ struct RecordingRow: View {
                     .font(.plexSans(13, relativeTo: .footnote))
                     .foregroundStyle(Brand.fgFaint)
                     .monospacedDigit()
-                SyncBadgeView(badge: badge)
+                SyncBadgeView(badge: badge, onRetry: onRetry)
             }
         }
         .padding(.vertical, 2)
