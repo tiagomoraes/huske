@@ -6,6 +6,18 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+### Fixed
+
+- **Huske.app 0.15.0 crashed on launch.** The released app looked for its
+  fonts through the resource accessor that the release toolchain (Xcode 26)
+  generates. That accessor skips `Contents/Resources` and falls back to the
+  build machine's own `.build` folder, so the app opened only on the Mac that
+  built it and crashed on every other Mac. Huske now finds its resource bundle
+  itself; a missing bundle costs the brand fonts, never the app. CI and the
+  release workflow also launch the packaged app with its build folder out of
+  reach (`macos/scripts/smoke-launch.sh`), so an app like that can't be
+  attached to a release again.
+
 ## 0.15.0 - 2026-11-22
 
 ### Added
