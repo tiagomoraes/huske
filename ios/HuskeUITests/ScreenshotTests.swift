@@ -62,11 +62,16 @@ final class ScreenshotTests: XCTestCase {
         sleep(2)
         XCUIDevice.shared.perform(NSSelectorFromString("pressLockButton"))
         sleep(3)
-        // First time on the Lock Screen, iOS asks whether to allow Live Activities.
-        let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Allow"]
-        if allow.waitForExistence(timeout: 2) {
-            allow.tap()
-            sleep(2)
+        // On the Lock Screen iOS asks whether to allow Live Activities: "Allow"
+        // the first time, and from iOS 27 again later with "Always Allow".
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        for label in ["Always Allow", "Allow"] {
+            let button = springboard.buttons[label]
+            if button.waitForExistence(timeout: 2) {
+                button.tap()
+                sleep(2)
+                break
+            }
         }
         save("12-lock-screen")
     }

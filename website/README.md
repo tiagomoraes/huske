@@ -14,11 +14,14 @@ python -m http.server 8000 --directory website
 ## Stack
 
 - Plain HTML + CSS in `index.html`, `site.css`, `colors_and_type.css`
-- Two pages: the landing `index.html` (served at `/`) and the docs page
-  `docs/index.html` (served at `/docs/` — a directory index is what gives the
-  clean URL, since GitHub Pages has no rewrite engine and `.nojekyll` is set).
-  The docs page links to shared assets with `../` so it resolves both locally
-  and under the `/huske/` project base.
+- Four pages: the landing `index.html` (served at `/`), the docs page
+  `docs/index.html` (served at `/docs/`), and the privacy policy and support
+  pages `privacy/index.html` and `support/index.html`. A directory index is
+  what gives the clean URLs, since GitHub Pages has no rewrite engine and
+  `.nojekyll` is set. The inner pages link to shared assets with `../` so they
+  resolve both locally and under the `/huske/` project base. The App Store
+  product page and the iPhone app link to `/privacy/` and `/support/`: keep
+  those URLs stable.
 - React 18 (UMD) + Babel Standalone via unpkg, JSX compiled in the browser
 - IBM Plex (Sans, Mono, Serif and Serif Italic) bundled under `fonts/`
 - Logo assets under `assets/`
@@ -53,6 +56,9 @@ The page is composed from component files loaded via
   `Output` (the interactive transcript ledger), `Sync`, `Privacy`,
   `GetStarted`, `Releases`, `FAQ`, `OpenSource`
 - `components-docs.jsx` — the docs page
+- `components-legal.jsx` — the privacy policy and support pages. The policy
+  must stay true to what the apps send: change it in the same pull request as
+  any change to what leaves a device.
 
 The visual language is DESIGN.md's "Quiet instrument": sentence case, no
 eyebrow labels or pills, amber only for the primary action, rec-red only for

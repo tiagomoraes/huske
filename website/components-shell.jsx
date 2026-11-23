@@ -269,7 +269,8 @@ const Footer = ({ base = "", docsHref = "docs/" }) => (
             <li><a href={`${GH}/issues`} target="_blank" rel="noopener">Issues</a></li>
             <li><a href={`${GH}/blob/main/CONTRIBUTING.md`} target="_blank" rel="noopener">Contributing</a></li>
             <li><a href={`${GH}/blob/main/SECURITY.md`} target="_blank" rel="noopener">Security</a></li>
-            <li><a href={`${GH}/blob/main/SUPPORT.md`} target="_blank" rel="noopener">Support</a></li>
+            <li><a href={`${base}support/`}>Support</a></li>
+            <li><a href={`${base}privacy/`}>Privacy policy</a></li>
           </ul>
         </div>
       </div>
