@@ -6,6 +6,8 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.15.1 - 2026-11-22
+
 ### Fixed
 
 - **Huske.app 0.15.0 crashed on launch.** The released app looked for its
