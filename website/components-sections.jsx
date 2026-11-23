@@ -771,9 +771,8 @@ const RELEASES = [
   {
     ver: "0.15.2", date: "2026-11-23", tag: "latest",
     items: [
-      { kind: "added", text: <><strong>Huske for iPhone is getting ready for the App Store.</strong> - The Mac screen links to the privacy policy and the support page. - With no Mac paired, it says where to get Huske for Mac. - The empty library reminds you to let people know before you record them. - The app carries Apple's privacy manifests and export-compliance key.</> },
-      { kind: "added", text: <><strong>App Store builds, for maintainers.</strong> <code>ios/scripts/archive-upload.sh</code> signs the iPhone app for the App Store and uploads it to TestFlight, and a release now does the same in GitHub Actions (<code>ios-app-store.yml</code>). Its texts and pictures are in <code>ios/AppStore/</code>, and the plan behind it is in <code>docs/research/app-store-distribution.md</code>.</> },
-      { kind: "added", text: <><strong>Privacy policy and support pages on the website</strong> (<code>/privacy/</code>, <code>/support/</code>). They say what stays on your devices, what can leave them and when, and how to get help. The App Store listing and the iPhone app link to both.</> },
+      { kind: "added", text: <><strong>Privacy and support pages.</strong> The site now says what stays on your devices, what can leave them and when, and how to get help.</> },
+      { kind: "added", text: <><strong>Huske for iPhone, ready for the App Store.</strong> It links to those pages, says where to get Huske for Mac when none is paired, and reminds you to let people know before you record them.</> },
     ],
   },
   {
