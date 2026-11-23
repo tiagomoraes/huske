@@ -69,17 +69,33 @@ Let people know before you record them.
 
 transcribe,transcription,recorder,voice notes,meeting,dictation,mac,offline,private,audio,notes
 
-## Screenshots
+## Screenshots and creative asset
 
-From the `HuskeScreenshots` UI-test tour with demo data. Every conversation
-in it is made up, and no real library or Mac name may appear. Upload one 6.9"
-set (1320×2868) and one 6.3" set (1206×2622).
+Designed panels, not bare captures. They follow DESIGN.md's "Quiet
+instrument": paper and ink, Plex Sans for our words, Plex Serif only for what
+someone said. The phone screens come from the app's demo mode, so every
+conversation is made up and no real Mac name appears.
 
-1. Recording, with earlier recordings on their way to the Mac.
-2. A transcript back on the phone.
-3. The Live Activity on the Lock Screen.
-4. The Dynamic Island.
-5. The library, with each recording's sync state.
+    ios/AppStore/art/capture.sh   # simulator captures → art/captures/
+    ios/AppStore/art/render.sh    # → art/out/universal.jpg, 69-1…5.jpg, 63-1…5.jpg
+
+| # | Panel | Phone screen |
+|---|---|---|
+| 1 | A recorder for the places your Mac isn’t. (*huske* wordmark) | recording |
+| 2 | “Okay, quick idea before I forget it.” (the spoken line, in serif) | transcript |
+| 3 | Keeps recording with the screen locked. (ink panel) | Lock Screen Live Activity |
+| 4 | Straight to your Mac. No cloud, no account. | Mac screen |
+| 5 | Every recording, and where it is. (close-up of the sync states) | library |
+
+- **Sizes.** App Store Connect requires the 6.3" set, "iPhone with Dynamic
+  Island (medium display)", 1206×2622. Larger and smaller iPhones scale from
+  it, and the 6.9" set (1320×2868) is optional.
+- **Universal asset.** `universal.jpg` (5244×2950) is the product page header
+  and the search results card: "Record on your iPhone. Your Mac writes it
+  down." beside two phones. Everything sits in the central safe area.
+- **No URLs or prices.** Apple's asset guidance forbids them in any art.
+
+Promotion beyond the store page: [`launch.md`](launch.md).
 
 ## App Review notes (4000 bytes)
 

@@ -1,0 +1,75 @@
+<!doctype html>
+<!--
+  The universal creative asset (5244×2950) for Huske for iPhone's product page
+  header and its search results card. App Store Connect crops it differently
+  per place (2.33:1 for the header, 3:2 for search), so everything that
+  matters sits in the central safe area: the brand line on the left, the two
+  phones on the right, nothing near the edges.
+  Rendered by render.sh at 2622×1475 CSS px, 2×.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Huske for iPhone, universal asset</title>
+<style>
+  @font-face { font-family: "Plex Sans"; src: url("../../../macos/Sources/Huske/Resources/Fonts/IBMPlexSans-Variable.ttf"); font-weight: 100 700; }
+  @font-face { font-family: "Plex Serif"; src: url("../../../macos/Sources/Huske/Resources/Fonts/IBMPlexSerif-Regular.ttf"); }
+  @font-face { font-family: "Plex Serif"; src: url("../../../macos/Sources/Huske/Resources/Fonts/IBMPlexSerif-Italic.ttf"); font-style: italic; }
+  /* 1rem = 1/100 of the width, so the art scales with the render size. */
+  html { font-size: calc(100vw / 100); }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    width: 100vw; height: 100vh; overflow: hidden;
+    background: #FBF8F1; color: #0E1116; font-family: "Plex Sans", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    display: grid; place-items: center;
+  }
+  /* The safe area: about 3:2 of the height, centred, minus a margin. */
+  .safe {
+    width: 76rem; height: 40rem;
+    display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 3rem;
+  }
+  .mark { display: flex; align-items: center; gap: 0.9rem; margin-bottom: 2.4rem; }
+  .mark svg { width: 2.6rem; height: 2.6rem; }
+  .mark span { font-family: "Plex Serif", serif; font-style: italic; font-size: 2.6rem; line-height: 1; }
+  h1 { font-weight: 600; font-size: 3.5rem; line-height: 1.12; letter-spacing: -0.025em; }
+  h1 span { display: block; white-space: nowrap; }
+  .sub { margin-top: 1.8rem; font-size: 1.75rem; line-height: 1.4; color: #6B6C70; max-width: 36rem; }
+  .phones { position: relative; width: 28.5rem; height: 38rem; }
+  .phone {
+    --w: 16.2rem; --bezel: 0.48rem;
+    position: absolute; width: var(--w); padding: var(--bezel);
+    border-radius: calc(var(--w) * 0.155); background: #0E1116;
+    box-shadow: 0 0 0 0.08rem #3A3F48 inset, 0 2.4rem 4rem -1.6rem rgba(14, 17, 22, 0.34),
+                0 0.8rem 1.6rem -0.8rem rgba(14, 17, 22, 0.18);
+  }
+  .phone img { display: block; width: 100%; border-radius: calc((var(--w) - 2 * var(--bezel)) * 0.13); }
+  .island {
+    position: absolute; left: 50%; top: calc(var(--bezel) + var(--w) * 0.027);
+    width: calc(var(--w) * 0.285); height: calc(var(--w) * 0.084);
+    transform: translateX(-50%); border-radius: 999px; background: #000;
+  }
+  .back { left: 0; top: 2.2rem; }
+  .front { right: 0; top: 0; }
+</style>
+</head>
+<body>
+  <div class="safe">
+    <div>
+      <div class="mark" aria-hidden="true">
+        <svg viewBox="0 0 64 64"><rect x="14" y="10" width="6" height="44" rx="1.2" fill="#D88A3A"/>
+          <rect x="24" y="24" width="26" height="5" rx="1.2" fill="currentColor"/>
+          <rect x="24" y="34" width="20" height="5" rx="1.2" fill="currentColor"/>
+          <rect x="24" y="44" width="14" height="5" rx="1.2" fill="currentColor"/></svg>
+        <span>huske</span>
+      </div>
+      <h1><span>Record on your iPhone.</span><span>Your Mac writes it down.</span></h1>
+      <p class="sub">No cloud, no account. The words come back to your phone.</p>
+    </div>
+    <div class="phones">
+      <figure class="phone back"><img src="captures/69-recording.png" alt=""><span class="island"></span></figure>
+      <figure class="phone front"><img src="captures/69-transcript.png" alt=""><span class="island"></span></figure>
+    </div>
+  </div>
+</body>
+</html>
