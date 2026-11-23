@@ -103,7 +103,7 @@ Promotion beyond the store page: [`launch.md`](launch.md).
 >
 > Testing without a Mac: everything on the phone works on its own. That covers recording (also with the screen locked, with a Live Activity and Pause/Stop), the "Huske Record" control for the Action button and Control Center, Siri and Shortcuts actions, playback and sharing. Without a paired Mac, recordings wait as "Waiting for Mac".
 >
-> Pairing and transcription need a Mac. The attached video shows them on a physical iPhone and Mac: pairing by QR code, recording, sending, and the transcript arriving on the phone. A pairing code is created by the Mac app and works once, for ten minutes, so a static sample code can't be provided. To pair yourself, install Huske for Mac on a Mac with Apple silicon (macOS 14+), open its iPhone pane and choose Pair iPhone.
+> Pairing and transcription need a Mac. The attached 46-second screen recording shows the whole round trip: Huske for Mac makes a pairing code, Huske for iPhone opens it and pairs, records, and the recording travels to the Mac, is transcribed there and comes back to the phone. In that recording the iPhone app runs in the iOS Simulator on the same Mac; a video filmed on a physical iPhone can be provided on request. A pairing code is created by the Mac app and works once, for ten minutes, so a static sample code can't be provided. To pair yourself, install Huske for Mac on a Mac with Apple silicon (macOS 14+), open its iPhone pane and choose Pair iPhone.
 >
 > Permissions:
 > - Microphone: to record.
@@ -120,9 +120,18 @@ Promotion beyond the store page: [`launch.md`](launch.md).
 
 ## Review video (attach in App Review Information)
 
-Shot on a physical iPhone and a physical Mac, filmed, not a screen recording,
-as App Review asks for apps with required hardware. It uses no real
-recordings, Mac names or people. Keep it about two minutes.
+**Attached now:** a 46-second screen recording, side by side with captions.
+- **Mac side:** a separate Huske for Mac instance with a temporary home, so
+  none of the owner's transcripts or devices appear, captured by window ID
+  only.
+- **iPhone side:** the iOS Simulator, with a real pairing, recording, sync and
+  transcription.
+- **The speech:** a synthetic voice played through the MacBook speakers.
+
+App Review asks apps with required hardware for "a video (not a screen
+recording)" on a physical device. If they ask for one, film this on a
+physical iPhone and Mac. Use no real recordings, Mac names or people, and keep
+it about two minutes:
 
 1. Huske for Mac open on the iPhone pane: choose Pair iPhone, and the QR code appears.
 2. The iPhone camera scans it, Huske opens, and Pair is pressed. Both apps show the pairing.
