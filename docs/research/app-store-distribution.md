@@ -1,7 +1,8 @@
 # Publishing Huske on the Mac App Store and the iOS App Store
 
-Status: research and plan, 2026-11-22. **No decision has been made.** The owner
-decides after reading this.
+Status: researched 2026-11-22. **Decided the same day: ship Huske for iPhone
+on the App Store; the Mac stays a direct, Developer ID download (option A).**
+What has been done since is in [§0](#0-decision-and-progress).
 
 Scope: what it would take to ship Huske.app on the Mac App Store (MAS) and
 Huske for iPhone on the iOS App Store, judged against Apple's current rules.
@@ -23,6 +24,63 @@ The Mac App Store packaging, CI and review patterns come from a channel the
 owner already built for another app (BrowBro: branches `feat/mac-app-store`,
 `ci/mas-automation`, `ci/fix-mas-archive-signing`, `chore/mas-build-*`). That
 repository was only read, never changed.
+
+---
+
+## 0. Decision and progress
+
+Updated 2026-11-22.
+
+**Done**
+- App IDs `cloud.tiagomoraes.huske.ios` and `cloud.tiagomoraes.huske.ios.LiveActivity`
+  (no capabilities).
+- A CI-only **Apple Distribution** certificate (expires 2027-11-22), made from
+  a fresh key so that no identity had to be exported from a keychain. Its
+  `.p12` lives only in the `IOS_DIST_CERT_P12` secret.
+- Two App Store profiles, *Huske iOS App Store CI* and *Huske iOS
+  LiveActivity App Store CI* (expire 2027-11-22), in `IOS_PROFILE_APP` and
+  `IOS_PROFILE_LIVEACTIVITY`.
+- `ios/scripts/archive-upload.sh` and `ios/scripts/verify-app-store-archive.sh`,
+  run locally and by `.github/workflows/ios-app-store.yml`. A local dry run
+  archived, signed, verified and exported the `.ipa`.
+- In the app: privacy policy and support links, a "get Huske for Mac" link
+  when no Mac is paired, and a consent line in the empty library.
+- `ios/AppStore/listing.md`: the product page text, the review notes and the
+  review video's shot list.
+- On the website (PR #136): `/privacy/` and `/support/` pages, and copy that
+  presents the iPhone app as free on the App Store.
+
+**Corrections to the research below**
+- The team's only App Store Connect API key (`browbro-ci`) has the **App
+  Manager** role, and it is the one in `APPLE_API_KEY_*`. The iOS workflow
+  reuses it: no new key.
+- Build numbers are UTC `YYYYMMDD.HHMM` rather than "highest in App Store
+  Connect + 1": they only grow, and need no query or fastlane.
+
+**Done since (2026-11-23)**
+- **App Store Connect record:** "Huske for iPhone", Apple ID 6838172707 ("Huske" was taken).
+- **First build:** version 0.15.1 (build 20261123.520) is processed, attached to the version, and in TestFlight for an internal "Owner" group.
+- **The first upload attempts failed, and the scripts now catch both causes:**
+  - the iPad orientations ("Invalid bundle … to support iPad multitasking");
+  - an App Intent description that said "Mac" (ITMS-90626).
+- **Product page:**
+  - texts from `ios/AppStore/listing.md`;
+  - five designed screenshots (6.3");
+  - the universal header and search results asset;
+  - categories (Productivity, Utilities);
+  - content rights;
+  - age rating 4+;
+  - "Data Not Collected" (published);
+  - free, in 174 countries (not China mainland);
+  - not offered on Apple silicon Macs or Vision Pro.
+- **Promotion:** `ios/AppStore/launch.md`.
+
+**Left (owner)**
+- **App Review contact details** (name, phone, email). App Store Connect won't save the review notes without them; the notes are in `listing.md`.
+- **The review video**, on a physical iPhone and Mac.
+- **Ship #145 in a release**, so `/privacy/` and `/support/` are live.
+- **Install the TestFlight invite** and try the build.
+- **Submit for review.** After approval: merge #146, then follow `launch.md`.
 
 ---
 
@@ -380,10 +438,10 @@ re-answer.
     extension
     ([create an App Store profile](https://developer.apple.com/help/account/provisioning-profiles/create-an-app-store-provisioning-profile/)).
 - **API key.**
-  - Huske's existing `APPLE_API_KEY_*` is a **Developer**-role key for
-    notarization. Keep it as is.
-  - Add a separate **App Manager** team key for uploads. With App Manager,
-    BrowBro's manual-signing pattern works; cloud signing would need Admin.
+  - *Corrected:* `APPLE_API_KEY_*` holds the team's only key, `browbro-ci`,
+    which has the **App Manager** role. That is enough for BrowBro's
+    manual-signing pattern, so the iOS workflow reuses it. Cloud signing would
+    need Admin.
   - Individual keys can't use provisioning or notary endpoints
     ([creating API keys](https://developer.apple.com/documentation/appstoreconnectapi/creating-api-keys-for-app-store-connect-api)).
 - **SDK floor.**
@@ -449,7 +507,15 @@ Against Xcode Cloud:
   ([Xcode Cloud](https://developer.apple.com/xcode-cloud/)) don't outweigh
   either point.
 
-Sketch, not implemented. It belongs to the plan's step 3:
+Implemented in `.github/workflows/ios-app-store.yml` and
+`ios/scripts/archive-upload.sh` (see §0). It differs from the sketch below in
+three ways:
+- The build number is UTC `YYYYMMDD.HHMM`.
+- The API key secrets are the existing `APPLE_API_KEY_*`.
+- Each target's profile name comes from `HUSKE_APP_PROFILE` and
+  `HUSKE_LIVEACTIVITY_PROFILE`.
+
+The original sketch:
 
 - **Trigger:** `workflow_dispatch` (inputs: `ref`, `dry_run`), and later
   `release: published`. A manual run only appears once the file is on the

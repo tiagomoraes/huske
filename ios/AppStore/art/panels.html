@@ -1,0 +1,151 @@
+<!doctype html>
+<!--
+  App Store screenshots for Huske for iPhone, one panel per render.
+  render.sh opens this file once per panel and size:
+    panels.html?panel=2&size=69   (69 = 6.9", 1320×2868 · 63 = 6.3", 1206×2622)
+  The phone screens come from captures/<size>-<screen>.png (capture.sh), made
+  in the app's demo mode: every conversation in them is made up.
+  Design: DESIGN.md "Quiet instrument". Paper and ink, Plex Sans for the
+  words we write, Plex Serif for what people said, amber only inside the app.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Huske for iPhone, App Store panels</title>
+<style>
+  @font-face { font-family: "Plex Sans"; src: url("../../../macos/Sources/Huske/Resources/Fonts/IBMPlexSans-Variable.ttf"); font-weight: 100 700; }
+  @font-face { font-family: "Plex Serif"; src: url("../../../macos/Sources/Huske/Resources/Fonts/IBMPlexSerif-Regular.ttf"); font-weight: 400; }
+  @font-face { font-family: "Plex Serif"; src: url("../../../macos/Sources/Huske/Resources/Fonts/IBMPlexSerif-Italic.ttf"); font-style: italic; }
+
+  :root {
+    --paper: #FBF8F1;
+    --ink: #0E1116;
+    --ink-600: #2A2F38;
+    --fg-muted-paper: #6B6C70;
+    --fg-muted-ink: #9CA0A8;
+    --amber: #D88A3A;
+  }
+  /* Everything is sized in rem against a 440 px wide frame (the 6.9" iPhone
+     in points), so the 6.3" render (402 pt) is the same layout, scaled. */
+  html { font-size: calc(100vw / 44); }
+  * { box-sizing: border-box; margin: 0; }
+  body { width: 100vw; height: 100vh; overflow: hidden; -webkit-font-smoothing: antialiased; }
+
+  .panel {
+    position: relative; width: 100%; height: 100%;
+    display: grid; grid-template-rows: auto 1fr; grid-template-columns: minmax(0, 1fr);
+    padding: 6rem 3.6rem 0; overflow: hidden;
+    background: var(--paper); color: var(--ink);
+    font-family: "Plex Sans", system-ui, sans-serif;
+  }
+  .panel.ink { background: var(--ink); color: #F4EFE3; }
+
+  .copy { width: 100%; }
+  .mark { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 2.2rem; }
+  .mark svg { width: 2.4rem; height: 2.4rem; }
+  .mark span { font-family: "Plex Serif", serif; font-style: italic; font-size: 2.3rem; line-height: 1; }
+
+  h1 {
+    font-weight: 600; font-size: 3.6rem; line-height: 1.1; letter-spacing: -0.022em;
+    text-wrap: balance;
+  }
+  .said {
+    font-family: "Plex Serif", serif; font-weight: 400; font-size: 3.7rem; line-height: 1.16;
+    letter-spacing: -0.01em; text-wrap: balance;
+    /* Hang the opening quote mark in the margin so the words align. */
+    text-indent: -0.42em;
+  }
+  .sub {
+    margin-top: 1.4rem; font-size: 1.75rem; line-height: 1.42; color: var(--fg-muted-paper);
+    max-width: 34rem; text-wrap: pretty;
+  }
+  .ink .sub { color: var(--fg-muted-ink); }
+
+  /* The phone: an ink body, a hairline edge, the island, the real capture. */
+  .stage { align-self: end; width: 100%; display: flex; justify-content: center; padding-bottom: 3.2rem; }
+  .phone {
+    --w: 30rem; --bezel: 0.9rem;
+    position: relative; width: var(--w);
+    padding: var(--bezel); border-radius: calc(var(--w) * 0.155);
+    background: var(--ink);
+    box-shadow:
+      0 0 0 0.12rem #3A3F48 inset,
+      0 3.2rem 5.6rem -2rem rgba(14, 17, 22, 0.34),
+      0 1.2rem 2.4rem -1.2rem rgba(14, 17, 22, 0.18);
+  }
+  .ink .phone { box-shadow: 0 0 0 0.12rem var(--ink-600), 0 3.2rem 6rem -2rem rgba(0, 0, 0, 0.6); }
+  .phone img {
+    display: block; width: 100%; height: auto;
+    border-radius: calc((var(--w) - 2 * var(--bezel)) * 0.13);
+  }
+  /* Close-up: the same phone at 1.75×, cut by the panel edge, so the sync
+     states read at thumbnail size. */
+  .stage.loupe { align-self: start; justify-content: flex-start; padding: 3.2rem 0 0 0.4rem; }
+  .stage.loupe .phone { --w: 48rem; flex: none; }
+  .island {
+    position: absolute; left: 50%; top: calc(var(--bezel) + var(--w) * 0.027);
+    width: calc(var(--w) * 0.285); height: calc(var(--w) * 0.084);
+    transform: translateX(-50%); border-radius: 999px; background: #000;
+  }
+</style>
+</head>
+<body>
+<main id="panel" class="panel"></main>
+<script>
+  const PANELS = {
+    1: {
+      screen: "recording",
+      mark: true,
+      title: "A recorder for the places your Mac isn’t.",
+      sub: "Huske on your Mac writes down what was said, and the words come back to your phone.",
+    },
+    2: {
+      screen: "transcript",
+      said: "“Okay, quick idea before I forget it.”",
+      sub: "Said on a walk, written down by your Mac. The transcript comes back to your phone.",
+    },
+    3: {
+      screen: "lock-screen",
+      tone: "ink",
+      title: "Keeps recording with the screen locked.",
+      sub: "Pause or stop it from the Lock Screen. The Action button starts the next one.",
+    },
+    4: {
+      screen: "mac",
+      title: "Straight to your Mac. No cloud, no account.",
+      sub: "Over your Wi‑Fi, or directly between the two, encrypted with a key only they hold.",
+    },
+    5: {
+      screen: "library",
+      loupe: true,
+      title: "Every recording, and where it is.",
+      sub: "Waiting for your Mac, sending, transcribing. Then the words.",
+    },
+  };
+
+  const q = new URLSearchParams(location.search);
+  const p = PANELS[q.get("panel") || "1"];
+  const size = q.get("size") || "69";
+  const el = document.getElementById("panel");
+  if (p.tone) el.classList.add(p.tone);
+
+  const mark = p.mark ? `
+    <div class="mark" aria-hidden="true">
+      <svg viewBox="0 0 64 64"><rect x="14" y="10" width="6" height="44" rx="1.2" fill="var(--amber)"/>
+        <rect x="24" y="24" width="26" height="5" rx="1.2" fill="currentColor"/>
+        <rect x="24" y="34" width="20" height="5" rx="1.2" fill="currentColor"/>
+        <rect x="24" y="44" width="14" height="5" rx="1.2" fill="currentColor"/></svg>
+      <span>huske</span>
+    </div>` : "";
+  const lead = p.said ? `<p class="said">${p.said}</p>` : `<h1>${p.title}</h1>`;
+  el.innerHTML = `
+    <header class="copy">${mark}${lead}<p class="sub">${p.sub}</p></header>
+    <div class="stage${p.loupe ? " loupe" : ""}"><figure class="phone">
+      <img src="captures/${size}-${p.screen}.png" alt="">
+      <span class="island"></span>
+    </figure></div>`;
+  document.title = `panel ${q.get("panel")} ${size}`;
+</script>
+</body>
+</html>

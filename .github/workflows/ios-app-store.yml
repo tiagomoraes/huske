@@ -1,0 +1,94 @@
+name: iPhone app to App Store Connect
+
+# Archives Huske for iPhone, signs it for the App Store and uploads it to
+# App Store Connect, where it lands in TestFlight. Submitting a version for
+# review stays a step in App Store Connect. See
+# docs/research/app-store-distribution.md and ios/scripts/archive-upload.sh.
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: Upload to App Store Connect (off = build, verify and keep the .ipa as an artifact)
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-app-store
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    name: Archive and upload
+    # Xcode 27: from April 2027 App Store Connect takes only iOS 27 SDK builds.
+    runs-on: xcode-27
+    timeout-minutes: 45
+    env:
+      IOS_DIST_CERT_P12: ${{ secrets.IOS_DIST_CERT_P12 }}
+      IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+      IOS_PROFILE_APP: ${{ secrets.IOS_PROFILE_APP }}
+      IOS_PROFILE_LIVEACTIVITY: ${{ secrets.IOS_PROFILE_LIVEACTIVITY }}
+      # The team's App Store Connect API key (App Manager), shared with notarization.
+      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      # App Store Connect refuses builds from beta or RC Xcodes (ITMS-90301),
+      # so take the newest stable 27.x by name.
+      - name: Select Xcode 27 or newer
+        run: ./macos/scripts/select-xcode.sh 27
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Archive, sign, verify and upload
+        run: |
+          set -euo pipefail
+          umask 077
+          for name in IOS_DIST_CERT_P12 IOS_DIST_CERT_PASSWORD IOS_PROFILE_APP \
+                      IOS_PROFILE_LIVEACTIVITY APPLE_API_KEY_P8 APPLE_API_KEY_ID \
+                      APPLE_API_ISSUER_ID; do
+            [[ -n "${!name}" ]] || { echo "error: secret $name is not set" >&2; exit 1; }
+          done
+          SECRETS="$RUNNER_TEMP/ios-signing"
+          mkdir -p "$SECRETS"
+          printf '%s' "$IOS_DIST_CERT_P12" | base64 --decode > "$SECRETS/dist.p12"
+          printf '%s' "$IOS_PROFILE_APP" | base64 --decode > "$SECRETS/app.mobileprovision"
+          printf '%s' "$IOS_PROFILE_LIVEACTIVITY" | base64 --decode > "$SECRETS/ext.mobileprovision"
+          printf '%s' "$APPLE_API_KEY_P8" | base64 --decode > "$SECRETS/AuthKey.p8"
+          UPLOAD=1
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.upload }}" != "true" ]]; then
+            UPLOAD=0
+          fi
+          IOS_DIST_P12="$SECRETS/dist.p12" \
+          IOS_DIST_P12_PASSWORD="$IOS_DIST_CERT_PASSWORD" \
+          IOS_PROFILE_APP="$SECRETS/app.mobileprovision" \
+          IOS_PROFILE_LIVEACTIVITY="$SECRETS/ext.mobileprovision" \
+          ASC_KEY_PATH="$SECRETS/AuthKey.p8" \
+          ASC_KEY_ID="$APPLE_API_KEY_ID" \
+          ASC_ISSUER_ID="$APPLE_API_ISSUER_ID" \
+          UPLOAD="$UPLOAD" \
+          OUT_DIR="$RUNNER_TEMP/app-store" \
+            ./ios/scripts/archive-upload.sh
+
+      - name: Keep the .ipa (no upload)
+        if: github.event_name == 'workflow_dispatch' && !inputs.upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: huske-ios-ipa
+          path: ${{ runner.temp }}/app-store/export/*.ipa
+          if-no-files-found: error
+
+      - name: Remove signing material
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/ios-signing"
