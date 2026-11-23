@@ -16,9 +16,9 @@
 #   IOS_PROFILE_LIVEACTIVITY path to the widget extension's App Store profile
 #   ASC_KEY_PATH            path to the App Store Connect API key (.p8)
 #   ASC_KEY_ID, ASC_ISSUER_ID
-#   BUILD_NUMBER            optional; default: UTC "YYYYMMDD.HHMM", which only
-#                           ever increases and never collides with a number a
-#                           manual upload already used
+#   BUILD_NUMBER            optional; default: UTC "YYYYMMDD.HHMM" without
+#                           leading zeros (20261123.520), which only ever grows
+#                           and never collides with a manual upload's number
 #   UPLOAD                  1 (default) uploads; 0 exports an .ipa only
 #   OUT_DIR                 optional; default: ios/build/app-store
 set -euo pipefail
@@ -32,7 +32,9 @@ cd "$(dirname "$0")/.."   # ios/
 TEAM_ID=QD5A8CZK76
 APP_ID=cloud.tiagomoraes.huske.ios
 EXT_ID=cloud.tiagomoraes.huske.ios.LiveActivity
-BUILD_NUMBER="${BUILD_NUMBER:-$(date -u +%Y%m%d.%H%M)}"
+# UTC date, then the time as a plain number (05:20 → 520): App Store Connect
+# drops leading zeros, and HHMM read as a number still only grows.
+BUILD_NUMBER="${BUILD_NUMBER:-$(date -u +%Y%m%d).$((10#$(date -u +%H%M)))}"
 UPLOAD="${UPLOAD:-1}"
 OUT_DIR="${OUT_DIR:-$PWD/build/app-store}"
 ARCHIVE="$OUT_DIR/Huske.xcarchive"

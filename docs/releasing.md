@@ -467,7 +467,7 @@ and [`ios/AppStore/listing.md`](../ios/AppStore/listing.md).
 - **Version.** The App Store version is the repository version
   (`pyproject.toml`). Each submission needs a higher one than the last, so an
   iPhone-only fix ships as a patch release.
-- **Build number.** UTC `YYYYMMDD.HHMM`, set by
+- **Build number.** UTC `YYYYMMDD.HHMM` with no leading zeros (`20261123.520`), set by
   `ios/scripts/archive-upload.sh`. It only grows and never collides with a
   manual upload.
 - **The same script runs on a Mac.** Point it at the files instead of
