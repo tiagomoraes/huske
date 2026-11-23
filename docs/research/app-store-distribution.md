@@ -57,16 +57,30 @@ Updated 2026-11-22.
 - Build numbers are UTC `YYYYMMDD.HHMM` rather than "highest in App Store
   Connect + 1": they only grow, and need no query or fastlane.
 
-**Left**
-- The owner accepts the updated Paid Applications agreement in App Store
-  Connect → Business. App Store Connect won't create a new app record until
-  then.
-- Create the app record, upload the first build, and test it on TestFlight.
-- Fill in the product page, App Privacy, age rating, pricing and availability
-  from `listing.md`.
-- Publish the website, so the privacy and support URLs work.
-- Shoot the review video on a physical iPhone and Mac. Enter the review
-  contact details. Submit.
+**Done since (2026-11-23)**
+- **App Store Connect record:** "Huske for iPhone", Apple ID 6838172707 ("Huske" was taken).
+- **First build:** version 0.15.1 (build 20261123.520) is processed, attached to the version, and in TestFlight for an internal "Owner" group.
+- **The first upload attempts failed, and the scripts now catch both causes:**
+  - the iPad orientations (ITMS-90474-style validation);
+  - an App Intent description that said "Mac" (ITMS-90626).
+- **Product page:**
+  - texts from `ios/AppStore/listing.md`;
+  - five designed screenshots (6.3");
+  - the universal header and search results asset;
+  - categories (Productivity, Utilities);
+  - content rights;
+  - age rating 4+;
+  - "Data Not Collected" (published);
+  - free, in 174 countries (not China mainland);
+  - not offered on Apple silicon Macs or Vision Pro.
+- **Promotion:** `ios/AppStore/launch.md`.
+
+**Left (owner)**
+- **App Review contact details** (name, phone, email). App Store Connect won't save the review notes without them; the notes are in `listing.md`.
+- **The review video**, on a physical iPhone and Mac.
+- **Ship #145 in a release**, so `/privacy/` and `/support/` are live.
+- **Install the TestFlight invite** and try the build.
+- **Submit for review.** After approval: merge #146, then follow `launch.md`.
 
 ---
 
