@@ -6,6 +6,13 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+### Added
+
+- **Privacy policy and support pages on the website**
+  (`/privacy/`, `/support/`). They say what stays on your devices, what can
+  leave them and when, and how to get help. The App Store listing and the
+  iPhone app link to both.
+
 ## 0.15.1 - 2026-11-22
 
 ### Fixed
