@@ -25,6 +25,7 @@ from huske.capture.devices import (
 from huske.chunker.rotator import ChunkRotator
 from huske.config import RuntimeConfig, load_config, update_user_config
 from huske.control import Command, CommandChannel
+from huske.inbox.processor import InboxProcessor, is_inbox_job_id
 from huske.ipc import ControlServer
 from huske.ipc.protocol import ControlSnapshot, DeviceList, InputDeviceEntry
 from huske.mlx_runtime import GatedDistiller, MetalGate, rss_bytes_by_pid
@@ -38,6 +39,7 @@ from huske.recovery.scanner import (
 )
 from huske.screenshots import ScreenshotCapturer
 from huske.session import RecordingSession
+from huske.sync.worker import SyncStatus
 from huske.transcribe.worker import TranscriptionWorker, chunk_to_job
 
 _HEARTBEAT_TIMEOUT_SECONDS = 5.0
@@ -112,6 +114,7 @@ def build_control_snapshot(
         asr_rss_mb=round(float(state.asr_rss_mb), 1),
         distill_rss_mb=round(float(state.distill_rss_mb), 1),
         engine_rss_mb=round(float(state.engine_rss_mb), 1),
+        distill_label=state.distill_label,
     )
 
 
@@ -149,12 +152,24 @@ def run_session(
     # language token. Parakeet infers the language per decode window and can
     # collapse code-switched speech into English; huske re-decodes windows it
     # catches, but say once, up front, that the setting is a hint here.
-    if cfg.language and cfg.asr_engine == "parakeet":
-        _print(
-            f"[warn] language={cfg.language!r} cannot be enforced by the parakeet "
-            'engine — set asr_engine = "whisper" to pin it'
-        )
-        log.warning("language_not_enforceable", language=cfg.language, engine=cfg.asr_engine)
+    from huske.transcribe.catalog import resolve_model
+
+    asr_spec = resolve_model(cfg)
+    _print(f"[huske] transcription model: {asr_spec.name} ({asr_spec.repo})")
+    if cfg.language:
+        support = asr_spec.language_support(cfg.language)
+        if support == "unsupported":
+            _print(
+                f"[warn] {asr_spec.name} does not transcribe {cfg.language!r} — "
+                "choose another model with `huske models use`"
+            )
+            log.warning("language_unsupported", language=cfg.language, model=asr_spec.id)
+        elif support == "detected":
+            _print(
+                f"[warn] language={cfg.language!r} cannot be enforced by {asr_spec.name} — "
+                "`huske models use whisper-large-v3-turbo` pins it"
+            )
+            log.warning("language_not_enforceable", language=cfg.language, model=asr_spec.id)
 
     # Resolve + validate input device.
     device_resolution = resolve_input_device_with_fallback(cfg.input_device)
@@ -229,47 +244,54 @@ def run_session(
     metal_gate = MetalGate()
 
     def _build_distill_worker() -> Any:
-        from huske.distill.distiller import build_distiller
+        from huske.distill.distiller import build_backend, build_distiller
+        from huske.distill.providers import resolve_target
         from huske.distill.worker import DistillWorker
 
-        distiller = build_distiller(
-            cfg.distill_model,
-            backend=cfg.distill_backend,
-            endpoint=cfg.distill_endpoint,
-            timeout=cfg.distill_timeout_seconds,
-            max_statements=cfg.distill_max_statements_per_passage,
-            think=cfg.distill_think,
-        )
-        return DistillWorker(
-            cfg.output_root,
-            GatedDistiller(distiller, metal_gate),
-            max_statements_per_passage=cfg.distill_max_statements_per_passage,
-        )
+        target = resolve_target(cfg)
+        backend = build_backend(cfg, target)
+        # Local GPU models (built-in MLX, Ollama, a local server) share Metal
+        # with ASR and wait for it; Apple Intelligence and cloud providers
+        # don't touch our Metal heap, so gating them would only stall ASR.
+        if target.provider.gpu_gated and not target.leaves_mac:
+            backend = GatedDistiller(backend, metal_gate)
+        return DistillWorker(cfg.output_root, build_distiller(cfg, backend=backend))
+
+    def _distill_label() -> str:
+        from huske.distill.providers import resolve_target
+
+        try:
+            target = resolve_target(cfg)
+        except ValueError:
+            return ""
+        if target.name in ("mlx", "apple"):
+            return target.provider.label
+        return f"{target.provider.label} · {target.model or 'default model'}"
 
     distill_worker = None
     if cfg.distill_enabled:
         try:
             distill_worker = _build_distill_worker()
             distill_worker.start()
-            _print(
-                f"[huske] distillation enabled — transcripts corrected for ASR errors "
-                f"({cfg.distill_model} via {cfg.distill_backend})"
-            )
+            _print(f"[huske] transcript cleanup on — {_distill_label()}")
         except Exception as exc:
             log.warning("distill_worker_start_failed", error=str(exc))
+            state.set_warning("distill", f"cleanup unavailable: {exc}")
             distill_worker = None
-    state.update(distill_enabled=distill_worker is not None)
-    if distill_worker is not None and cfg.distill_auto_manage:
+    state.update(distill_enabled=distill_worker is not None, distill_label=_distill_label())
+    if distill_worker is not None and cfg.distill_auto_manage and cfg.distill_backend == "ollama":
         # Make Ollama ready off the hot path so the worker (already running)
         # succeeds without the user pre-starting the daemon or pulling the model.
         # Best-effort: a failure leaves the worker's own graceful degradation.
         def _prepare_ollama() -> None:
             from huske.distill import ollama_manage
+            from huske.distill.providers import resolve_target
 
+            target = resolve_target(cfg)
             ollama_manage.ensure_ready(
-                cfg.distill_model,
-                backend=cfg.distill_backend,
-                endpoint=cfg.distill_endpoint,
+                target.model or "",
+                backend="ollama",
+                endpoint=target.endpoint or "",
                 auto_manage=True,
                 emit=lambda sev, msg: state.push_event(sev, msg),  # type: ignore[arg-type]
                 serve_log=cfg.logs_root / f"ollama_{session.session_id}.log",
@@ -285,6 +307,8 @@ def run_session(
         if distill_worker is not None:
             distill_worker.submit(str(path))
 
+    sync_status = SyncStatus()
+
     def _drain_sync() -> None:
         if sync_worker is None:
             return
@@ -292,17 +316,31 @@ def run_session(
             evt = sync_worker.poll_event(timeout=0.0)
             if evt is None:
                 break
-            if not evt.get("ok"):
-                on_event("warn", f"cloud sync: {evt.get('error', 'push failed')}")
+            # A failure (or a transcript the repository holds a different copy
+            # of) stays on screen as a sticky warning until a clean run clears
+            # it; the activity feed gets one line per distinct problem.
+            notice = sync_status.apply(evt)
+            if notice.warning is None:
+                state.clear_warning("sync")
             else:
-                changed = int(evt.get("changed", 0))
-                if changed:
-                    on_event("info", f"cloud sync: published {changed} transcript(s)")
+                state.set_warning("sync", notice.warning)
+            if notice.event is not None:
+                on_event(*notice.event)
+            if evt.get("ok"):
                 log.info(
                     "cloud_sync",
-                    changed=changed,
+                    changed=int(evt.get("changed", 0)),
+                    updated=int(evt.get("updated", 0)),
+                    conflicts=len(evt.get("conflicts") or []),
                     commit=evt.get("commit"),
                     pushed=evt.get("pushed"),
+                )
+            else:
+                log.warning(
+                    "cloud_sync_failed",
+                    error=evt.get("error"),
+                    attempts=evt.get("attempts"),
+                    retryable=evt.get("retryable"),
                 )
 
     def _drain_distill() -> None:
@@ -315,7 +353,7 @@ def run_session(
             if "reconcile" in evt:
                 pending = int(evt.get("reconcile", 0))
                 if pending:
-                    on_event("info", f"distillation: catching up {pending} transcript(s)")
+                    on_event("info", f"cleanup: catching up {pending} transcript(s)")
             elif evt.get("ok"):
                 # A success clears any prior "unavailable" sticky warning.
                 state.clear_warning("distill")
@@ -331,14 +369,16 @@ def run_session(
                     if polished:
                         sync_worker.submit(str(polished))
             elif evt.get("unavailable"):
-                # Daemon down / model missing — one sticky warning, not per-chunk spam.
+                # Daemon down / no key / no consent — one sticky warning, not
+                # per-chunk spam. The raw transcript stays as written.
                 detail = str(evt.get("error", "")).splitlines()[0]
-                state.set_warning("distill", f"distillation unavailable: {detail}")
+                state.set_warning("distill", f"cleanup unavailable, raw transcript kept: {detail}")
             else:
                 detail = str(evt.get("error", "")).splitlines()[0]
-                on_event("warn", f"distillation failed: {detail}")
+                on_event("warn", f"cleanup failed, raw transcript kept: {detail}")
 
     def _on_tick() -> None:
+        _pump_inbox()
         _pump_asr()
         _refresh_rss()
         _drain_sync()
@@ -360,7 +400,19 @@ def run_session(
     pending_chunks: set[int] = set()
     pending_lock = threading.Lock()
     asr_backlog: deque[dict[str, Any]] = deque()
-    gated_seqs: set[int] = set()
+    # Jobs holding the Metal gate, keyed by live `chunk_seq` (int) or by an
+    # inbox job's `job_id` (str) — import chunk_seqs restart at 1 and would
+    # collide with live ones.
+    gated_seqs: set[int | str] = set()
+    # The engine inbox (phone recordings, `huske import`): set up below once
+    # `on_event` exists. Its jobs share this backlog and the Metal gate.
+    inbox: InboxProcessor | None = None
+
+    def _job_key(job: dict[str, Any]) -> int | str:
+        job_id = job.get("job_id")
+        if isinstance(job_id, str) and is_inbox_job_id(job_id):
+            return job_id
+        return int(job["chunk_seq"])
 
     def _pending_count() -> int:
         # True in-flight depth (queued + transcribing), thread-safe. Unlike
@@ -378,16 +430,22 @@ def run_session(
                 return
             with pending_lock:
                 job = asr_backlog.popleft()
-                gated_seqs.add(int(job["chunk_seq"]))
+                key = _job_key(job)
+                gated_seqs.add(key)
             try:
                 worker.submit(job)
             except Exception as exc:
                 metal_gate.finish_asr()
                 with pending_lock:
-                    gated_seqs.discard(int(job["chunk_seq"]))
-                    pending_chunks.discard(int(job["chunk_seq"]))
+                    gated_seqs.discard(key)
+                    if isinstance(key, int):
+                        pending_chunks.discard(key)
+                if isinstance(key, str) and inbox is not None:
+                    inbox.job_failed(key, f"transcription worker restart failed: {exc}")
                 on_event("error", f"transcription worker restart failed: {exc}")
                 return
+            if isinstance(key, str) and inbox is not None:
+                inbox.mark_submitted(key)
 
     def _refresh_rss() -> None:
         parent_pid = os.getpid()
@@ -427,6 +485,69 @@ def run_session(
     def on_event(severity: str, message: str) -> None:
         state.push_event(severity, message)  # type: ignore[arg-type]
         log.info("capture_event", severity=severity, message=message)
+
+    # Engine inbox. Take its lock now if free (a one-shot `huske inbox process`
+    # may hold it; `_pump_inbox` retries every scan). Never fatal: recording
+    # does not depend on it.
+    try:
+        inbox = InboxProcessor(cfg, background=True, on_event=on_event)
+        if inbox.try_acquire():
+            log.info("inbox_lock_acquired", inbox_root=str(cfg.inbox_root))
+    except Exception as exc:
+        log.warning("inbox_unavailable", error=str(exc))
+        inbox = None
+
+    def _release_inbox_gate(job_id: str) -> None:
+        with pending_lock:
+            gated = job_id in gated_seqs
+            gated_seqs.discard(job_id)
+        if gated:
+            metal_gate.finish_asr()
+
+    def _pump_inbox() -> None:
+        """Queue the next inbox piece behind live chunks; detect lost jobs."""
+        if inbox is None or stop_flag.is_set():
+            return
+        try:
+            jobs = inbox.poll()
+            for lost in inbox.check_worker(worker.alive):
+                _release_inbox_gate(lost)
+        except Exception as exc:
+            log.warning("inbox_poll_failed", error=str(exc))
+            return
+        if jobs:
+            with pending_lock:
+                asr_backlog.extend(jobs)
+
+    def _route_result(result: dict[str, Any]) -> bool:
+        """Consume a worker result that belongs to the inbox, not live capture.
+
+        Live `pending_chunks` / `on_result` never see these, so a colliding
+        import chunk_seq cannot clear a live chunk's accounting.
+        """
+        job_id = result.get("job_id")
+        if not is_inbox_job_id(job_id):
+            return False
+        assert isinstance(job_id, str)
+        _release_inbox_gate(job_id)
+        if inbox is None:
+            return True
+        try:
+            written = inbox.handle_result(result)
+        except Exception as exc:
+            log.warning("inbox_result_failed", error=str(exc))
+            return True
+        for tp in written:
+            state.update(last_saved=tp)
+            _on_written(tp)
+        return True
+
+    def _drop_inbox_backlog() -> None:
+        """Stopping: unsubmitted inbox jobs must not hold up the drain."""
+        with pending_lock:
+            live = [j for j in asr_backlog if not is_inbox_job_id(j.get("job_id"))]
+            asr_backlog.clear()
+            asr_backlog.extend(live)
 
     rotator = ChunkRotator(
         cfg=cfg,
@@ -540,24 +661,30 @@ def run_session(
                 distill_worker = None  # stop submitting before the (slow) drain
                 state.update(distill_enabled=False)
                 state.clear_warning("distill")
-                on_event("info", "distillation off")
+                on_event("info", "cleanup off")
                 w.stop(drain_timeout=15.0)
                 return
 
             from huske.distill import ollama_manage
+            from huske.distill.health import probe_postprocess
+            from huske.distill.providers import resolve_target
 
-            on_event("info", f"distillation: checking {cfg.distill_model}…")
-            r = ollama_manage.ensure_ready(
-                cfg.distill_model,
-                backend=cfg.distill_backend,
-                endpoint=cfg.distill_endpoint,
-                auto_manage=cfg.distill_auto_manage,
-                emit=on_event,
-                should_abort=stop_flag.is_set,
-                serve_log=cfg.logs_root / f"ollama_{session.session_id}.log",
-            )
+            on_event("info", f"cleanup: checking {_distill_label()}…")
+            if cfg.distill_backend == "ollama":
+                target = resolve_target(cfg)
+                r = ollama_manage.ensure_ready(
+                    target.model or "",
+                    backend="ollama",
+                    endpoint=target.endpoint or "",
+                    auto_manage=cfg.distill_auto_manage,
+                    emit=on_event,
+                    should_abort=stop_flag.is_set,
+                    serve_log=cfg.logs_root / f"ollama_{session.session_id}.log",
+                )
+            else:
+                r = probe_postprocess(cfg)
             if not r.ok:
-                msg = f"distillation unavailable: {r.detail}"
+                msg = f"cleanup unavailable: {r.detail}"
                 state.set_warning("distill", msg)
                 on_event("warn", msg + (f" — {r.hint}" if r.hint else ""))
                 return
@@ -567,18 +694,18 @@ def run_session(
                 worker = _build_distill_worker()
                 worker.start()
             except Exception as exc:
-                on_event("error", f"distillation: could not start: {exc}")
+                on_event("error", f"cleanup: could not start: {exc}")
                 return
             distill_worker = worker
             state.update(distill_enabled=True)
             state.clear_warning("distill")
-            on_event("info", f"distillation on ({cfg.distill_model})")
+            on_event("info", f"cleanup on ({_distill_label()})")
         finally:
             distill_toggle_lock.release()
 
     def _toggle_distill() -> None:
         if not distill_toggle_lock.acquire(blocking=False):
-            on_event("info", "distillation: still switching — hold on")
+            on_event("info", "cleanup: still switching — hold on")
             return
         threading.Thread(
             target=_distill_toggle_run, name="huske-distill-toggle", daemon=True
@@ -786,6 +913,7 @@ def run_session(
             on_tick=_on_tick,
             pending_count=_pending_count,
             mic_fallback=device_resolution.fallback_used,
+            route_result=_route_result,
         )
 
         # Phase 2: stopping. Keep publishing state while we drain so the app
@@ -800,6 +928,10 @@ def run_session(
             _sync_screenshot_state()
             on_event("info", f"screenshots saved: {screenshotter.captures}")
         rotator.finalize_current()
+        # Inbox work is resumable (its item goes back to `queued` on release),
+        # so the drain waits only for live chunks — at most one inbox piece can
+        # already be in the worker ahead of them.
+        _drop_inbox_backlog()
 
         pending_count = _pending_count()
         on_event("info", f"draining {pending_count} transcription(s)…")
@@ -817,6 +949,8 @@ def run_session(
             _pump_asr()
             result = worker.poll_result(timeout=0.1)
             if result is not None and result.get("event") == "idle_recycle":
+                result = None
+            if result is not None and _route_result(result):
                 result = None
             if result is not None and "chunk_seq" not in result:
                 result = None
@@ -885,6 +1019,12 @@ def run_session(
         if sync_worker is not None:
             sync_worker.stop(drain_timeout=10.0)
         worker.stop(drain_timeout=5.0)
+        if inbox is not None:
+            # Requeue any in-progress item for the next run, then unlock.
+            try:
+                inbox.release()
+            except Exception as exc:
+                log.warning("inbox_release_failed", error=str(exc))
         session.release_lock()
         cleanup_session_dir(session.audio_root)
         session.state = SessionState.STOPPED
@@ -909,9 +1049,14 @@ def _main_loop(
     on_tick: Callable[[], None] | None = None,
     pending_count: Callable[[], int] | None = None,
     mic_fallback: bool = False,
+    route_result: Callable[[dict[str, Any]], bool] | None = None,
 ) -> None:
     """Run the asyncio-free main loop: poll worker results, refresh state,
-    publish control-plane snapshots, watch the capture heartbeat."""
+    publish control-plane snapshots, watch the capture heartbeat.
+
+    ``route_result`` sees every worker result first and returns True when it
+    consumed it (engine-inbox jobs); only the rest are live chunks.
+    """
 
     def _depth() -> int:
         return pending_count() if pending_count is not None else worker.queue_depth
@@ -989,6 +1134,8 @@ def _main_loop(
         # Worker result drain (non-blocking).
         result = worker.poll_result(timeout=0.0)
         if result is not None and result.get("event") == "idle_recycle":
+            result = None
+        if result is not None and route_result is not None and route_result(result):
             result = None
         if result is not None and "chunk_seq" not in result:
             result = None

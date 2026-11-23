@@ -73,13 +73,41 @@ final class EngineInstaller {
         Manager.allCases.filter { $0.locate() != nil }
     }
 
-    /// Which manager owns an installed binary — resolves the uv-tool or
-    /// Homebrew layout behind ~/.local/bin symlinks. nil means "unknown,
-    /// show the manual commands instead of guessing".
+    /// Where an engine came from. This decides whether an in-app upgrade can
+    /// even reach it — and offering one that cannot is worse than offering
+    /// nothing: `uv tool upgrade huske` exits 0 having upgraded some *other*
+    /// engine, and the screen the user is staring at does not change.
+    enum Provenance: Equatable {
+        /// A package manager owns it; upgrading in place is meaningful.
+        case managed(Manager)
+        /// A `pip install -e .` checkout. Its version comes from the source
+        /// tree, so no package manager can move it.
+        case sourceCheckout
+        case unknown
+    }
+
+    /// Resolves the uv-tool and Homebrew layouts behind `~/.local/bin`
+    /// symlinks, then falls back to the venv marker one level above a console
+    /// script.
+    static func provenance(of binary: URL, fileManager: FileManager = .default) -> Provenance {
+        let resolved = binary.resolvingSymlinksInPath()
+        let path = resolved.path
+        if path.contains("/uv/tools/") { return .managed(.uv) }
+        if path.contains("/Cellar/") { return .managed(.brew) }
+        let venvMarker = resolved
+            .deletingLastPathComponent()      // …/bin
+            .deletingLastPathComponent()      // …/<venv>
+            .appendingPathComponent("pyvenv.cfg")
+        if path.contains("/.venv/") || fileManager.fileExists(atPath: venvMarker.path) {
+            return .sourceCheckout
+        }
+        return .unknown
+    }
+
+    /// Which manager owns an installed binary. nil means no manager can
+    /// upgrade this one — say something honest instead of guessing.
     static func owner(of binary: URL) -> Manager? {
-        let path = binary.resolvingSymlinksInPath().path
-        if path.contains("/uv/tools/") { return .uv }
-        if path.contains("/Cellar/") { return .brew }
+        if case .managed(let manager) = provenance(of: binary) { return manager }
         return nil
     }
 

@@ -34,3 +34,10 @@ def test_sync_remote_rejects_git_option_injection() -> None:
 def test_sync_branch_rejects_unsafe_values(branch: str) -> None:
     with pytest.raises(ValidationError, match="safe Git branch"):
         RuntimeConfig(sync_branch=branch)
+
+
+def test_github_app_auth_needs_a_github_https_remote() -> None:
+    ok = RuntimeConfig(sync_auth="github-app", sync_remote="https://github.com/octo/t.git")
+    assert ok.sync_auth == "github-app"
+    with pytest.raises(ValueError, match="needs an https"):
+        RuntimeConfig(sync_auth="github-app", sync_remote="git@github.com:octo/t.git")

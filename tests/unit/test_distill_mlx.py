@@ -8,14 +8,16 @@ from __future__ import annotations
 
 import pytest
 
+from huske.config import RuntimeConfig
 from huske.distill import health as health_mod
-from huske.distill.distiller import HeuristicDistiller, OllamaDistiller, build_distiller
+from huske.distill.distiller import HeuristicDistiller, build_backend
 from huske.distill.mlx_backend import (
     DEFAULT_MLX_MODEL,
     MLXDistiller,
     _clean_reply,
     resolve_mlx_model,
 )
+from huske.distill.ollama_backend import OllamaBackend
 
 # ---------------------------------------------------------------------------
 # model resolution
@@ -42,14 +44,14 @@ def test_unknown_tag_passes_through_unchanged() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_clean_reply_strips_think_blocks_and_fences() -> None:
-    raw = '<think>reasoning...</think>\n```json\n{"text": "a"}\n```'
-    assert _clean_reply(raw) == '{"text": "a"}'
+def test_clean_reply_strips_think_blocks() -> None:
+    raw = "<think>reasoning...</think>\n[1] Olá."
+    assert _clean_reply(raw) == "[1] Olá."
 
 
-def test_clean_reply_isolates_json_amid_prose() -> None:
-    raw = 'Sure! Here you go: {"text": "a"} Hope that helps.'
-    assert _clean_reply(raw) == '{"text": "a"}'
+def test_clean_reply_strips_chat_control_tokens() -> None:
+    assert _clean_reply("[1] Valeu, pessoal!<|im_end|>") == "[1] Valeu, pessoal!"
+    assert _clean_reply("[1] ok<|endoftext|>") == "[1] ok"
 
 
 # ---------------------------------------------------------------------------
@@ -57,24 +59,28 @@ def test_clean_reply_isolates_json_amid_prose() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_build_distiller_defaults_to_builtin_mlx() -> None:
-    d = build_distiller("mlx-community/Qwen3.5-0.8B-4bit")
+def test_build_backend_defaults_to_builtin_mlx() -> None:
+    d = build_backend(RuntimeConfig())
     try:
         assert isinstance(d, MLXDistiller)
-        assert d.backend == "mlx"
+        assert d.provider == "mlx"
+        assert d.model_id == "mlx-community/Qwen3.5-0.8B-4bit"
     finally:
         d.close()  # no process was started; must be a no-op
 
 
-def test_build_distiller_ollama_backend_still_available() -> None:
-    d = build_distiller("qwen3.5:0.8b", backend="ollama")
-    assert isinstance(d, OllamaDistiller)
-    assert d.backend == "ollama"
+def test_build_backend_ollama_backend_still_available() -> None:
+    d = build_backend(RuntimeConfig(distill_backend="ollama"))
+    assert isinstance(d, OllamaBackend)
+    assert d.model_id == "qwen3.5:0.8b"
 
 
-def test_build_distiller_heuristic_ignores_backend() -> None:
-    assert isinstance(build_distiller("heuristic"), HeuristicDistiller)
-    assert isinstance(build_distiller("heuristic", backend="ollama"), HeuristicDistiller)
+def test_build_backend_heuristic_ignores_backend() -> None:
+    assert isinstance(build_backend(RuntimeConfig(distill_model="heuristic")), HeuristicDistiller)
+    assert isinstance(
+        build_backend(RuntimeConfig(distill_model="heuristic", distill_backend="ollama")),
+        HeuristicDistiller,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -84,14 +90,14 @@ def test_build_distiller_heuristic_ignores_backend() -> None:
 
 def test_fake_mode_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HUSKE_DISTILL_MLX_FAKE", "1")
-    d = MLXDistiller("mlx-community/whatever", max_statements=4, timeout=30.0)
+    d = MLXDistiller("mlx-community/whatever", timeout=30.0)
     try:
-        statements = d.distill_passage("Some passage.", sources=["mic"], language="en")
-        assert statements == ["fake statement"]
+        prompt = "<transcript>\n[1] Some passage.\n</transcript>"
+        assert d.complete("rules", prompt, max_tokens=64) == "[1] Some passage."
         # Second call reuses the live subprocess.
-        assert d.distill_passage("Another.", sources=["mic"], language="en") == [
-            "fake statement"
-        ]
+        pid = d.pid
+        assert d.complete("rules", "[1] Another.", max_tokens=64) == "[1] Another."
+        assert d.pid == pid
     finally:
         d.close()
 
@@ -99,7 +105,7 @@ def test_fake_mode_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_close_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HUSKE_DISTILL_MLX_FAKE", "1")
     d = MLXDistiller("mlx-community/whatever", timeout=30.0)
-    d.distill_passage("x", sources=["mic"], language="en")
+    d.complete("rules", "[1] x", max_tokens=16)
     d.close()
     d.close()
 
@@ -166,7 +172,7 @@ def test_worker_stop_closes_distiller(tmp_path) -> None:  # type: ignore[no-unty
             self.closed = True
 
     distiller = ClosableDistiller()
-    worker = DistillWorker(tmp_path, distiller)
+    worker = DistillWorker(tmp_path, distiller)  # a bare backend is accepted
     worker.start()
     worker.stop(drain_timeout=5.0)
     assert distiller.closed is True

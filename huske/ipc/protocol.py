@@ -58,6 +58,9 @@ class ControlSnapshot:
     asr_rss_mb: float = 0.0
     distill_rss_mb: float = 0.0
     engine_rss_mb: float = 0.0
+    # v4 — where transcript cleanup (LLM post-processing) runs, in words, e.g.
+    # "Apple Intelligence" or "Anthropic · claude-haiku-5-5". "" when unknown.
+    distill_label: str = ""
 
 
 @dataclass(frozen=True)
@@ -139,6 +142,7 @@ def decode_message(line: str) -> ControlSnapshot | CommandMessage | DeviceList:
             asr_rss_mb=float(obj.get("asr_rss_mb", 0.0) or 0.0),
             distill_rss_mb=float(obj.get("distill_rss_mb", 0.0) or 0.0),
             engine_rss_mb=float(obj.get("engine_rss_mb", 0.0) or 0.0),
+            distill_label=str(obj.get("distill_label", "") or ""),
         )
     if kind == "cmd":
         arg = obj.get("arg")

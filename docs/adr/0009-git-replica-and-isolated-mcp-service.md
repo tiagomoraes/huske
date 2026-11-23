@@ -100,3 +100,102 @@ memory and is selectable rather than silently exhausting the VPS.
   transcription or MCP indexing.
 - Existing `sync_endpoint`, ingest, MCP, connector, and local-index config keys
   are ignored on read and removed on the next config write.
+
+## Amendment (2026-11) — Huske-owned updates, remote deletions, repository docs
+
+"Immutable" was the wrong word for the transcript tree. Distillation
+(ADR 0005) rewrites the canonical `.md` in place after the transcript is
+written, and sync publishes it as soon as it is written, so the raw version
+almost always reached the repository first. The polished rewrite then looked
+like a "different file at an established path": a hard, non-retryable
+conflict. Because the copy loop aborted at the first conflict, every
+transcript recorded afterwards stopped publishing too.
+
+The rule is now about *ownership*, not immutability:
+
+- The publisher keeps a ledger of the content it last published for each
+  path. The ledger lives in the managed checkout's `.git` directory and is
+  never committed.
+- A repository copy that matches the ledger is Huske's own, and is replaced
+  when the local transcript changes. So is a copy that matches the raw
+  `<name>.asr.txt` snapshot distillation keeps, which heals checkouts that
+  predate the ledger.
+- Anything else at that path was written by someone else. It is reported as a
+  conflict and never overwritten, and it no longer blocks other transcripts.
+- A path Huske published that later disappears from the repository was
+  deleted there on purpose. It is not published again. Git history still holds
+  earlier versions; deletion is not a purge.
+- `huske sync --republish <path>` is the explicit override for both cases.
+
+Housekeeping that made failures unrecoverable from the app is now automatic:
+
+- One sync runs per checkout across processes. The engine's worker and
+  `huske sync` from the app share an advisory lock, and a stale `index.lock`
+  is cleared.
+- Pointing sync at another repository moves the old checkout aside instead of
+  refusing.
+- Retryable failures are retried on a capped backoff for the whole session,
+  instead of stopping after six attempts.
+- Git errors are classified from every stderr line. The last line of an SSH
+  failure is boilerplate.
+- The engine reports the last problem as a sticky `sync` warning.
+
+The repository root also carries a Huske-managed `README.md` and `AGENTS.md`,
+so an agent connected through its own GitHub integration can navigate the
+archive. A file without Huske's marker line is never overwritten. The VPS
+service reads only `transcripts/`, and its index already re-indexes a path
+whose SHA-256 changed.
+
+## Amendment (2026-11) — Connect GitHub with the Huske Sync app
+
+Setting up Git over SSH was where new users failed. They needed a key on
+GitHub, an agent that could unlock it without a terminal, and a trusted host
+key, and every one of those failures surfaced the same opaque Git message. It
+was also more access than the job needs: an account SSH key can push to every
+repository the user can write to. The research behind this is in
+`docs/research/transcript-sync-options.md`.
+
+Sync can now authenticate with **Huske Sync**, a GitHub App registered for
+the project. This is `sync_auth = "github-app"`; the default stays
+`sync_auth = "git"`, which uses the Mac's own Git sign-in and stores nothing,
+so existing setups are unchanged.
+
+- **Least privilege.** The app requests only repository *Contents*
+  (read/write) and the mandatory *Metadata* (read). It has no
+  *Administration* (it cannot delete or reconfigure repositories), no
+  repository creation, and no webhooks. The user creates the private
+  repository from a prefilled form and shares only it with the app ("Only
+  select repositories").
+- **No secret.** Sign-in is the OAuth device flow. Huske is a public client,
+  and GitHub issues and refreshes the user access token without a client
+  secret. Access tokens last 8 hours; refresh tokens rotate and last about six
+  months.
+- **The engine owns the sign-in** (`huske sync login | logout | status |
+  repos | use`). Huske.app renders the same flow from their `--json` output
+  (ADR 0006).
+- **Storage.** The token set lives in the macOS login Keychain, written
+  through `/usr/bin/security -i` over standard input, so the secret never
+  appears in a process argument. Items created by `security` are readable by
+  `security` without a prompt, which is what lets the launchd engine use them.
+  `HUSKE_SYNC_KEYCHAIN` points at a throwaway keychain for development.
+- **Git** receives the token only through the environment of each command
+  (`GIT_CONFIG_*`), through a one-shot credential helper. Every other
+  helper is reset for that command, including github.com-specific ones such as
+  `gh auth setup-git` writes. The token is never written to `.git/config`,
+  logs, or Huske's configuration.
+- **Renewal under the sync lock.** A refresh invalidates the previous access
+  token immediately (observed against GitHub), so renewal happens only while
+  holding the cross-process sync lock. That guarantees no other Huske process
+  is mid-push with the old token.
+- `huske sync use` refuses a public repository, and a repository not shared
+  with the app.
+
+Consequences:
+
+- A leaked access token reaches the shared repository for at most 8 hours. A
+  leaked refresh token is renewable until it is revoked
+  (github.com/settings/apps/authorizations) or the app is uninstalled.
+- The project keeps the app registration. The client ID is public and lives in
+  `huske/sync/github.py`; forks point at their own app with
+  `HUSKE_GITHUB_APP_CLIENT_ID` and `HUSKE_GITHUB_APP_SLUG`. The app must be
+  made public before a release that ships this flow.

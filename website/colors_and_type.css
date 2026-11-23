@@ -16,6 +16,9 @@
   src: url("fonts/IBMPlexMono-SemiBold.ttf") format("truetype"); }
 @font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 700; font-display: swap;
   src: url("fonts/IBMPlexMono-Bold.ttf") format("truetype"); }
+/* Upright serif: what people said (transcripts, excerpts) — DESIGN.md "Quiet instrument". */
+@font-face { font-family: "IBM Plex Serif"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url("fonts/IBMPlexSerif-Regular.ttf") format("truetype"); }
 @font-face { font-family: "IBM Plex Serif"; font-style: italic; font-weight: 400; font-display: swap;
   src: url("fonts/IBMPlexSerif-Italic.ttf") format("truetype"); }
 @font-face { font-family: "IBM Plex Serif"; font-style: italic; font-weight: 500; font-display: swap;
@@ -89,7 +92,7 @@
   /* ---------- Type system ---------- */
   --font-sans: "IBM Plex Sans", -apple-system, "SF Pro Display", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
-  --font-serif: "IBM Plex Serif", Charter, "Source Serif Pro", Georgia, serif; /* italic accent only */
+  --font-serif: "IBM Plex Serif", Charter, "Source Serif Pro", Georgia, serif; /* upright: transcripts; italic: the word huske */
 
   /* Display + heading scale (modular, ~1.2 ratio at the top, tighter mid) */
   --type-display:   clamp(48px, 6.4vw, 88px);  /* hero */

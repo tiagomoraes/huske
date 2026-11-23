@@ -116,8 +116,8 @@ The script:
 3. Extracts `## $VERSION` from `CHANGELOG.md` as release notes.
 4. `gh release create v$VERSION --verify-tag …` — this triggers
    `.github/workflows/release.yml`, which builds sdist + wheel, publishes
-   to PyPI via trusted publishing, and builds + attaches `Huske.app.zip`
-   (ad-hoc signed; the website's download button points at
+   to PyPI via trusted publishing, and builds, signs, notarizes, staples
+   and attaches `Huske.app.zip` (the website's download button points at
    `releases/latest/download/Huske.app.zip`).
 5. Polls until the workflow finishes (default 180 s).
 6. Opens the back-merge PR `chore/sync-main-after-v$VERSION` from a temp
@@ -136,6 +136,33 @@ if Actions are disabled.
 > "Skipped — no-op back-merge" on the PR. If you ever see the back-merge stuck
 > on "Expected — Waiting for status…", the diff was non-empty (investigate) or
 > the workflow didn't run.
+
+### Verify the signed app
+
+The `build-app` job **degrades to an unsigned build when the signing secrets
+are missing** — that keeps forks releasable, but it means a deleted secret or
+an expired certificate ships an unsigned app without failing the release. So
+check the published asset, every time:
+
+```bash
+cd "$(mktemp -d)"
+gh release download "v$VERSION" --repo tiagomoraes/huske --pattern Huske.app.zip
+ditto -x -k Huske.app.zip .
+codesign -dvvv --entitlements - Huske.app 2>&1 \
+  | grep -E "flags|Authority=Developer ID|TeamIdentifier|Timestamp"
+xcrun stapler validate Huske.app
+spctl -a -vvv -t exec Huske.app
+```
+
+Expect `flags=0x10000(runtime)`, `Authority=Developer ID Application: Tiago
+Moraes (QD5A8CZK76)`, a `Timestamp=`, `The validate action worked!`, and
+`accepted … source=Notarized Developer ID`. Anything else means the asset is
+not distributable — fix forward with a patch release; never swap an asset on
+a published release.
+
+The one-time credential setup (the `.p12` export, the App Store Connect API
+key, and the five GitHub secrets) is in
+[`docs/releasing.md` → macOS App Signing and Notarization](releasing.md#macos-app-signing-and-notarization).
 
 ### 🛑 STOP
 
@@ -211,6 +238,8 @@ sequence. The auto back-merge workflow recognises both `release: v…` and
 | `release.yml` workflow fails to publish to PyPI | First-time PyPI trusted publisher not configured, or workflow filename changed | See [`docs/releasing.md` → PyPI Trusted Publishing](releasing.md#pypi-trusted-publishing). |
 | Back-merge PR says "out of date with the base branch" right after merging promotion | Promotion was squashed — see above | — |
 | `update-homebrew-tap.py` reports added/removed deps | The dependency tree changed | Manually edit `Formula/huske.rb` to add/remove the listed `resource` blocks, then re-run the script. |
+| `Huske.app.zip` is ad-hoc signed after a release | One of the five signing secrets is missing or empty — the job degrades instead of failing | Restore the secret (see [`docs/releasing.md`](releasing.md#github-secrets)) and ship a patch release. |
+| Notarization step fails the release | Apple rejected the submission, or the certificate/API key expired | The job prints `xcrun notarytool log` for the submission; fix the cause and re-run the `Release` workflow from the tag. |
 
 ---
 

@@ -39,21 +39,36 @@ it about your day.
   and need the transcript pinned to one language, use the Whisper engine, whose
   decoder takes a language token:
   `--asr-engine whisper --model large-v3-turbo --language pt`.
+- **Choose your transcription model** — `huske models` lists them with what
+  matters (does it lock the language, languages, download size, measured
+  speed), `huske models use` switches, `huske models try` shows the speed on
+  your Mac. Any compatible Hugging Face repo works too, so a model released
+  today can be used today. See [docs/transcription-models.md](docs/transcription-models.md).
+- **Custom dictionary** — names, products and jargon spelled your way
+  (`vocabulary`), plus "heard as X → write Y" corrections
+  (`vocabulary_replacements`). Corrections apply to every transcript; the
+  words also steer Whisper (its prompt, on every 30-s window), Parakeet (opt-in
+  word boosting) and transcript cleanup.
+- **Transcript cleanup (opt-in)** — a language model fixes punctuation and
+  misheard words after each transcript is saved: Apple Intelligence on-device,
+  the built-in model, Ollama or LM Studio, or OpenAI / Anthropic / OpenRouter
+  with your API key (kept in the Keychain; sending text off your Mac needs
+  explicit consent). The raw transcript is always kept.
 - **Speech-gated segmentation** — files split on real pauses in speech, not a
   fixed clock: a chunk opens when speech starts and closes after a pause
   (`--silence-split`, default 60 s) or at the `--chunk-minutes` cap (default
   15 min). Quiet stretches produce no file, and a conversation isn't cut
   mid-sentence at an arbitrary tick. `--no-speech-gated` restores fixed-interval
   rotation.
-- **Speaker-bleed removal** — when you record mic + system on speakers (no
+- **Echo cancellation** — when you record mic + system on speakers (no
   headphones), the system audio bleeds into the mic and would be transcribed
-  twice. huske handles it in two stages: coherence-based echo *suppression*
-  attenuates the bleed in the mic audio before transcription (`--echo-cancel`,
-  on by default; self-gating — no effect with headphones, and it can't touch
-  your own voice), and a transcript-level dedup then *removes* any residual mic
-  copy of a system line, including partial fragments (`--echo-dedup
-  drop|annotate|off`). (True sample-precise cancellation isn't possible because
-  the mic and system are captured on independent clocks — see the PR notes.)
+  twice. huske records both from one Core Audio aggregate device so they share
+  a clock, then removes the bleed from the mic with **WebRTC AEC3** (the
+  canceller in Chrome and Meet) before transcription (`--echo-cancel`, on by
+  default; self-gating — no effect with headphones, and your own voice is kept
+  even when both sides talk at once). A transcript-level dedup stays as the
+  backstop for any residual mic copy of a system line (`--echo-dedup
+  drop|annotate|off`). See `docs/adr/0012-webrtc-aec3-and-single-clock-capture.md`.
 - **Resilient** — graceful stop finalizes the partial chunk; SIGKILL + restart
   auto-recovers orphaned audio.
 - **Native macOS app** — huske's face: live level meters, start/stop/pause,
@@ -109,6 +124,24 @@ huske run
 huske recover
 ```
 
+### Get the app
+
+Huske.app is the UI; the command above installs the engine it drives.
+
+1. Download
+   [`Huske.app.zip`](https://github.com/tiagomoraes/huske/releases/latest/download/Huske.app.zip)
+   from the latest release and drag **Huske** into `/Applications`.
+2. Open it. It finds the engine you just installed — or offers to install one
+   for you, one click, if you skipped step 1.
+
+Staying current: *Huske → Check for Updates…* plus a once-a-day check that
+shows a quiet update chip when a new release lands (turn it off in Settings, or
+set `HUSKE_NO_UPDATE_CHECK=1` to silence the app and the engine's banner
+together). The engine upgrades from the app when a package manager owns it, or
+with `uv tool upgrade huske` / `brew upgrade huske`. Which engine the app
+drives, and what to do when it can't run one, is in
+[docs/macos-app.md](docs/macos-app.md#which-engine-the-app-drives).
+
 Other install options:
 
 ```bash
@@ -131,26 +164,27 @@ meter goes silent during screen sharing.
 
 Runtime controls live in the app and the menu bar:
 
-- **Huske.app** — pause/resume, screenshots, distillation, and microphone
+- **Huske.app** — pause/resume, screenshots, transcript cleanup, and microphone
   switching from the Record pane — or from anywhere via the ⌘K command
   palette.
 - **Menu bar** — terminal and LaunchAgent sessions get a huske menu bar item
-  with pause/resume, screenshots, distillation, and stop.
+  with pause/resume, screenshots, transcript cleanup, and stop.
 - **Ctrl+C** — graceful stop for terminal sessions (finalizes the current
   chunk and drains pending transcriptions).
 
 Pausing finalizes the current partial chunk and stops writing audio until you
 resume. Toggling screenshots takes effect immediately, using the configured
-screenshots directory and interval. Toggling distillation flips it on or off for
-the running session: turning it on checks that the local LLM daemon and model are
-ready before it starts (and warns with a fix-it hint if they are not). On macOS
+screenshots directory and interval. Toggling transcript cleanup flips it on or off for
+the running session: turning it on checks that the configured model is ready
+(Apple Intelligence available, a key and consent for a cloud provider, the local
+server answering) and warns with a fix-it hint if it is not. On macOS
 the same actions are available from the menu-bar dropdown. The toggle is
 session-only — set `distill_enabled` in config to make it the default.
 
 For prerelease builds or exact GitHub tags, install directly from the repository:
 
 ```bash
-uv tool install "git+https://github.com/tiagomoraes/huske.git@v0.14.0"
+uv tool install "git+https://github.com/tiagomoraes/huske.git@v0.15.0"
 ```
 
 See [quickstart.md](specs/001-huske-recorder/quickstart.md) for the full setup.
@@ -267,11 +301,29 @@ The screenshot interval must be at least 1 second.
 
 ## Sync transcripts and query them from agents (opt-in)
 
-The recording app does not host MCP. Open **Cloud sync** in Huske.app, create a
-private GitHub repository, paste its SSH URL, and press **Sync now**. After the
-first push succeeds, enable automatic sync.
+The recording app does not host MCP. Open **Cloud sync** in Huske.app and choose
+**Connect GitHub**:
+
+1. Enter the code Huske shows on GitHub and approve **Huske Sync**.
+2. Create a private repository (Huske opens the form prefilled) and share only
+   it with Huske Sync.
+3. Choose **Publish here**. Huske publishes once, then publishes every new
+   transcript automatically.
+
+No SSH key is needed. Huske Sync can read and write the contents of the
+repositories you share with it and nothing else: it cannot create, delete, or
+reconfigure repositories. Its short-lived token stays in your macOS Keychain.
 
 Terminal equivalent:
+
+```bash
+huske sync login                          # enter the code on GitHub
+huske sync use you/huske-transcripts      # a private repository shared with Huske Sync
+huske sync
+huske config set sync_enabled true
+```
+
+Prefer your own Git sign-in? Choose **Use an SSH key instead**, or:
 
 ```bash
 huske config set sync_remote git@github.com:you/huske-transcripts.git
@@ -280,9 +332,16 @@ huske sync
 ```
 
 Huske publishes only canonical transcript Markdown under
-`transcripts/YYYY-MM-DD/*.md`. Git uses your existing SSH agent or credential
-helper; Huske stores no GitHub token. Audio, screenshots, logs, config, and
-credentials are never copied.
+`transcripts/YYYY-MM-DD/*.md`, plus a `README.md` and `AGENTS.md` that explain
+the layout to agents. With your own Git sign-in, Git uses your SSH agent or
+credential helper and Huske stores no GitHub token. Audio, screenshots, logs,
+config, and credentials are never copied. A transcript that distillation polishes after publishing is
+updated in place. A transcript you delete in the repository stays deleted
+(`huske sync --republish <path>` publishes it again).
+
+Claude, ChatGPT, Codex, Cursor, and GitHub Copilot can read the repository
+directly through their own GitHub integration. Grant them only this repository
+([details](docs/integrations.md)).
 
 Run the independent `services/huske_mcp` package on an always-on Linux/VPS
 host. It pulls the private repository, incrementally indexes it into SQLite, and
@@ -300,26 +359,32 @@ This heals missed webhooks and restarts without a second data plane. Full setup:
 **[docs/integrations.md](docs/integrations.md)**. Decision record:
 [ADR 0009](docs/adr/0009-git-replica-and-isolated-mcp-service.md).
 
-## Correct transcript typos (opt-in)
+## Clean up transcripts with a language model (opt-in)
 
-Huske can polish each finished transcript with a tiny local MLX model (default
-Qwen3.5 0.8B) or Ollama. The job is conservative ASR correction, not
-summarisation. The raw snapshot is kept as `<name>.asr.txt`; the canonical
-`.md` is what syncs and what the VPS service indexes.
+Huske can clean up each finished transcript — punctuation, capitalization,
+misheard words, your dictionary's spellings — with the model you choose:
+
+| Where | `distill_backend` | Text leaves your Mac? |
+| --- | --- | --- |
+| Apple Intelligence (macOS 26+, needs Huske.app) | `apple` | no |
+| Built-in Qwen3.5 0.8B (default; light, corrects little) | `mlx` | no |
+| Ollama, LM Studio, llama.cpp, vLLM | `ollama`, `openai_compatible` | no (unless the endpoint is elsewhere) |
+| OpenAI, Anthropic, OpenRouter (your key) | `openai`, `anthropic`, `openrouter` | **yes**, after you allow it |
 
 ```bash
-huske distill
+huske config set distill_backend apple
+huske llm status          # ready? if not, why and how to fix it
+huske llm test            # clean up a synthetic sample
+huske config set distill_enabled true
+huske distill             # clean up existing transcripts
 ```
 
-To correct automatically after each chunk:
-
-```toml
-distill_enabled = true
-distill_model = "mlx-community/Qwen3.5-0.8B-4bit"
-```
-
-Correction runs off the recording hot path and failures never block recording
-or cloud sync. See [docs/distillation.md](docs/distillation.md).
+The raw transcript is written first and kept as `<name>.asr.txt`; the cleaned
+`.md` records `postprocessed_by` in its frontmatter. Failures and timeouts keep
+the raw text and never block recording or cloud sync. API keys live in the
+macOS Keychain (`huske llm key set anthropic`), never in the config. See
+[docs/distillation.md](docs/distillation.md) and
+[ADR 0013](docs/adr/0013-transcript-quality-language-dictionary-llm-cleanup.md).
 
 ## Privacy and consent
 
@@ -340,10 +405,13 @@ metadata can contain private or legally sensitive information.
 - If you run `huske export` and sync that folder to a third-party cloud (Drive,
   Dropbox, iCloud), plaintext transcripts are stored there under that provider's
   retention and scanning policy. Prefer `--statements-only` if you do.
-- If you enable distillation (`distill_enabled`), transcript text is sent to the
-  configured local model backend. The default MLX backend runs as a child process
-  on your Mac; Ollama is an optional loopback backend. Pointing an endpoint at a
-  remote daemon changes that privacy boundary.
+- If you enable transcript cleanup (`distill_enabled`), transcript text is sent
+  to the model backend you chose. Apple Intelligence and the built-in MLX model
+  stay on your Mac; Ollama and LM Studio are loopback servers. A cloud provider
+  (OpenAI, Anthropic, OpenRouter) or an endpoint on another machine receives
+  the text of every transcript under that provider's terms — Huske refuses to
+  send it until you allow that exact host (`huske llm allow-cloud`). Audio is
+  never sent. API keys are kept in the macOS Keychain, never in the config.
 - The `--screenshots` flag captures everything visible on every attached
   display every 60 s — including any password manager popovers, banking
   tabs, or private DMs that happen to be open. Leave it off unless you've
@@ -369,8 +437,10 @@ metadata can contain private or legally sensitive information.
 - [macOS app](docs/macos-app.md) — the native SwiftUI app over the same engine.
 - [Always-on service](docs/server.md) — GitHub sync plus the isolated VPS MCP
   service (opt-in).
-- [Transcript correction](docs/distillation.md) — polish ASR typos with a
-  tiny local LLM (opt-in).
+- [Transcription models](docs/transcription-models.md) — choose, try and add
+  models (Parakeet, Whisper, and new families).
+- [Transcript cleanup](docs/distillation.md) — clean up transcripts with a
+  language model — on-device, local or cloud (opt-in).
 - [Architecture decisions](docs/adr/) — including the Git replica and isolated
   MCP service boundary in ADR 0009.
 

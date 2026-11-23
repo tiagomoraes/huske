@@ -312,7 +312,7 @@ struct CommandPaletteOverlay: View {
         let snapshot = session.snapshot
 
         // Session
-        if !session.isBusy, !model.binaryMissing, !model.engineOutdated {
+        if !session.isBusy, model.engineReady {
             commands.append(
                 PaletteCommand(
                     id: "session.start",
@@ -355,7 +355,8 @@ struct CommandPaletteOverlay: View {
             commands.append(
                 PaletteCommand(
                     id: "session.distill",
-                    title: snapshot.distillEnabled ? "Disable Distillation" : "Enable Distillation",
+                    title: snapshot.distillEnabled
+                        ? "Turn Off Transcript Cleanup" : "Turn On Transcript Cleanup",
                     symbol: "sparkles",
                     section: .session,
                     action: { session.toggleDistill() }))

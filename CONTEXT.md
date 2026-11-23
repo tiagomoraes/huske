@@ -21,10 +21,31 @@ Do not use "segment" for the retrieval unit.
 
 **Transcript**:
 The canonical Markdown-plus-YAML-frontmatter file written for one Chunk under
-`output_root/YYYY-MM-DD/`. A finalized Transcript is immutable.
+`output_root/YYYY-MM-DD/`. A finalized Transcript is only rewritten in place
+by Huske itself (distillation); the raw ASR stays in `<name>.asr.txt`.
 
 **Source**:
 The audio origin: `mic` or `system`. Huske does not perform speaker diarization.
+
+**Model** and **Family**:
+A Family is one transcription runtime (Parakeet, Whisper) registered in
+`huske/transcribe/engines/`; it declares whether it pins the language and how
+it uses the Dictionary. A Model is a set of weights a Family loads — a catalog
+entry in `huske/transcribe/models.toml`, or any compatible repo/folder set as
+`asr_model`.
+
+**Dictionary** (a.k.a. **Vocabulary**):
+The user's preferred spellings (`vocabulary`) plus "heard as → write as"
+replacements (`vocabulary_replacements`). Applied deterministically to every
+Transcript; also biases the ASR engine and Cleanup.
+
+**Cleanup**:
+The optional LLM pass over a finished Transcript (config keys `distill_*`,
+command `huske distill`). It rewrites the canonical `.md` after snapshotting the
+**raw transcript** to `<name>.asr.txt`, and marks the result with
+`postprocessed_by`. Runs on a **Backend**: on-device (`apple`, `mlx`), a local
+server (`ollama`, `openai_compatible`), or a cloud provider. Text leaves the Mac
+only for a host named in `distill_cloud_consent`.
 
 ## Publication and replication
 
@@ -33,6 +54,12 @@ The recording-app component that reconciles canonical Transcripts into a
 dedicated Git checkout and pushes them. Git is the first cloud provider; GitHub
 is the documented host. It never publishes audio, screenshots, logs, config, or
 credentials.
+
+**Huske Sync**:
+The project's GitHub App behind "Connect GitHub". It can read and write only
+the contents of repositories the user shares with it. Its user access token,
+obtained by device-flow sign-in, is the credential when `sync_auth` is
+`github-app`.
 
 **ReplicaRepository**:
 The private Git repository used as the durable handoff and history. It is not

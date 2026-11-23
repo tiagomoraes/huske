@@ -51,6 +51,13 @@ system_audio_backend = "auto"
 # Transcription (on-device, Apple Silicon / MLX)
 # ============================================================
 
+# The transcription model: an id from `huske models`, a Hugging Face repo, or a
+# local folder. When set it decides everything below (engine + model); the
+# legacy keys keep working when it is unset. See docs/transcription-models.md.
+# asr_model = "whisper-large-v3-turbo"
+# Where `huske models convert` keeps converted models (e.g. language fine-tunes).
+# models_root = "~/huske/models"
+
 # Transcription backend: parakeet | whisper
 #   parakeet — NVIDIA Parakeet via parakeet-mlx (default). Multilingual with
 #              automatic language detection; as a transducer it emits nothing on
@@ -80,9 +87,26 @@ echo_dedup = "drop"
 # For a pinned language (e.g. pt) prefer large-v3-turbo over large-v3.
 model = "base"
 
-# Optional language hint, ISO 639-1 (e.g. "pt", "en"). Omit for auto-detect.
-# Parakeet auto-detects regardless; this mainly steers the whisper engine.
+# Spoken language, ISO 639-1 (e.g. "pt", "en"); "pt-BR" is accepted as "pt".
+# Omit for auto-detect. `huske languages` lists the codes.
+#   whisper  — pins the language: every window decodes as this language.
+#   parakeet — CANNOT be pinned (the model has no language input); this only
+#              guards against windows that drift into English. If your
+#              transcripts must be in one language, use whisper large-v3-turbo.
 # language = "pt"
+
+# Custom dictionary: names, products and jargon spelled your way, most
+# important first. Biases Whisper (its prompt), Parakeet (with
+# parakeet_word_boost), and LLM cleanup; restores distinctive casing (OKR,
+# GitHub) after transcription.
+# vocabulary = ["Kubernetes", "OKR", "Huske"]
+# What the engine wrote = what it should have written (whole words, any case):
+# [vocabulary_replacements]
+# "cube ernetes" = "Kubernetes"
+
+# Let Parakeet listen for the vocabulary words while decoding (beam search +
+# word boosting, parakeet-mlx 0.7+): far more jargon right, ~4-5x slower.
+# parakeet_word_boost = false
 
 # Compute type — kept for back-compat; the mlx-whisper backend always uses
 # Metal. "float32" disables fp16 inference (slower, more memory); any other
@@ -172,11 +196,22 @@ no_ui = false
 # export_root = "~/huske/export"
 
 # ============================================================
-# Transcript correction (opt-in)
+# Transcript cleanup with a language model (opt-in) — docs/distillation.md
 # ============================================================
-# A tiny local LLM polishes ASR typos in each finished transcript.
-# The raw snapshot is kept as <name>.asr.txt next to the .md.
+# Fixes punctuation, misheard words and your dictionary's spellings after each
+# transcript is saved. The raw transcript is kept as <name>.asr.txt and the
+# cleaned one says who did it (postprocessed_by). Failures keep the raw text.
 # distill_enabled = false
+# Where it runs:
+#   apple             — Apple Intelligence, on-device (needs Huske.app, macOS 26+)
+#   mlx               — built-in Qwen3.5 0.8B (default; light, corrects little)
+#   ollama            — local Ollama daemon
+#   openai_compatible — LM Studio / llama.cpp / vLLM (distill_endpoint)
+#   openai | anthropic | openrouter — cloud: sends transcript text off this Mac;
+#       needs `huske llm key set <provider>` and `huske llm allow-cloud`.
 # distill_backend = "mlx"
-# distill_model = "mlx-community/Qwen3.5-0.8B-4bit"   # or Qwen3.5-2B-4bit
+# distill_model = "mlx-community/Qwen3.5-0.8B-4bit"   # unset = backend default
+# distill_endpoint = "http://127.0.0.1:1234/v1"       # ollama / openai_compatible
+# distill_instructions = "Remove filler words."
 # distill_think = false
+# API keys are never stored here — they live in the macOS Keychain.

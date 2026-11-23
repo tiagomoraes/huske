@@ -13,6 +13,7 @@ import SwiftUI
 final class AppModel {
     static let binaryOverrideKey = "huskeBinaryPath"
     static let autoStartRecordingKey = "huskeAutoStartRecording"
+    static let autoUpdateCheckKey = "huskeCheckForAppUpdates"
 
     /// Current sidebar pane.
     var pane: Pane = .record
@@ -65,6 +66,10 @@ final class AppModel {
 
     private(set) var binaryURL: URL?
     private(set) var binaryVersion: String?
+    /// The user's pinned engine path, mirrored from UserDefaults so the state
+    /// below stays observable. Load-bearing when nothing resolves: a pin that
+    /// went stale is a choice to repair, not a fresh Mac to onboard.
+    private(set) var binaryOverride: String?
     /// Every `huske` found on this machine. Usually one; a Mac with both a uv
     /// tool and a Homebrew install has more, and they drift apart — so the ones
     /// we did *not* pick are worth showing rather than silently ignoring.
@@ -73,13 +78,53 @@ final class AppModel {
     var shadowedEngines: [EngineCandidate] {
         BinaryLocator.shadowed(among: engineCandidates, chosen: binaryURL)
     }
+    /// Engines that are not in use *and* proved they run — the ones the app
+    /// can offer to switch to when the current one cannot be fixed from here.
+    var healthyAlternatives: [EngineCandidate] {
+        shadowedEngines.filter { $0.version != nil }
+    }
     /// nil while probing; set once the CLI has been feature-detected.
     private(set) var capabilities: EngineCapabilities?
-    var binaryMissing: Bool { binaryURL == nil && !isDemo }
-    /// The binary exists but predates the app's control protocol.
+
+    /// The single question every setup screen and transport control asks.
+    var engineState: EngineState {
+        guard !isDemo else { return .ready }
+        return EngineStateResolver.resolve(
+            binary: binaryURL, override: binaryOverride, capabilities: capabilities)
+    }
+
+    var engineReady: Bool { engineState == .ready }
+    var binaryMissing: Bool { engineState == .missing }
+    /// The engine runs, and predates the app's control protocol.
     var engineOutdated: Bool {
-        guard !isDemo, binaryURL != nil, let capabilities else { return false }
-        return !capabilities.controlSocket
+        if case .outdated = engineState { return true }
+        return false
+    }
+    /// The engine cannot run at all — no upgrade reaches this one.
+    var engineUnusable: Bool {
+        if case .unusable = engineState { return true }
+        return false
+    }
+    /// Why the selected engine cannot run, when it cannot.
+    var engineFailureReason: String? {
+        if case .unusable(_, let reason) = engineState { return reason }
+        return nil
+    }
+    /// The path that failing state is about — possibly a pin that no longer
+    /// resolves to anything, which is why it is not just `binaryURL`.
+    var engineFailurePath: String? {
+        if case .unusable(let path, _) = engineState { return path }
+        return nil
+    }
+    /// True between choosing an engine and learning what it can do. Screens
+    /// wait on it rather than flashing an idle state they take straight back —
+    /// every "Check Again" and every engine switch passes through here.
+    var engineProbing: Bool { !isDemo && binaryURL != nil && capabilities == nil }
+
+    /// How the engine in use got here, which decides whether "upgrade" is a
+    /// real offer or a dead end.
+    var engineProvenance: EngineInstaller.Provenance {
+        binaryURL.map { EngineInstaller.provenance(of: $0) } ?? .unknown
     }
 
     // MARK: subsystems
@@ -87,6 +132,13 @@ final class AppModel {
     let session = SessionController()
     let transcripts = TranscriptStore()
     let config = ConfigStore()
+    /// Transcript cleanup status, models, keys and consent (`huske llm`).
+    let cleanup = CleanupStore()
+    /// The transcription-model catalog, downloads and Try runs (`huske models`).
+    let models = ModelsStore()
+    /// Receives recordings from paired iPhones (specs/002-phone-sync).
+    let phoneSync = PhoneSyncCoordinator()
+    let github = GitHubSyncController()
 
     // MARK: doctor
 
@@ -116,6 +168,27 @@ final class AppModel {
 
     init() {
         refreshBinary()
+        phoneSync.attach(model: self)
+    }
+
+    // MARK: launch
+
+    @ObservationIgnored private let launchGate = LaunchGate()
+
+    /// From the app delegate, once the app has launched — window or not. A
+    /// login item, or a main window that was closed at the last quit, starts
+    /// with no window, and `bootstrap()` used to run only from that window's
+    /// task: a paired iPhone could not reach the Mac (and "start recording
+    /// when Huske opens" did nothing) until someone opened the window.
+    func bootstrapAtLaunch() {
+        launchGate.startAtLaunch { [weak self] in await self?.bootstrap() }
+    }
+
+    /// From the main window's task: joins the launch run while it is still
+    /// going (a normal launch must not probe the engine twice); a window
+    /// opened later bootstraps again, as it always has.
+    func bootstrapFromWindow() async {
+        await launchGate.runFromWindow { [weak self] in await self?.bootstrap() }
     }
 
     func bootstrap() async {
@@ -136,11 +209,17 @@ final class AppModel {
             }
         }
         syncTranscriptRoot()
+        // Listen for paired iPhones whether or not anything is recording:
+        // the menu bar app is resident, so a phone can sync any time.
+        phoneSync.startIfEnabled()
         // If an engine session is already recording (relaunch, login item
         // race, headless `huske run`), surface it instead of starting anew.
         session.attachIfEngineRunning()
         if autoStartRecording, !session.isBusy, capabilities?.controlSocket == true {
             startRecording()
+        }
+        if checkForAppUpdates {
+            checkForAppUpdatesNow(force: false)
         }
     }
 
@@ -152,13 +231,28 @@ final class AppModel {
         // candidate costs a `huske --version` subprocess, so don't probe twice.
         let found = BinaryLocator.candidates()
         engineCandidates = found
-        if let override, !override.isEmpty {
-            binaryURL = BinaryLocator.locate(override: override)
+        binaryOverride = (override?.isEmpty == false) ? override : nil
+        if let binaryOverride {
+            binaryURL = BinaryLocator.locate(override: binaryOverride)
         } else {
             binaryURL = BinaryLocator.best(among: found)?.url
         }
         binaryVersion = nil
         capabilities = nil
+    }
+
+    /// Drive this specific engine from now on.
+    ///
+    /// Written as an override rather than left to auto-detection: the user
+    /// picked it, and auto-detection would hand the session back to whichever
+    /// install happens to report the highest version next week.
+    func useEngine(_ candidate: EngineCandidate) {
+        setBinaryOverride(candidate.url.path)
+    }
+
+    /// Drop the pin and go back to "newest installed engine wins".
+    func clearBinaryOverride() {
+        setBinaryOverride(nil)
     }
 
     func setBinaryOverride(_ path: String?) {
@@ -185,6 +279,49 @@ final class AppModel {
         }
     }
 
+    // MARK: app updates
+
+    /// This bundle's version — stamped from pyproject.toml at build time, so
+    /// it is the same string the engine reports for the same release.
+    var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            ?? "0.0.0"
+    }
+
+    /// Ask GitHub once a day whether a newer Huske.app exists.
+    ///
+    /// On by default, matching the banner the engine has always printed from
+    /// its PyPI check — and honouring the same HUSKE_NO_UPDATE_CHECK opt-out.
+    /// The app is the only surface an app user ever sees, so without this a
+    /// new release is invisible to exactly the people who installed the zip.
+    var checkForAppUpdates: Bool =
+        (UserDefaults.standard.object(forKey: AppModel.autoUpdateCheckKey) as? Bool) ?? true
+    {
+        didSet {
+            UserDefaults.standard.set(checkForAppUpdates, forKey: Self.autoUpdateCheckKey)
+        }
+    }
+
+    private(set) var appUpdate: AppRelease?
+    private(set) var appUpdateChecking = false
+    /// Set once the user has asked in person, so "you're up to date" can be
+    /// said out loud. The daily background check stays silent when there is
+    /// nothing to report.
+    private(set) var appUpdateAsked = false
+
+    /// `force` skips the 24 h cache — what the menu command does, because
+    /// someone who just asked deserves a real answer, not yesterday's.
+    func checkForAppUpdatesNow(force: Bool = true) {
+        guard !appUpdateChecking, !isDemo else { return }
+        appUpdateChecking = true
+        if force { appUpdateAsked = true }
+        Task {
+            self.appUpdate = await AppUpdateCheck.availableUpdate(
+                currentVersion: self.appVersion, force: force)
+            self.appUpdateChecking = false
+        }
+    }
+
     // MARK: session
 
     func startRecording() {
@@ -208,26 +345,52 @@ final class AppModel {
     // MARK: cloud sync
 
     func syncNow() {
-        guard let binaryURL, !syncRunning else { return }
+        Task { await performSync() }
+    }
+
+    /// Run `huske sync` once; `true` when it published without problems.
+    @discardableResult
+    func performSync() async -> Bool {
+        guard let binaryURL, !syncRunning else { return false }
         syncRunning = true
         syncMessage = nil
         syncSucceeded = nil
+        defer { syncRunning = false }
+        do {
+            let result = try await CLIRunner.run(
+                binary: binaryURL, arguments: ["sync"], timeout: 180)
+            let output = (result.stdout + "\n" + result.stderr)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            syncSucceeded = result.status == 0
+            syncMessage =
+                output.isEmpty
+                ? (result.status == 0 ? "Repository is current." : "Sync failed.")
+                : output
+            return result.status == 0
+        } catch {
+            syncSucceeded = false
+            syncMessage = Self.describe(error)
+            return false
+        }
+    }
+
+    /// Finish "Connect GitHub": point sync at the chosen repository, publish
+    /// once, and — only if that worked — publish automatically from now on.
+    func useGitHubRepository(_ fullName: String) {
         Task {
-            do {
-                let result = try await CLIRunner.run(
-                    binary: binaryURL, arguments: ["sync"], timeout: 180)
-                let output = (result.stdout + "\n" + result.stderr)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                self.syncSucceeded = result.status == 0
-                self.syncMessage =
-                    output.isEmpty
-                    ? (result.status == 0 ? "Repository is current." : "Sync failed.")
-                    : output
-            } catch {
-                self.syncSucceeded = false
-                self.syncMessage = Self.describe(error)
+            guard await github.use(fullName, binary: binaryURL) else { return }
+            await config.reload(binary: binaryURL)
+            if await performSync(), !config.bool("sync_enabled") {
+                config.set("sync_enabled", to: .bool(true))
             }
-            self.syncRunning = false
+            await github.refresh(binary: binaryURL)
+        }
+    }
+
+    func disconnectGitHub() {
+        Task {
+            await github.disconnect(binary: binaryURL)
+            await config.reload(binary: binaryURL)
         }
     }
 
@@ -302,7 +465,10 @@ final class AppModel {
         switch error {
         case ConfigBridgeError.commandFailed(let message),
             DoctorBridgeError.commandFailed(let message),
-            DevicesBridgeError.commandFailed(let message):
+            DevicesBridgeError.commandFailed(let message),
+            LLMBridgeError.badOutput(let message),
+            ModelsBridgeError.badOutput(let message),
+            ModelsBridgeError.failed(let message):
             return message
         default:
             return error.localizedDescription
@@ -312,6 +478,29 @@ final class AppModel {
 
 // MARK: - engine configuration store
 
+/// One step of a config write: what the engine is told, in order.
+enum ConfigOp: Equatable {
+    case set(String, JSONValue)
+    /// A whole-number key (written without the float `.0`).
+    case setInt(String, Int)
+    case unset(String)
+
+    var key: String {
+        switch self {
+        case .set(let key, _), .setInt(let key, _), .unset(let key): return key
+        }
+    }
+
+    /// What the UI shows until the engine has answered; `.null` = default.
+    var optimistic: JSONValue {
+        switch self {
+        case .set(_, let value): return value
+        case .setInt(_, let value): return .number(Double(value))
+        case .unset: return .null
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class ConfigStore {
@@ -319,12 +508,22 @@ final class ConfigStore {
     private(set) var loadError: String?
     private(set) var writeError: String?
     private(set) var loading = false
-    /// Optimistic values for keys with an in-flight write.
+    /// Writes sent to the engine and not yet answered.
+    private(set) var pendingWrites = 0
+    /// Optimistic values for keys with an in-flight write (`.null` = unset).
     private var overrides: [String: JSONValue] = [:]
 
     @ObservationIgnored private var binary: URL?
+    /// Each `huske config set` is a read-modify-write of one TOML file, so two
+    /// at once could lose one. Writes run one after another, in order.
+    @ObservationIgnored private var writeChain: Task<Void, Never>?
 
     func reload(binary: URL?) async {
+        await load(binary: binary)
+        overrides = [:]
+    }
+
+    private func load(binary: URL?) async {
         self.binary = binary
         guard let binary else {
             snapshot = nil
@@ -335,7 +534,6 @@ final class ConfigStore {
         do {
             snapshot = try await ConfigBridge.load(binary: binary)
             loadError = nil
-            overrides = [:]
         } catch {
             loadError = AppModel.describe(error)
         }
@@ -350,19 +548,49 @@ final class ConfigStore {
 
     // MARK: typed accessors (override-aware)
 
+    /// The value the UI should show: an in-flight write, else the engine's.
+    func value(_ key: String) -> JSONValue? {
+        if let pending = overrides[key] {
+            return pending == .null ? nil : pending
+        }
+        return snapshot?.effective[key]
+    }
+
+    /// True while `key` waits for an unset to land (show the default).
+    private func pendingUnset(_ key: String) -> Bool { overrides[key] == .null }
+
     func string(_ key: String, default fallback: String = "") -> String {
         if case .string(let s)? = overrides[key] { return s }
+        if pendingUnset(key) { return fallback }
         return snapshot?.string(key) ?? fallback
     }
 
     func bool(_ key: String, default fallback: Bool = false) -> Bool {
         if case .bool(let b)? = overrides[key] { return b }
+        if pendingUnset(key) { return fallback }
         return snapshot?.bool(key) ?? fallback
     }
 
     func double(_ key: String, default fallback: Double = 0) -> Double {
         if case .number(let n)? = overrides[key] { return n }
+        if pendingUnset(key) { return fallback }
         return snapshot?.double(key) ?? fallback
+    }
+
+    func stringList(_ key: String) -> [String] {
+        if case .array(let items)? = overrides[key] {
+            return items.compactMap { if case .string(let s) = $0 { return s } else { return nil } }
+        }
+        if pendingUnset(key) { return [] }
+        return snapshot?.stringList(key) ?? []
+    }
+
+    func stringMap(_ key: String) -> [String: String] {
+        if case .object(let table)? = overrides[key] {
+            return table.compactMapValues { if case .string(let s) = $0 { return s } else { return nil } }
+        }
+        if pendingUnset(key) { return [:] }
+        return snapshot?.stringMap(key) ?? [:]
     }
 
     func isExplicit(_ key: String) -> Bool {
@@ -372,48 +600,65 @@ final class ConfigStore {
     // MARK: writes
 
     func set(_ key: String, to value: JSONValue) {
-        overrides[key] = value
-        let literal: String
-        switch value {
-        case .string(let s): literal = s
-        case .bool(let b): literal = b ? "true" : "false"
-        case .number(let n):
-            literal = n == n.rounded() && abs(n) < 1e15
-                ? String(format: "%.1f", n)
-                : String(n)
-        default: return
-        }
-        write(key: key, literal: literal)
+        apply([.set(key, value)])
     }
 
     func setInt(_ key: String, to value: Int) {
-        overrides[key] = .number(Double(value))
-        write(key: key, literal: String(value))
+        apply([.setInt(key, value)])
     }
 
     func unset(_ key: String) {
-        guard let binary else { return }
-        overrides.removeValue(forKey: key)
-        Task {
-            do {
-                try await ConfigBridge.unset(binary: binary, key: key)
-            } catch {
-                self.writeError = AppModel.describe(error)
+        apply([.unset(key)])
+    }
+
+    /// Run several writes in order as one step (switching the cleanup
+    /// provider clears its model and endpoint first), then reload once.
+    /// `completion` runs after the reload, on the main actor.
+    func apply(_ ops: [ConfigOp], completion: (@MainActor () -> Void)? = nil) {
+        guard let binary, !ops.isEmpty else { return }
+        for op in ops {
+            overrides[op.key] = op.optimistic
+        }
+        pendingWrites += 1
+        let previous = writeChain
+        writeChain = Task {
+            await previous?.value
+            var failed = false
+            for op in ops {
+                do {
+                    switch op {
+                    case .set(let key, let value):
+                        guard let literal = ConfigLiteral.encode(value) else { continue }
+                        try await ConfigBridge.set(binary: binary, key: key, value: literal)
+                    case .setInt(let key, let value):
+                        try await ConfigBridge.set(binary: binary, key: key, value: String(value))
+                    case .unset(let key):
+                        try await ConfigBridge.unset(binary: binary, key: key)
+                    }
+                } catch {
+                    self.writeError = AppModel.describe(error)
+                    failed = true
+                    break
+                }
             }
-            await self.reload(binary: binary)
+            if !failed { self.writeError = nil }
+            await self.load(binary: binary)
+            // Drop only this step's optimistic values, and only if a later
+            // write has not replaced them meanwhile.
+            for op in ops where self.overrides[op.key] == op.optimistic {
+                self.overrides.removeValue(forKey: op.key)
+            }
+            self.pendingWrites -= 1
+            completion?()
         }
     }
 
-    private func write(key: String, literal: String) {
-        guard let binary else { return }
+    /// Run after every write queued so far has landed.
+    func afterPendingWrites(_ body: @escaping @MainActor () async -> Void) {
+        let previous = writeChain
         Task {
-            do {
-                try await ConfigBridge.set(binary: binary, key: key, value: literal)
-                self.writeError = nil
-            } catch {
-                self.writeError = AppModel.describe(error)
-            }
-            await self.reload(binary: binary)
+            await previous?.value
+            await body()
         }
     }
 

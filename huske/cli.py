@@ -70,6 +70,12 @@ def run(
         "multilingual but infers the language per window and cannot be pinned) "
         "or whisper (mlx-whisper; the only engine that enforces --language).",
     ),
+    asr_model: str | None = typer.Option(
+        None,
+        "--asr-model",
+        help="Transcription model for this session: an id from `huske models`, a "
+        "Hugging Face repo, or a local folder (overrides the config).",
+    ),
     parakeet_model: str | None = typer.Option(
         None,
         "--parakeet-model",
@@ -93,9 +99,9 @@ def run(
     echo_cancel: bool | None = typer.Option(
         None,
         "--echo-cancel/--no-echo-cancel",
-        help="Suppress system audio that bleeds into the mic over speakers "
-        "(coherence-based echo suppression) before transcription. On by "
-        "default; self-gating (no effect with headphones).",
+        help="Cancel system audio that bleeds into the mic over speakers "
+        "(WebRTC AEC3 against the system channel) before transcription. On "
+        "by default; self-gating (no effect with headphones).",
     ),
     echo_dedup: str | None = typer.Option(
         None,
@@ -108,7 +114,9 @@ def run(
     device: str | None = typer.Option(None, "--device"),
     language: str | None = typer.Option(None, "--language"),
     input_device: str | None = typer.Option(None, "--input-device"),
-    keep_audio: bool = typer.Option(False, "--keep-audio/--no-keep-audio"),
+    # None = "not given": a False default here would always override a
+    # `keep_audio = true` in the config file.
+    keep_audio: bool | None = typer.Option(None, "--keep-audio/--no-keep-audio"),
     keep_audio_format: str | None = typer.Option(
         None,
         "--keep-audio-format",
@@ -209,6 +217,7 @@ def run(
         output_root=output_root,
         audio_root=audio_root,
         asr_engine=asr_engine,
+        asr_model=asr_model,
         parakeet_model=parakeet_model,
         speech_gated=speech_gated,
         silence_split_seconds=silence_split,
@@ -315,6 +324,53 @@ def doctor(
     )
 
 
+@app.command("echo-test")
+def echo_test(
+    input_device: str | None = typer.Option(
+        None, "--input-device", help="Microphone to test (default: system default)."
+    ),
+    canceller: str = typer.Option(
+        "auto", "--canceller", help="auto (WebRTC AEC3), webrtc, or coherence."
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Play a short phrase on the speakers and measure echo cancellation.
+
+    Captures mic + system audio the way `huske run` does, runs the same echo
+    canceller the transcriber uses, and reports how much speaker bleed it
+    removed. Nothing is saved. Needs Microphone + System Audio Recording access.
+    """
+    import json as _json
+
+    from huske.capture.echo_test import run_echo_test
+
+    if canceller not in ("auto", "webrtc", "coherence"):
+        typer.secho(f"invalid --canceller: {canceller!r}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+    if not json_output:
+        typer.echo("Playing a short phrase through your speakers (~8 s)…")
+    try:
+        result = run_echo_test(mic_name=input_device, method=canceller)
+    except Exception as exc:
+        if json_output:
+            typer.echo(_json.dumps({"ok": False, "error": str(exc)}))
+        else:
+            typer.secho(f"echo test failed: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
+    if json_output:
+        typer.echo(_json.dumps({"ok": True, **result.to_json()}))
+        return
+    typer.echo(f"  output      {result.output_device or '?'}")
+    typer.echo(f"  microphone  {result.mic_device or 'default'}")
+    typer.echo(f"  capture     {result.capture_mode} · canceller {result.method}")
+    if result.echo_present:
+        typer.echo(
+            f"  echo        {result.mic_level_db:.1f} dB → {result.residual_level_db:.1f} dB"
+            f"  (delay {result.echo_delay_ms} ms)"
+        )
+    typer.secho(f"  {result.verdict}", fg=typer.colors.GREEN if result.erle_db >= 15 or not result.echo_present else typer.colors.YELLOW)
+
+
 @app.command()
 def devices(
     json_output: bool = typer.Option(False, "--json"),
@@ -416,6 +472,227 @@ def distill(
     )
 
 
+# ---------------------------------------------------------------------------
+# Transcript cleanup (LLM post-processing) and languages
+# ---------------------------------------------------------------------------
+
+llm_app = typer.Typer(
+    name="llm",
+    help="Set up transcript cleanup with a language model: Apple Intelligence, a local "
+    "model, or a cloud provider with your API key.",
+    no_args_is_help=True,
+    add_completion=False,
+)
+app.add_typer(llm_app)
+llm_key_app = typer.Typer(
+    name="key",
+    help="API keys for cloud providers, stored in the macOS Keychain (never in the config).",
+    no_args_is_help=True,
+    add_completion=False,
+)
+llm_app.add_typer(llm_key_app)
+
+
+@llm_app.command("status")
+def llm_status(
+    backend: str | None = typer.Option(
+        None, "--backend", help="Check this backend instead of the configured one."
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Where cleanup runs, whether it can right now, and what to do if not."""
+    from huske.distill.llm_cli import run_status
+
+    raise typer.Exit(run_status(json_output=json_output, config_path=config_path, backend=backend))
+
+
+@llm_app.command("models")
+def llm_models(
+    backend: str | None = typer.Option(None, "--backend", help="Provider to ask (default: configured)."),
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """List the models a provider offers (uses your stored key for cloud providers)."""
+    from huske.distill.llm_cli import run_models
+
+    raise typer.Exit(run_models(json_output=json_output, config_path=config_path, backend=backend))
+
+
+@llm_app.command("allow-cloud")
+def llm_allow_cloud(
+    yes: bool = typer.Option(False, "--yes", help="Confirm without the interactive question."),
+    revoke: bool = typer.Option(False, "--revoke", help="Stop sending transcripts off this Mac."),
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Allow sending transcript text to the configured provider's host (asks first)."""
+    from huske.distill.llm_cli import run_allow_cloud
+
+    raise typer.Exit(
+        run_allow_cloud(yes=yes, revoke=revoke, json_output=json_output, config_path=config_path)
+    )
+
+
+@llm_app.command("test")
+def llm_test(
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Clean up a short synthetic sample with the configured backend."""
+    from huske.distill.llm_cli import run_test
+
+    raise typer.Exit(run_test(json_output=json_output, config_path=config_path))
+
+
+@llm_key_app.command("set")
+def llm_key_set(
+    provider: str = typer.Argument(..., help="openai, anthropic, openrouter or openai_compatible."),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Save an API key (prompted, or read from stdin — never pass it as an argument)."""
+    from huske.distill.llm_cli import run_key_set
+
+    raise typer.Exit(run_key_set(provider, json_output=json_output))
+
+
+@llm_key_app.command("remove")
+def llm_key_remove(
+    provider: str = typer.Argument(..., help="openai, anthropic, openrouter or openai_compatible."),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Delete a stored API key."""
+    from huske.distill.llm_cli import run_key_remove
+
+    raise typer.Exit(run_key_remove(provider, json_output=json_output))
+
+
+@llm_key_app.command("list")
+def llm_key_list(json_output: bool = typer.Option(False, "--json")) -> None:
+    """Which providers have a key saved (never prints the keys)."""
+    from huske.distill.llm_cli import run_key_list
+
+    raise typer.Exit(run_key_list(json_output=json_output))
+
+
+models_app = typer.Typer(
+    name="models",
+    help="See, choose, download and try transcription models. Without a subcommand: "
+    "the list.",
+    invoke_without_command=True,
+    add_completion=False,
+)
+app.add_typer(models_app)
+
+
+@models_app.callback()
+def models_main(
+    ctx: typer.Context,
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """List the transcription models: which is in use, languages, size, speed."""
+    if ctx.invoked_subcommand is None:
+        from huske.transcribe.models_cli import run_list
+
+        raise typer.Exit(run_list(json_output=json_output, config_path=config_path))
+
+
+@models_app.command("list")
+def models_list(
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """List the transcription models (same as `huske models`)."""
+    from huske.transcribe.models_cli import run_list
+
+    raise typer.Exit(run_list(json_output=json_output, config_path=config_path))
+
+
+@models_app.command("info")
+def models_info(
+    model: str = typer.Argument(..., help="Model id, Hugging Face repo, or local folder."),
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Everything about one model: languages, dictionary support, size, speed."""
+    from huske.transcribe.models_cli import run_info
+
+    raise typer.Exit(run_info(model, json_output=json_output, config_path=config_path))
+
+
+@models_app.command("use")
+def models_use(
+    model: str | None = typer.Argument(
+        None, help="Model id, Hugging Face repo, or local folder. Omit to pick from a list."
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Choose the transcription model (applies from the next session)."""
+    from huske.transcribe.models_cli import run_use
+
+    raise typer.Exit(run_use(model, json_output=json_output, config_path=config_path))
+
+
+@models_app.command("download")
+def models_download(
+    model: str | None = typer.Argument(None, help="Model to fetch (default: the one in use)."),
+    json_output: bool = typer.Option(
+        False, "--json", help="Stream progress as JSON lines (for Huske.app)."
+    ),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Download a model now instead of on first use."""
+    from huske.transcribe.models_cli import run_download
+
+    raise typer.Exit(run_download(model, json_output=json_output, config_path=config_path))
+
+
+@models_app.command("convert")
+def models_convert(
+    repo: str = typer.Argument(
+        ..., help="A Whisper fine-tune on Hugging Face in the transformers layout."
+    ),
+    name: str | None = typer.Option(None, "--name", help="Folder name under models_root."),
+    json_output: bool = typer.Option(
+        False, "--json", help="Stream progress as JSON lines (for Huske.app)."
+    ),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Convert a Hugging Face Whisper fine-tune (e.g. a Portuguese one) to run in Huske."""
+    from huske.transcribe.models_cli import run_convert
+
+    raise typer.Exit(
+        run_convert(repo, name=name, json_output=json_output, config_path=config_path)
+    )
+
+
+@models_app.command("try")
+def models_try(
+    model: str | None = typer.Argument(None, help="Model to try (default: the one in use)."),
+    audio: Path | None = typer.Option(
+        None, "--audio", help="Audio file to transcribe (default: a synthetic sample)."
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Transcribe a sample with a model and show how fast it runs on this Mac."""
+    from huske.transcribe.models_cli import run_try
+
+    raise typer.Exit(
+        run_try(model, audio=audio, json_output=json_output, config_path=config_path)
+    )
+
+
+@app.command("languages")
+def languages_cmd(json_output: bool = typer.Option(False, "--json")) -> None:
+    """Language codes for `language`, and what each engine does with them."""
+    from huske.distill.llm_cli import run_languages
+
+    raise typer.Exit(run_languages(json_output=json_output))
+
+
 @app.command("export")
 def export_cmd(
     export_root: Path | None = typer.Option(
@@ -461,16 +738,236 @@ def export_cmd(
     )
 
 
-@app.command()
+sync_app = typer.Typer(
+    name="sync",
+    help=(
+        "Publish transcripts to the private Git repository. With no subcommand, "
+        "publishes new and updated transcripts now."
+    ),
+    add_completion=False,
+)
+app.add_typer(sync_app)
+
+
+@sync_app.callback(invoke_without_command=True)
 def sync(
+    ctx: typer.Context,
     output_root: Path | None = typer.Option(None, "--output-root"),
     config_path: Path | None = typer.Option(None, "--config"),
+    republish: list[str] = typer.Option(
+        [],
+        "--republish",
+        help=(
+            "Publish this Mac's copy of a transcript path again, replacing a copy "
+            "that was changed in the repository or re-adding one deleted there. "
+            "Repeatable."
+        ),
+        metavar="PATH",
+    ),
 ) -> None:
-    """Publish every transcript not yet present in the configured Git repository."""
+    """Publish new and updated transcripts to the configured Git repository."""
+    if ctx.invoked_subcommand is not None:
+        return
     from huske.sync.runner import run_sync
 
     overrides = _collect_overrides(output_root=output_root)
-    raise typer.Exit(run_sync(config_path=config_path, cli_overrides=overrides))
+    raise typer.Exit(
+        run_sync(
+            config_path=config_path,
+            cli_overrides=overrides,
+            republish=tuple(republish),
+        )
+    )
+
+
+@sync_app.command("login")
+def sync_login(
+    json_output: bool = typer.Option(False, "--json", help="One JSON object per line."),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Connect GitHub with the Huske Sync app (enter a code in your browser)."""
+    from huske.sync.account import run_login
+
+    raise typer.Exit(run_login(config_path, json_output=json_output))
+
+
+@sync_app.command("logout")
+def sync_logout(
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Forget the GitHub sign-in on this Mac."""
+    from huske.sync.account import run_logout
+
+    raise typer.Exit(run_logout(config_path, json_output=json_output))
+
+
+@sync_app.command("status")
+def sync_status(
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Show how sync signs in to GitHub and where it publishes (no network)."""
+    from huske.sync.account import run_status
+
+    raise typer.Exit(run_status(config_path, json_output=json_output))
+
+
+@sync_app.command("repos")
+def sync_repos(
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """List the repositories shared with the Huske Sync app."""
+    from huske.sync.account import run_repos
+
+    raise typer.Exit(run_repos(config_path, json_output=json_output))
+
+
+@sync_app.command("use")
+def sync_use(
+    repository: str = typer.Argument(..., help="OWNER/REPO, shared with Huske Sync."),
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Publish to this private repository with the Huske Sync sign-in."""
+    from huske.sync.account import run_use
+
+    raise typer.Exit(run_use(repository, config_path, json_output=json_output))
+
+
+# ---------------------------------------------------------------------------
+# Engine inbox: external recordings (iPhone, audio files) → transcripts
+# ---------------------------------------------------------------------------
+
+inbox_app = typer.Typer(
+    name="inbox",
+    help="Hand recordings that did not come from live capture to the engine "
+    "for transcription (see `huske import` for the one-step version).",
+    no_args_is_help=True,
+    add_completion=False,
+)
+app.add_typer(inbox_app)
+
+
+@inbox_app.command("add")
+def inbox_add(
+    file: Path = typer.Argument(..., help="Audio file (m4a, caf, wav, flac, mp3, aiff, ogg, …)."),
+    item_id: str | None = typer.Option(
+        None,
+        "--id",
+        help="Stable id (1-64 of A-Z a-z 0-9 . _ -). Re-adding an id is a no-op. "
+        "Default: a hash of the file's contents.",
+    ),
+    title: str | None = typer.Option(None, "--title", help="Recorded in the transcripts."),
+    device: str | None = typer.Option(None, "--device", help="Recording device name."),
+    origin: str = typer.Option("file", "--origin", help="phone or file (default)."),
+    started_at: str | None = typer.Option(
+        None,
+        "--started-at",
+        help="ISO 8601 recording start. Default: the file's modification time "
+        "minus its duration.",
+    ),
+    duration: float | None = typer.Option(
+        None, "--duration", help="Duration in seconds, if known (probed otherwise)."
+    ),
+    move: bool = typer.Option(False, "--move", help="Move FILE into the inbox instead of copying it."),
+    language: str | None = typer.Option(
+        None, "--language", help="Spoken language of this recording (default: the config's)."
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Stage FILE as an inbox item and print its status."""
+    from huske.inbox.runner import run_inbox_add
+
+    raise typer.Exit(
+        run_inbox_add(
+            file,
+            item_id=item_id,
+            title=title,
+            device=device,
+            origin=origin,
+            started_at=started_at,
+            duration=duration,
+            move=move,
+            language=language,
+            json_output=json_output,
+            config_path=config_path,
+        )
+    )
+
+
+@inbox_app.command("process")
+def inbox_process(
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Transcribe every queued (or retryable failed) item now, then exit.
+
+    Returns immediately with deferred_to_engine when a running `huske run`
+    holds the inbox: it transcribes the queue itself.
+    """
+    from huske.inbox.runner import run_inbox_process
+
+    raise typer.Exit(run_inbox_process(json_output=json_output, config_path=config_path))
+
+
+@inbox_app.command("status")
+def inbox_status(
+    ids: list[str] | None = typer.Argument(None, help="Item ids (default: every item)."),
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Show inbox items, newest first."""
+    from huske.inbox.runner import run_inbox_status
+
+    raise typer.Exit(
+        run_inbox_status(ids or None, json_output=json_output, config_path=config_path)
+    )
+
+
+@inbox_app.command("retry")
+def inbox_retry(
+    ids: list[str] = typer.Argument(..., help="Failed item ids to re-queue."),
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Re-queue failed items (resets their 3-attempt budget)."""
+    from huske.inbox.runner import run_inbox_retry
+
+    raise typer.Exit(run_inbox_retry(ids, json_output=json_output, config_path=config_path))
+
+
+@app.command("import")
+def import_cmd(
+    files: list[Path] = typer.Argument(..., help="Audio files to transcribe."),
+    title: str | None = typer.Option(None, "--title"),
+    started_at: str | None = typer.Option(
+        None, "--started-at", help="ISO 8601 recording start (default: from the file)."
+    ),
+    language: str | None = typer.Option(
+        None,
+        "--language",
+        help="Spoken language of these files (e.g. pt), overriding the config. "
+        "Pinned on whisper; a hint on parakeet.",
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+    config_path: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Transcribe audio files into ordinary transcripts (inbox add + process)."""
+    from huske.inbox.runner import run_import
+
+    raise typer.Exit(
+        run_import(
+            list(files),
+            title=title,
+            started_at=started_at,
+            language=language,
+            json_output=json_output,
+            config_path=config_path,
+        )
+    )
 
 
 # ---------------------------------------------------------------------------

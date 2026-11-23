@@ -3,9 +3,32 @@
 #
 #   macos/scripts/build-app.sh [--debug]
 #
-# Output: macos/dist/Huske.app (ad-hoc signed, ready for `open`).
+# Output: macos/dist/Huske.app.
 # The bundle version is read from pyproject.toml — the repo's single source
 # of truth — so the app and the engine report the same version.
+#
+# Signing. HUSKE_CODESIGN_IDENTITY selects the identity:
+#   unset   auto-detect a "Developer ID Application" identity, ad-hoc if none
+#   "-"     force ad-hoc — what a contributor without a certificate gets
+#   other   used verbatim (common name or SHA-1 hash)
+# HUSKE_CODESIGN_KEYCHAIN pins the keychain to search, which is how CI signs
+# out of a throwaway keychain without touching the default one.
+#
+# Both paths apply the hardened runtime and Huske.entitlements, so a local
+# build hits the same TCC rules as the shipped one. That matters because the
+# audio-input entitlement only becomes load-bearing under `--options runtime`:
+# without it TCC denies the engine's microphone access *without prompting*.
+# See docs/adr/0010-developer-id-signing-and-notarization.md. A secure
+# timestamp needs a real identity, so the ad-hoc path skips it.
+#
+# The app carries one helper executable, Contents/Helpers/huske-apple-llm
+# (ADR 0013): the engine runs it to reach Apple Intelligence. It is built from
+# the same package in the same configuration and signed as nested code. Built
+# with an SDK older than Xcode 26 it can only answer "not_built"; that is a
+# warning by default and a failure with HUSKE_REQUIRE_APPLE_LLM=1 (releases and
+# the CI job that mirrors them set it — see macos/scripts/select-xcode.sh).
+#
+# Notarization is a separate step: macos/scripts/notarize-app.sh.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -20,13 +43,22 @@ if [[ -z "$VERSION" ]]; then
     exit 1
 fi
 
+ENTITLEMENTS=Huske.entitlements
+if [[ ! -f "$ENTITLEMENTS" ]]; then
+    echo "missing $PWD/$ENTITLEMENTS" >&2
+    exit 1
+fi
+
 echo "==> swift build -c $CONFIG (version $VERSION)"
 swift build -c "$CONFIG" --product Huske
+swift build -c "$CONFIG" --product huske-apple-llm
 
 BIN=$(swift build -c "$CONFIG" --product Huske --show-bin-path)/Huske
+HELPER_BIN=$(swift build -c "$CONFIG" --product huske-apple-llm --show-bin-path)/huske-apple-llm
 APP=dist/Huske.app
+HELPER="$APP/Contents/Helpers/huske-apple-llm"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Helpers"
 
 echo "==> icon"
 if [[ ! -f .cache/AppIcon.icns ]]; then
@@ -42,6 +74,35 @@ cp "$BIN" "$APP/Contents/MacOS/Huske"
 BUNDLE_DIR=$(dirname "$BIN")
 if [[ -d "$BUNDLE_DIR/Huske_Huske.bundle" ]]; then
     cp -R "$BUNDLE_DIR/Huske_Huske.bundle" "$APP/Contents/Resources/"
+fi
+
+echo "==> helper: Contents/Helpers/huske-apple-llm"
+cp "$HELPER_BIN" "$HELPER"
+# An SDK without FoundationModels (Xcode < 26) still builds the helper, but it
+# can only ever answer "not_built" — the engine then says so instead of
+# offering Apple Intelligence. Worth a loud line in the build log.
+HELPER_STATUS=$("$HELPER" --status 2>/dev/null || true)
+REQUIRE_APPLE_LLM="${HUSKE_REQUIRE_APPLE_LLM:-0}"
+if [[ "$HELPER_STATUS" =~ \"reason\"[[:space:]]*:[[:space:]]*\"not_built\" ]]; then
+    if [[ "$REQUIRE_APPLE_LLM" == "1" ]]; then
+        echo "error: this SDK has no FoundationModels, so huske-apple-llm reports" >&2
+        echo "       not_built. Build with Xcode 26 or newer" >&2
+        echo "       (macos/scripts/select-xcode.sh)." >&2
+        exit 1
+    fi
+    echo "warning: this SDK has no FoundationModels — the bundled huske-apple-llm" >&2
+    echo "         reports not_built, so Apple Intelligence will not be offered." >&2
+    echo "         Build with Xcode 26 or newer to include it." >&2
+elif [[ -z "$HELPER_STATUS" ]]; then
+    if [[ "$REQUIRE_APPLE_LLM" == "1" ]]; then
+        echo "error: huske-apple-llm --status printed nothing" >&2
+        exit 1
+    fi
+    echo "warning: huske-apple-llm --status printed nothing" >&2
+else
+    # Any other answer (available, or unavailable on this machine — a CI VM
+    # has no Apple Intelligence) proves the framework was compiled in.
+    echo "    $HELPER_STATUS"
 fi
 
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -77,11 +138,86 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <string>Huske records your microphone to transcribe your conversations locally on this Mac. Audio never leaves your machine.</string>
     <key>NSAudioCaptureUsageDescription</key>
     <string>Huske captures system audio (calls, videos) to transcribe both sides of a conversation locally on this Mac.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Huske receives recordings from your iPhone over your local network.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_huske-sync._tcp</string>
+    </array>
 </dict>
 </plist>
 PLIST
 
-echo "==> codesign (ad-hoc)"
-codesign --force --deep --sign - "$APP"
+# --- signing ---------------------------------------------------------------
+
+KEYCHAIN="${HUSKE_CODESIGN_KEYCHAIN:-}"
+
+IDENTITY="${HUSKE_CODESIGN_IDENTITY:-}"
+if [[ -z "$IDENTITY" ]]; then
+    # `security find-identity` prints `  1) <sha1> "<name>"`. Match the hash
+    # rather than the name so a keychain holding two Developer ID certs still
+    # signs deterministically. Finding none is the normal contributor case.
+    IDENTITY=$(security find-identity -v -p codesigning ${KEYCHAIN:+"$KEYCHAIN"} 2>/dev/null |
+        sed -n 's/^ *[0-9][0-9]*) \([0-9A-F][0-9A-F]*\) "Developer ID Application.*"$/\1/p' |
+        head -1)
+    IDENTITY="${IDENTITY:--}"
+fi
+
+# Nested code is sealed without entitlements: entitlements belong to the
+# executable the system launches. The font bundle has no executable, and the
+# helper is started by the engine, not by the system, and needs none.
+NESTED_ARGS=(--force --options runtime)
+if [[ -n "$KEYCHAIN" ]]; then
+    NESTED_ARGS+=(--keychain "$KEYCHAIN")
+fi
+if [[ "$IDENTITY" == "-" ]]; then
+    echo "==> codesign (ad-hoc — not distributable)"
+else
+    # Notarization rejects a signature without a secure timestamp.
+    NESTED_ARGS+=(--timestamp)
+    echo "==> codesign ($IDENTITY)"
+fi
+APP_ARGS=("${NESTED_ARGS[@]}" --entitlements "$ENTITLEMENTS")
+
+# Nested *code* only. A resource-only bundle — which is all SwiftPM's
+# `Huske_Huske.bundle` is — carries no Mach-O, so the app's own seal covers it
+# as a resource; signing it separately is meaningless and older codesign
+# refuses outright with "bundle format unrecognized, invalid, or unsuitable".
+# `--deep` skipped these for the same reason, which is why dropping it is what
+# surfaced the problem. CFBundleExecutable is the system's own test for whether
+# a bundle has code to load, and it reads both bundle layouts.
+bundle_has_code() {
+    local plist="$1/Contents/Info.plist"
+    [[ -f "$plist" ]] || plist="$1/Info.plist"
+    [[ -f "$plist" ]] || return 1
+    /usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$plist" >/dev/null 2>&1
+}
+
+# Inside out: the outer seal covers the nested seals, so nested code must be
+# signed first. `-depth` keeps that true if a bundle is ever nested in another.
+# (`--deep` would do this in one call, but Apple deprecated it for signing and
+# it would copy the app's entitlements onto everything it touches.)
+while IFS= read -r -d '' nested; do
+    if ! bundle_has_code "$nested"; then
+        echo "    resources (sealed by the app): ${nested#"$APP"/}"
+        continue
+    fi
+    echo "    nested: ${nested#"$APP"/}"
+    codesign "${NESTED_ARGS[@]}" --sign "$IDENTITY" "$nested"
+done < <(find "$APP/Contents" -depth -name '*.bundle' -type d -print0)
+
+# The helper is a bare Mach-O, not a bundle, so the loop above never sees it.
+# Signed before the app for the same inside-out reason, with the hardened
+# runtime (and a timestamp when the identity is real) so notarization accepts
+# it, and a stable identifier rather than codesign's file-name-plus-hash.
+echo "    nested: ${HELPER#"$APP"/}"
+codesign "${NESTED_ARGS[@]}" --identifier cloud.tiagomoraes.huske.apple-llm \
+    --sign "$IDENTITY" "$HELPER"
+
+codesign "${APP_ARGS[@]}" --sign "$IDENTITY" "$APP"
+codesign --verify --deep --strict "$APP"
 
 echo "==> done: macos/$APP"
+if [[ "$IDENTITY" != "-" ]]; then
+    echo "    next: macos/scripts/notarize-app.sh"
+fi

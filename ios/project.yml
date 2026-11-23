@@ -1,0 +1,189 @@
+# XcodeGen spec for the Huske iPhone app. The .xcodeproj is generated and
+# ignored: run `xcodegen` in this directory after pulling or editing this file.
+name: Huske
+
+options:
+  bundleIdPrefix: cloud.tiagomoraes.huske
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: false
+  groupSortPosition: top
+  generateEmptyDirectories: false
+
+settings:
+  base:
+    # Stamped from ../pyproject.toml by scripts/generate.sh (single source of truth).
+    MARKETING_VERSION: "${HUSKE_VERSION}"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    # iOS 18 runs on every iPhone iOS 17 does, and brings the Action button /
+    # Control Center control and background recording from an App Intent.
+    IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    # Set your team to build for a device (the owner's team is QD5A8CZK76):
+    #   DEVELOPMENT_TEAM=QD5A8CZK76 xcodebuild …   or edit it in Xcode.
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    # Simulator builds are ad-hoc signed and need no team.
+    "CODE_SIGN_IDENTITY[sdk=iphonesimulator*]": "-"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    DEAD_CODE_STRIPPING: YES
+    LOCALIZATION_PREFERS_STRING_CATALOGS: YES
+    SWIFT_EMIT_LOC_STRINGS: YES
+
+packages:
+  HuskeSync:
+    path: ../macos
+
+targets:
+  Huske:
+    type: application
+    platform: iOS
+    sources:
+      - path: Huske
+        excludes:
+          - "**/*.md"
+      - path: Shared
+      - path: ../macos/Sources/Huske/Resources/Fonts
+        buildPhase: resources
+    dependencies:
+      - package: HuskeSync
+        product: HuskeSync
+      - target: HuskeLiveActivity
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: cloud.tiagomoraes.huske.ios
+        PRODUCT_NAME: Huske
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        INFOPLIST_KEY_CFBundleDisplayName: Huske
+    info:
+      path: Huske/Info.plist
+      properties:
+        CFBundleDisplayName: Huske
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIRequiredDeviceCapabilities:
+          - microphone
+        NSMicrophoneUsageDescription: >-
+          Huske records audio with the microphone. Recordings stay on this
+          iPhone and on your own Mac.
+        NSCameraUsageDescription: >-
+          The camera scans the pairing code that Huske shows on your Mac.
+        NSLocalNetworkUsageDescription: >-
+          Huske finds your paired Mac on the local network to send it your
+          recordings for transcription. Nothing goes to the cloud.
+        NSBonjourServices:
+          - _huske-sync._tcp
+        NSSupportsLiveActivities: true
+        UIBackgroundModes:
+          - audio
+          - fetch
+          - processing
+        BGTaskSchedulerPermittedIdentifiers:
+          - cloud.tiagomoraes.huske.ios.sync-refresh
+          - cloud.tiagomoraes.huske.ios.sync-processing
+        CFBundleURLTypes:
+          - CFBundleURLName: cloud.tiagomoraes.huske.ios.pairing
+            CFBundleURLSchemes:
+              - huske
+        UIAppFonts:
+          - IBMPlexSans-Variable.ttf
+          - IBMPlexMono-Regular.ttf
+          - IBMPlexMono-Medium.ttf
+          - IBMPlexMono-SemiBold.ttf
+          - IBMPlexSerif-Italic.ttf
+          - IBMPlexSerif-Regular.ttf
+          - IBMPlexSerif-Medium.ttf
+
+  HuskeLiveActivity:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: HuskeLiveActivity
+      - path: Shared
+      # Same IBM Plex files as the app (one shared group in the project).
+      - path: ../macos/Sources/Huske/Resources/Fonts
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: cloud.tiagomoraes.huske.ios.LiveActivity
+        PRODUCT_NAME: HuskeLiveActivity
+        SKIP_INSTALL: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    info:
+      path: HuskeLiveActivity/Info.plist
+      properties:
+        CFBundleDisplayName: Huske
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+        # Only the faces the Live Activity draws with (memory is tight there).
+        UIAppFonts:
+          - IBMPlexSans-Variable.ttf
+          - IBMPlexSerif-Italic.ttf
+
+  HuskeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: HuskeTests
+    dependencies:
+      - target: Huske
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: cloud.tiagomoraes.huske.ios.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+  # Design-review screenshot tour (Live Activity on the Lock Screen, Dynamic
+  # Island). Lives in its own scheme so `-scheme Huske` stays unit-only.
+  HuskeUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: HuskeUITests
+    dependencies:
+      - target: Huske
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: cloud.tiagomoraes.huske.ios.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Huske
+
+schemes:
+  HuskeScreenshots:
+    build:
+      targets:
+        Huske: all
+        HuskeUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - HuskeUITests
+  Huske:
+    build:
+      targets:
+        Huske: all
+        HuskeTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - HuskeTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

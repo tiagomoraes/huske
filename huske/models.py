@@ -83,6 +83,11 @@ class Transcript:
     body: str
     huske_version: str
     segments: list[TranscriptSegment] | None = None
+    # Additive frontmatter keys rendered after the core ones, in insertion
+    # order. Only imported recordings (the engine inbox) set them: `origin`,
+    # `device`, `title`, `import_id`. Live chunks leave this None, so their
+    # rendered output is unchanged.
+    extra_frontmatter: dict[str, str | int | float | bool] | None = None
 
     @property
     def date(self) -> str:
@@ -116,6 +121,9 @@ class RenderState:
     screenshots_count: int = 0
     last_screenshot_at: datetime | None = None
     distill_enabled: bool = False
+    # Where post-processing runs, in words ("Apple Intelligence",
+    # "Anthropic · claude-haiku-5-5"); empty when unknown.
+    distill_label: str = ""
     asr_rss_mb: float = 0.0
     distill_rss_mb: float = 0.0
     engine_rss_mb: float = 0.0

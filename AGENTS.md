@@ -11,6 +11,13 @@ add local workflow notes, but this file is the shared baseline.
 - `macos/`: native macOS app (SwiftPM; SwiftUI shell over the engine's
   control socket — see `docs/adr/0006-native-macos-app.md`). Check with
   `cd macos && swift build && swift test`.
+- `macos/Sources/HuskeSync`: the phone ↔ Mac sync library (Bonjour + TLS-PSK),
+  shared by the Mac app and the iPhone app — the wire contract is
+  `specs/002-phone-sync/contracts/sync-protocol.md`.
+- `ios/`: the iPhone recorder app (SwiftUI, XcodeGen). Generate with
+  `cd ios && ./scripts/generate.sh`, then `xcodebuild test -project
+  Huske.xcodeproj -scheme Huske -destination 'platform=iOS Simulator,name=…'`.
+  See `docs/adr/0011-iphone-recorder-and-mac-sync.md`.
 - `services/huske_mcp/`: independent Linux/VPS distribution that pulls the
   private transcript Git repository, indexes its replica, and serves MCP.
 - `tests/`: unit and integration tests (Python; Swift tests live in
@@ -31,13 +38,23 @@ add local workflow notes, but this file is the shared baseline.
 ## Transcript Sync and Read Surfaces
 
 The recording package has no MCP or public read endpoint. Its only cloud write
-surface is `huske/sync/`, which publishes immutable Markdown through Git.
+surface is `huske/sync/`, which publishes transcript Markdown through Git.
 
 - Never add audio, screenshots, logs, config, credentials, model caches, or
   derived indexes to the sync checkout.
-- Never overwrite a different file at an established transcript path.
+- Only replace a transcript in the repository when the copy there is Huske's
+  own: it matches the publisher's ledger or the raw `.asr.txt` snapshot. Any
+  other copy is a conflict and is never overwritten. A path deleted in the
+  repository is not published again unless the user passes `--republish`
+  (ADR 0009, 2026-11 amendment).
 - Keep the recording callback non-blocking; Git work belongs in the sync thread.
-- Do not persist GitHub credentials. Reuse Git/SSH credential infrastructure.
+- With `sync_auth = "git"`, Huske stores no credential and reuses the Mac's
+  Git/SSH sign-in. With `sync_auth = "github-app"` (Huske Sync), the token
+  lives only in the macOS Keychain, written over `security -i` stdin. It
+  reaches Git only through per-command environment, is renewed only under the
+  sync lock, and is never printed, logged, or written to config or
+  `.git/config`. Never add permissions to the Huske Sync app beyond Contents
+  and Metadata.
 
 The permanent read surface lives in the independent
 `services/huske_mcp/` distribution (ADR 0009).
