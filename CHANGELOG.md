@@ -6,6 +6,14 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+### Fixed
+
+- **Huske for iPhone is an iPhone app again.** It was built as a universal
+  iPhone and iPad app by accident: XcodeGen's target preset overrode the
+  project's iPhone-only setting. The App Store would have needed an iPad
+  design and iPad screenshots for it. The archive check now refuses a build
+  that claims iPad.
+
 ## 0.15.2 - 2026-11-23
 
 ### Added
