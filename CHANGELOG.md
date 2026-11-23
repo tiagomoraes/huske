@@ -6,6 +6,19 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+### Added
+
+- **Huske for iPhone is getting ready for the App Store.**
+  - The Mac screen links to the privacy policy and the support page.
+  - With no Mac paired, it says where to get Huske for Mac.
+  - The empty library reminds you to let people know before you record them.
+  - The app carries Apple's privacy manifests and export-compliance key.
+- **App Store builds, for maintainers.** `ios/scripts/archive-upload.sh` signs
+  the iPhone app for the App Store and uploads it to TestFlight, and a release
+  now does the same in GitHub Actions (`ios-app-store.yml`). Its texts and
+  pictures are in `ios/AppStore/`, and the plan behind it is in
+  `docs/research/app-store-distribution.md`.
+
 ## 0.15.1 - 2026-11-22
 
 ### Fixed
