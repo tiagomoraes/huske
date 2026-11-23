@@ -61,7 +61,7 @@ Updated 2026-11-22.
 - **App Store Connect record:** "Huske for iPhone", Apple ID 6838172707 ("Huske" was taken).
 - **First build:** version 0.15.1 (build 20261123.520) is processed, attached to the version, and in TestFlight for an internal "Owner" group.
 - **The first upload attempts failed, and the scripts now catch both causes:**
-  - the iPad orientations (ITMS-90474-style validation);
+  - the iPad orientations ("Invalid bundle … to support iPad multitasking");
   - an App Intent description that said "Mac" (ITMS-90626).
 - **Product page:**
   - texts from `ios/AppStore/listing.md`;
