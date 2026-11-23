@@ -29,7 +29,7 @@ repository was only read, never changed.
 
 ## 0. Decision and progress
 
-Updated 2026-11-22.
+Updated 2026-11-23.
 
 **Done**
 - App IDs `cloud.tiagomoraes.huske.ios` and `cloud.tiagomoraes.huske.ios.LiveActivity`
@@ -75,12 +75,32 @@ Updated 2026-11-22.
   - not offered on Apple silicon Macs or Vision Pro.
 - **Promotion:** `ios/AppStore/launch.md`.
 
+**Submitted (2026-11-23)**
+- **Version 0.15.2 is waiting for review**, with build 20261123.1918. It was
+  built from the `v0.15.2` release (PR #150 on top), and release is
+  **manual**: approval doesn't publish it.
+- Two blockers came up at submission, and both are fixed:
+  - **App Review details:** App Store Connect wouldn't save the notes until
+    the contact fields were filled.
+  - **iPad screenshots:** "Add for Review" asked for 13" iPad screenshots,
+    because the build claimed iPad (`UIDeviceFamily [1, 2]`). XcodeGen's
+    application preset sets `TARGETED_DEVICE_FAMILY "1,2"` on each target,
+    which overrides the project-level `"1"`. The app and the extension now set
+    it themselves, and `verify-app-store-archive.sh` refuses an archive that
+    claims iPad. The same cause explains the earlier upload error about iPad
+    multitasking orientations.
+- **The review video** (46 s) is attached. It shows the iOS Simulator paired
+  with Huske.app. The notes offer a physical-device video on request.
+- **Release 0.15.2** shipped #145, so `/privacy/` and `/support/` are live.
+
 **Left (owner)**
-- **App Review contact details** (name, phone, email). App Store Connect won't save the review notes without them; the notes are in `listing.md`.
-- **The review video**, on a physical iPhone and Mac.
-- **Ship #145 in a release**, so `/privacy/` and `/support/` are live.
-- **Install the TestFlight invite** and try the build.
-- **Submit for review.** After approval: merge #146, then follow `launch.md`.
+- **Answer App Review** if it asks anything, typically within 48 hours.
+- **Release the approved version** in App Store Connect (manual release).
+- **After release:**
+  - merge #146 (the website's App Store link);
+  - add a "Get Huske for iPhone" link to the Mac app;
+  - follow `ios/AppStore/launch.md`.
+- **Install the TestFlight invite** and try the build on a real iPhone.
 
 ---
 
