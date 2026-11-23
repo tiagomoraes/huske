@@ -20,6 +20,9 @@ enum ScreenRenderer {
         else { return false }
         let outDir = URL(fileURLWithPath: args[flagIndex + 1], isDirectory: true)
         try? FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+        // `scripts/smoke-launch.sh` checks this line: a packaged app that
+        // can't find its resource bundle renders with system fonts instead.
+        print("brand fonts registered: \(BrandFonts.registered)")
         render(into: outDir)
         return true
     }
