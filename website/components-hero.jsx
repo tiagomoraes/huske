@@ -94,8 +94,8 @@ const Dock = () => {
   return (
     <div className="dock" aria-hidden="true">
       <div className="dock-state"><span className="rec-dot"/>Recording<span className="t">{fmtClock(1521 + t)}</span></div>
-      <div className="dock-meter"><span>mic</span><span className="track"><span className="fill" style={{ width: `${mic * 100}%` }}/></span></div>
-      <div className="dock-meter"><span>sys</span><span className="track"><span className="fill" style={{ width: `${sys * 100}%` }}/></span></div>
+      <div className="dock-meter"><span>mic</span><span className="track"><span className="fill" style={{ transform: `scaleX(${mic})` }}/></span></div>
+      <div className="dock-meter"><span>sys</span><span className="track"><span className="fill" style={{ transform: `scaleX(${sys})` }}/></span></div>
       <div className="dock-btns"><span><PauseGlyph/>Pause</span><span><StopGlyph/>Stop</span></div>
     </div>
   );

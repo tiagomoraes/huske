@@ -211,8 +211,9 @@ const IPhoneDoc = () => (
     <h3>Install it</h3>
     <p>The iPhone app isn’t in the App Store. Build it with Xcode 26 or later and XcodeGen:</p>
     <Term lines={[
+      { cmd: "git clone https://github.com/tiagomoraes/huske.git" },
       { cmd: "brew install xcodegen" },
-      { cmd: "cd ios && ./scripts/generate.sh", note: "creates Huske.xcodeproj" },
+      { cmd: "cd huske/ios && ./scripts/generate.sh", note: "creates Huske.xcodeproj" },
       { cmd: "open Huske.xcodeproj" },
     ]}/>
     <p className="docs-aside">

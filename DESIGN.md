@@ -35,8 +35,10 @@ of any screen.
 ## Typography
 
 - **Sans**: IBM Plex Sans (variable) — headings, labels, prose. Fallback SF.
-- **Mono**: IBM Plex Mono — timestamps, ids, dB, filenames, code, eyebrows.
-- **Serif italic**: IBM Plex Serif Italic — the word *huske* only.
+- **Mono**: IBM Plex Mono — time (timestamps, durations), ids, dB, filenames,
+  code. Never labels or headings (see "Quiet instrument").
+- **Serif**: IBM Plex Serif — what people said (transcripts, excerpts); its
+  italic is reserved for the word *huske*.
 - Scale (app): h1 20/semibold −0.015em · h2 15/semibold · body 13 · small
   12 · caption/mono-sm 11 · eyebrow 11 mono medium +0.12em uppercase muted.
 - Product register: fixed sizes, ~1.2 ratio, no fluid type.
