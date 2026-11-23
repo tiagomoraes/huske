@@ -706,6 +706,22 @@ p { margin: 0 0 14px; }
 .docs-table td:first-child code { white-space: nowrap; }
 .docs-table .dt-default { font-family: var(--font-mono); font-size: 13px; color: var(--fg); white-space: nowrap; }
 .docs-table .dt-dash { color: var(--text-3); }
+
+/* Privacy policy and support pages: the docs column without its contents rail. */
+.legal-shell { padding-top: 48px; padding-bottom: 96px; }
+.legal-shell .docs-sec { padding-bottom: 40px; }
+.legal-shell .docs-sec + .docs-sec { padding-top: 40px; }
+.legal-shell .docs-sec h2 { font-size: clamp(24px, 2.4vw, 28px); }
+.legal-table { min-width: 0; }
+.legal-table td:first-child { color: var(--fg); font-weight: 600; width: 24%; }
+@media (max-width: 640px) {
+  .legal-table thead { display: none; }
+  .legal-table, .legal-table tbody, .legal-table tr, .legal-table td { display: block; width: auto; }
+  .legal-table tr { padding: 14px 16px; border-bottom: 1px solid var(--border-soft); }
+  .legal-table tr:last-child { border-bottom: 0; }
+  .legal-table td, .legal-table td:first-child { padding: 3px 0; border: 0; width: auto; }
+  .legal-table td[data-label]::before { content: attr(data-label) ": "; color: var(--text-3); }
+}
 .docs-details { margin: 18px 0; }
 .docs-details > summary { cursor: pointer; font-weight: 600; padding: 10px 0; list-style: none; display: flex; gap: 10px; align-items: center; }
 .docs-details > summary::-webkit-details-marker { display: none; }

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>huske — privacy policy</title>
+  <meta name="description" content="Huske collects nothing about you. Recordings stay on your iPhone and Mac, and leave them only through features you turn on."/>
+  <meta property="og:title" content="huske — privacy policy"/>
+  <meta property="og:description" content="Huske collects nothing about you. Recordings stay on your iPhone and Mac, and leave them only through features you turn on."/>
+  <meta property="og:type" content="website"/>
+  <meta name="twitter:card" content="summary"/>
+  <link rel="icon" href="../assets/logo-favicon.svg"/>
+  <link rel="stylesheet" href="../site.css"/>
+  <meta name="color-scheme" content="dark light"/>
+  <script>
+    // An explicit choice wins; otherwise follow the system appearance.
+    (function() {
+      var t = null;
+      try { t = localStorage.getItem("huske-theme"); } catch (e) {}
+      if (!t) {
+        try { t = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"; } catch (e) { t = "dark"; }
+      }
+      document.documentElement.setAttribute("data-theme", t);
+    })();
+  </script>
+  <script src="../version.js"></script>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+  <script type="text/babel" src="../components-shell.jsx"></script>
+  <script type="text/babel" src="../components-hero.jsx"></script>
+  <script type="text/babel" src="../components-legal.jsx"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    function App() {
+      const [theme, setTheme] = useTheme();
+      return (
+        <React.Fragment>
+          <a className="skip" href="#main">Skip to content</a>
+          <Nav theme={theme} setTheme={setTheme} base="../" docsHref="../docs/"/>
+          <main id="main">
+            <PrivacyPolicy/>
+          </main>
+          <Footer base="../" docsHref="../docs/"/>
+        </React.Fragment>
+      );
+    }
+    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+  </script>
+</body>
+</html>
