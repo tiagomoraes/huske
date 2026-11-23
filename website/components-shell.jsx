@@ -1,17 +1,12 @@
 // huske website — Mark, Nav, theme controller, Footer, shared icons.
 
-const Mark = ({ size = 22 }) => (
+// The logo mark. `lit` paints the first bar amber, the way the app icon does.
+const Mark = ({ size = 22, lit = false }) => (
   <svg viewBox="0 0 64 64" width={size} height={size} aria-hidden="true">
-    <rect x="14" y="10" width="6" height="44" rx="1.2" fill="currentColor"/>
+    <rect className={lit ? "lit" : undefined} x="14" y="10" width="6" height="44" rx="1.2" fill="currentColor"/>
     <rect x="24" y="24" width="26" height="5" rx="1.2" fill="currentColor"/>
     <rect x="24" y="34" width="20" height="5" rx="1.2" fill="currentColor"/>
     <rect x="24" y="44" width="14" height="5" rx="1.2" fill="currentColor"/>
-  </svg>
-);
-
-const ArrowRight = ({ size = 14 }) => (
-  <svg viewBox="0 0 14 14" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M2.5 7h9M8 3.5L11.5 7 8 10.5"/>
   </svg>
 );
 
@@ -25,6 +20,12 @@ const SunIcon = () => (
 const MoonIcon = () => (
   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M13.5 9.5A6 6 0 1 1 6.5 2.5 5 5 0 0 0 13.5 9.5z"/>
+  </svg>
+);
+
+const MenuIcon = () => (
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+    <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/>
   </svg>
 );
 
@@ -53,32 +54,40 @@ const CheckGlyph = () => (
   </svg>
 );
 
-const KeyGlyph = ({ size = 13 }) => (
-  <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <circle cx="5.5" cy="5.5" r="3"/>
-    <path d="M7.7 7.7l5 5M11 11l1.5-1.5M9.5 9.5L11 8"/>
-  </svg>
-);
+const Chev = () => <span className="chev" aria-hidden="true">›</span>;
 
 // ---- Reusable copy-to-clipboard button ----
-const CopyButton = ({ text, className = "copy", withLabel = true }) => {
+const CopyButton = ({ text, label = "Copy", mini = false }) => {
   const [copied, setCopied] = React.useState(false);
   return (
     <button
       type="button"
-      className={`${className} ${copied ? "copied" : ""}`}
+      className={`copy ${mini ? "mini" : ""} ${copied ? "copied" : ""}`}
       onClick={() => {
         navigator.clipboard?.writeText(text);
         setCopied(true);
         setTimeout(() => setCopied(false), 1400);
       }}
-      aria-label={copied ? "Copied" : "Copy to clipboard"}
+      aria-label={copied ? "Copied" : `${label}: ${text}`}
     >
       {copied ? <CheckGlyph/> : <CopyGlyph/>}
-      {withLabel && <span>{copied ? "copied" : "copy"}</span>}
+      {!mini && <span>{copied ? "Copied" : label}</span>}
     </button>
   );
 };
+
+// A terminal block: one row per command, each with its own copy button.
+const Term = ({ lines }) => (
+  <div className="term">
+    {lines.map((l) => (
+      <div className="term-line" key={l.cmd}>
+        <code><span className="prompt">$</span>{l.cmd}</code>
+        {l.note && <span className="note">{l.note}</span>}
+        <CopyButton text={l.cmd} mini/>
+      </div>
+    ))}
+  </div>
+);
 
 // ---- Live GitHub star count (cached, fails quiet) ----
 const STARS_CACHE_KEY = "huske-stars";
@@ -128,137 +137,154 @@ function useGitHubStars(repo = "tiagomoraes/huske") {
 }
 
 // ---- Theme ----
+// An explicit choice (the toggle) is remembered; until then the site follows
+// the system appearance, like the Mac and iPhone apps do.
+function systemTheme() {
+  try {
+    return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  } catch (e) { return "dark"; }
+}
+
 function useTheme() {
-  const [theme, setTheme] = React.useState(() => {
-    if (typeof window === "undefined") return "dark";
-    return localStorage.getItem("huske-theme") || "dark";
+  const [chosen, setChosen] = React.useState(() => {
+    try { return localStorage.getItem("huske-theme"); } catch (e) { return null; }
   });
+  const [system, setSystem] = React.useState(systemTheme);
+  React.useEffect(() => {
+    let mq;
+    try { mq = window.matchMedia("(prefers-color-scheme: light)"); } catch (e) { return undefined; }
+    const onChange = () => setSystem(systemTheme());
+    mq.addEventListener?.("change", onChange);
+    return () => mq.removeEventListener?.("change", onChange);
+  }, []);
+  const theme = chosen || system;
   React.useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("huske-theme", theme);
   }, [theme]);
+  const setTheme = (t) => {
+    setChosen(t);
+    try { localStorage.setItem("huske-theme", t); } catch (e) {}
+  };
   return [theme, setTheme];
 }
 
 const ThemeToggle = ({ theme, setTheme }) => (
   <button
+    type="button"
     className="icon-btn"
     onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-    aria-label="Toggle theme"
-    title={theme === "dark" ? "switch to paper" : "switch to ink"}
+    aria-label={theme === "dark" ? "Use the light theme" : "Use the dark theme"}
+    title={theme === "dark" ? "Light theme" : "Dark theme"}
   >
     {theme === "dark" ? <SunIcon/> : <MoonIcon/>}
   </button>
 );
 
 // `base` prefixes the in-page anchors so the shared Nav works on the docs page
-// (docs/index.html): on the landing page base="" → "#why"; on the docs page
-// base="../" → "../#why" (i.e. /huske/#why). `docsHref` is the link to the docs
-// page itself: "docs/" from the landing root, "./" when already on the docs page.
+// (docs/index.html): on the landing page base="" → "#iphone"; on the docs page
+// base="../" → "../#iphone". `docsHref` is the link to the docs page itself:
+// "docs/" from the landing root, "./" when already on the docs page.
+const NAV_LINKS = [
+  { id: "iphone", label: "iPhone" },
+  { id: "how", label: "How it works" },
+  { id: "quality", label: "Transcripts" },
+  { id: "sync", label: "Sync" },
+  { id: "privacy", label: "Privacy" },
+  { id: "releases", label: "Changelog" },
+];
+
 const Nav = ({ theme, setTheme, base = "", docsHref = "docs/" }) => {
   const stars = useGitHubStars();
   const at = (id) => `${base}#${id}`;
   return (
-    <nav className="nav">
-      <a href={base || "#"} className="brand">
-        <Mark/>
-        <span className="word">huske</span>
-        <span className="ver">v{HUSKE_VERSION}</span>
-      </a>
-      <div className="links">
-        <a href={at("start")}>start</a>
-        <a href={at("why")}>why</a>
-        <a href={at("how")}>how</a>
-        <a href={at("output")}>output</a>
-        <a href={at("search")}>cloud sync</a>
-        <a href={at("connect")}>mcp service</a>
-        <a href={at("privacy")}>privacy</a>
-        <a href={at("releases")}>releases</a>
-        <a href={at("faq")}>faq</a>
-        <a href={docsHref}>docs</a>
-      </div>
-      <div className="right">
-        <ThemeToggle theme={theme} setTheme={setTheme}/>
-        <a className="gh-pill" href="https://github.com/tiagomoraes/huske" target="_blank" rel="noopener" title="Star huske on GitHub">
-          <GhGlyph size={13}/>
-          <span>github</span>
-          <span className="sep"/>
-          <span className="star"><StarGlyph/></span>
-          <span className={`num ${stars == null ? "loading" : ""}`}>{stars == null ? "—" : formatStars(stars)}</span>
+    <nav className="nav" aria-label="Main">
+      <div className="page nav-inner">
+        <a href={base || "#top"} className="brand" aria-label="huske, home">
+          <Mark size={20} lit/>
+          <span className="word">huske</span>
+          <span className="ver">v{HUSKE_VERSION}</span>
         </a>
+        <div className="nav-links">
+          {NAV_LINKS.map((l) => <a key={l.id} href={at(l.id)}>{l.label}</a>)}
+          <a href={docsHref}>Docs</a>
+        </div>
+        <div className="nav-right">
+          <details className="nav-menu">
+            <summary className="icon-btn" aria-label="Menu"><MenuIcon/></summary>
+            <div className="sheet">
+              {NAV_LINKS.map((l) => <a key={l.id} href={at(l.id)}>{l.label}</a>)}
+              <a href={docsHref}>Docs</a>
+            </div>
+          </details>
+          <ThemeToggle theme={theme} setTheme={setTheme}/>
+          <a className="gh" href="https://github.com/tiagomoraes/huske" target="_blank" rel="noopener" title="huske on GitHub">
+            <GhGlyph size={15}/>
+            <span className="label">GitHub</span>
+            <span className="num" aria-label={stars == null ? undefined : `${stars} stars`}>
+              <StarGlyph/>{stars == null ? "—" : formatStars(stars)}
+            </span>
+          </a>
+        </div>
       </div>
     </nav>
   );
 };
 
+const GH = "https://github.com/tiagomoraes/huske";
+
 const Footer = ({ base = "", docsHref = "docs/" }) => (
   <footer className="foot">
     <div className="page">
-      <div className="grid">
-        <div className="col">
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18, color: "var(--fg)" }}>
-            <Mark size={22}/>
-            <span style={{ fontWeight: 600, letterSpacing: "-0.03em", fontSize: 18 }}>huske</span>
-          </div>
-          <p>A local-first audio recall instrument for the terminal. <span className="gloss">huske</span> — Norwegian for "to remember."</p>
-          <p style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.06em" }}>MIT · macOS 13+ · Apple Silicon</p>
+      <div className="foot-grid">
+        <div className="about">
+          <a href={base || "#top"} className="brand"><Mark size={20} lit/><span className="word">huske</span></a>
+          <p>Records on your Mac and your iPhone, and writes down what was said on your Mac. Open source, MIT licensed.</p>
         </div>
-        <div className="col">
-          <h5>product</h5>
+        <div>
+          <h5>Product</h5>
           <ul>
-            <li><a href={`${base}#start`}>get started</a></li>
-            <li><a href={`${base}#why`}>why huske</a></li>
-            <li><a href={`${base}#how`}>how it works</a></li>
-            <li><a href={`${base}#output`}>output format</a></li>
-            <li><a href={`${base}#search`}>cloud sync</a></li>
-            <li><a href={`${base}#connect`}>VPS &amp; MCP</a></li>
-            <li><a href={`${base}#privacy`}>privacy</a></li>
-            <li><a href={`${base}#faq`}>faq</a></li>
-            <li><a href={docsHref}>docs</a></li>
+            <li><a href={`${base}#iphone`}>Huske for iPhone</a></li>
+            <li><a href={`${base}#how`}>How it works</a></li>
+            <li><a href={`${base}#quality`}>Transcripts</a></li>
+            <li><a href={`${base}#sync`}>Cloud sync</a></li>
+            <li><a href={`${base}#privacy`}>Privacy</a></li>
+            <li><a href={docsHref}>Docs</a></li>
           </ul>
         </div>
-        <div className="col">
-          <h5>resources</h5>
+        <div>
+          <h5>Reference</h5>
           <ul>
-            <li><a href="https://github.com/tiagomoraes/huske" target="_blank" rel="noopener">github</a></li>
-            <li><a href="https://github.com/tiagomoraes/huske/blob/main/CHANGELOG.md" target="_blank" rel="noopener">changelog</a></li>
-            <li><a href="https://github.com/tiagomoraes/huske/blob/main/specs/001-huske-recorder/quickstart.md" target="_blank" rel="noopener">quickstart</a></li>
-            <li><a href="https://github.com/tiagomoraes/huske/blob/main/specs/001-huske-recorder/contracts/cli.md" target="_blank" rel="noopener">cli contract</a></li>
-            <li><a href="https://pypi.org/project/huske/" target="_blank" rel="noopener">pypi</a></li>
+            <li><a href={`${GH}/blob/main/CHANGELOG.md`} target="_blank" rel="noopener">Changelog</a></li>
+            <li><a href={`${GH}/blob/main/docs/macos-app.md`} target="_blank" rel="noopener">The Mac app</a></li>
+            <li><a href={`${GH}/blob/main/ios/README.md`} target="_blank" rel="noopener">The iPhone app</a></li>
+            <li><a href={`${GH}/blob/main/docs/transcription-models.md`} target="_blank" rel="noopener">Transcription models</a></li>
+            <li><a href={`${GH}/blob/main/specs/001-huske-recorder/contracts/transcript-format.md`} target="_blank" rel="noopener">Transcript format</a></li>
+            <li><a href="https://pypi.org/project/huske/" target="_blank" rel="noopener">PyPI</a></li>
           </ul>
         </div>
-        <div className="col">
-          <h5>community</h5>
+        <div>
+          <h5>Community</h5>
           <ul>
-            <li><a href="https://github.com/tiagomoraes/huske/issues" target="_blank" rel="noopener">issues</a></li>
-            <li><a href="https://github.com/tiagomoraes/huske/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">contributing</a></li>
-            <li><a href="https://github.com/tiagomoraes/huske/blob/main/CODE_OF_CONDUCT.md" target="_blank" rel="noopener">code of conduct</a></li>
-            <li><a href="https://github.com/tiagomoraes/huske/blob/main/SECURITY.md" target="_blank" rel="noopener">security</a></li>
-            <li><a href="https://github.com/tiagomoraes/huske/blob/main/SUPPORT.md" target="_blank" rel="noopener">support</a></li>
+            <li><a href={GH} target="_blank" rel="noopener">Source</a></li>
+            <li><a href={`${GH}/issues`} target="_blank" rel="noopener">Issues</a></li>
+            <li><a href={`${GH}/blob/main/CONTRIBUTING.md`} target="_blank" rel="noopener">Contributing</a></li>
+            <li><a href={`${GH}/blob/main/SECURITY.md`} target="_blank" rel="noopener">Security</a></li>
+            <li><a href={`${GH}/blob/main/SUPPORT.md`} target="_blank" rel="noopener">Support</a></li>
           </ul>
         </div>
       </div>
-      <div className="meta">
-        <div className="left">
-          <Mark size={18}/>
-          <span>huske v{HUSKE_VERSION}</span>
-          <span style={{ color: "var(--fg-faint)" }}>·</span>
-          <span>built by tiagomoraes</span>
-          <span style={{ color: "var(--fg-faint)" }}>·</span>
-          <span>mit license</span>
-        </div>
-        <div className="right">
-          <span>made for the terminal</span>
-          <span style={{ color: "var(--fg-faint)" }}>·</span>
-          <span style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", textTransform: "none", letterSpacing: 0 }}>to remember</span>
-        </div>
+      <div className="foot-meta">
+        <span>huske v{HUSKE_VERSION}</span>
+        <span>Built by tiagomoraes</span>
+        <span>MIT license</span>
+        <span className="to">huske, Norwegian for “to remember”</span>
       </div>
     </div>
   </footer>
 );
 
 Object.assign(window, {
-  Mark, ArrowRight, SunIcon, MoonIcon, GhGlyph, StarGlyph, CopyGlyph, CheckGlyph, KeyGlyph,
-  CopyButton, useGitHubStars, formatStars,
-  useTheme, ThemeToggle, Nav, Footer,
+  Mark, SunIcon, MoonIcon, GhGlyph, StarGlyph, CopyGlyph, CheckGlyph, Chev,
+  CopyButton, Term, useGitHubStars, formatStars,
+  useTheme, ThemeToggle, Nav, Footer, GH,
 });
