@@ -44,6 +44,11 @@ if [[ -n "$EXPECTED_BUILD" && "$app_build" != "$EXPECTED_BUILD" ]]; then
     fail "CFBundleVersion is $app_build, expected $EXPECTED_BUILD"
 fi
 
+# iPhone only: a bundle that also claims iPad (UIDeviceFamily 2) can't be
+# submitted without iPad screenshots, and Huske has no iPad design.
+families=$(/usr/libexec/PlistBuddy -c "Print :UIDeviceFamily" "$APP/Info.plist" 2>/dev/null | tr -dc '0-9')
+[[ "$families" == "1" ]] && ok "iPhone only (UIDeviceFamily 1)" || fail "UIDeviceFamily is '$families', not iPhone only (1)"
+
 # iPad multitasking: App Store Connect rejects an iPhone app whose iPad
 # orientations aren't all four (it runs on iPad in compatibility mode).
 ipad_orientations=$(/usr/libexec/PlistBuddy -c "Print :UISupportedInterfaceOrientations~ipad" "$APP/Info.plist" 2>/dev/null | grep -c UIInterfaceOrientation || true)
