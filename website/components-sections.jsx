@@ -769,7 +769,13 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.15.0", date: "2026-11-22", tag: "latest",
+    ver: "0.15.1", date: "2026-11-22", tag: "latest",
+    items: [
+      { kind: "fixed", text: <><strong>Huske.app 0.15.0 crashed on launch.</strong> The released app looked for its fonts through the resource accessor that the release toolchain (Xcode 26) generates. That accessor skips <code>Contents/Resources</code> and falls back to the build machine's own <code>.build</code> folder, so the app opened only on the Mac that built it and crashed on every other Mac. Huske now finds its resource bundle itself; a missing bundle costs the brand fonts, never the app. CI and the release workflow also launch the packaged app with its build folder out of reach (<code>macos/scripts/smoke-launch.sh</code>), so an app like that can't be attached to a release again.</> },
+    ],
+  },
+  {
+    ver: "0.15.0", date: "2026-11-22",
     items: [
       { kind: "added", text: <><strong>Huske for iPhone: record anywhere, transcribe on your Mac.</strong> A recorder that keeps going in the background, with a Live Activity on the Lock Screen and in the Dynamic Island. Start and stop it from the Action button, Control Center, Siri or Shortcuts, even with the phone locked. Each recording goes straight to your Mac — over Wi-Fi, or directly between the two devices when there is no network — is transcribed there, and comes back to the phone as text you can copy in one tap. Pairing is one QR code; there is no cloud and no account.</> },
       { kind: "fixed", text: <><strong>Remote voices no longer show up twice on speakers.</strong> Huske now <em>cancels</em> the meeting audio that leaks into the microphone with WebRTC AEC3, the echo canceller Chrome and Meet use, instead of only attenuating it. On a MacBook Pro's own speakers, a remote monologue that used to leak through word for word (55 of 55 words) now leaks 2. <code>huske echo-test</code> measures it on your hardware.</> },
