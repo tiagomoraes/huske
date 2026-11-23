@@ -771,7 +771,7 @@ const RELEASES = [
   {
     ver: "0.15.1", date: "2026-11-22", tag: "latest",
     items: [
-      { kind: "fixed", text: <><strong>Huske.app 0.15.0 crashed on launch.</strong> The released app looked for its fonts through the resource accessor that the release toolchain (Xcode 26) generates. That accessor skips <code>Contents/Resources</code> and falls back to the build machine's own <code>.build</code> folder, so the app opened only on the Mac that built it and crashed on every other Mac. Huske now finds its resource bundle itself; a missing bundle costs the brand fonts, never the app. CI and the release workflow also launch the packaged app with its build folder out of reach (<code>macos/scripts/smoke-launch.sh</code>), so an app like that can't be attached to a release again.</> },
+      { kind: "fixed", text: <><strong>Huske.app 0.15.0 crashed on launch.</strong> It could find its fonts only on the Mac that built it, so it quit on every other Mac. 0.15.1 finds its resources itself, and every release now launches the packaged app, away from its build folder, before it's published.</> },
     ],
   },
   {
