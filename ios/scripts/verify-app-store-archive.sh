@@ -51,6 +51,16 @@ ipad_orientations=$(/usr/libexec/PlistBuddy -c "Print :UISupportedInterfaceOrien
     && ok "all four iPad orientations" \
     || fail "UISupportedInterfaceOrientations~ipad lists $ipad_orientations of 4 orientations (iPad multitasking)"
 
+# Siri metadata: App Store Connect rejects App Intents text that says "Mac"
+# (ITMS-90626, Invalid Siri Support) once processing starts, after the upload.
+mac_mentions=$(find "$APP" -path '*Metadata.appintents*' -type f -exec cat {} + 2>/dev/null |
+    python3 -c 'import re, sys; print("\n".join(sorted(set(re.findall(r"\"[^\"]*\bmac\b[^\"]*\"", sys.stdin.read(), re.I)))))' || true)
+if [[ -z "$mac_mentions" ]]; then
+    ok "no \"Mac\" in the App Intents metadata"
+else
+    fail "App Intents metadata mentions \"Mac\" (ITMS-90626): $mac_mentions"
+fi
+
 # Purpose strings the app's features need.
 for key in NSMicrophoneUsageDescription NSCameraUsageDescription NSLocalNetworkUsageDescription; do
     [[ -n "$(plist "$APP" "$key")" ]] && ok "$key" || fail "$key missing"
