@@ -208,6 +208,12 @@ private struct EmptyLibraryView: View {
                     .font(.plexSans(16, relativeTo: .body))
                     .foregroundStyle(Brand.fgMuted)
                     .fixedSize(horizontal: false, vertical: true)
+                // App Store guideline 2.5.14 and the developer agreement
+                // (3.3.3(A)): recording others needs their awareness.
+                Text("Let people know before you record them.")
+                    .font(.plexSans(14, relativeTo: .footnote))
+                    .foregroundStyle(Brand.fgMuted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)

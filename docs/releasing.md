@@ -388,8 +388,9 @@ for the Notary API, so the Issuer ID is always required.
 
 1. App Store Connect → **Users and Access** → **Integrations** →
    **App Store Connect API** → **Team Keys**.
-2. **Generate API Key** with the **Developer** role. Developer is sufficient
-   for notarization; a broader role only widens the blast radius.
+2. **Generate API Key**. The **Developer** role is enough for notarization,
+   but the same key also uploads the iPhone app (below), which needs **App
+   Manager**. The team's key today, `browbro-ci`, is App Manager.
 3. Download `AuthKey_XXXXXXXXXX.p8`. **Apple allows exactly one download.**
    The filename contains the Key ID → `APPLE_API_KEY_ID`.
 4. Copy the **Issuer ID** shown above the key table (a UUID, shared by every
@@ -451,6 +452,49 @@ Both credentials expire. A Developer ID Application certificate lasts five
 years; App Store Connect keys can be revoked at any time. When either is
 rotated, re-export and update the corresponding secrets — nothing in the
 repository pins a fingerprint, so no code change is needed.
+
+## iPhone app (App Store)
+
+`.github/workflows/ios-app-store.yml` archives Huske for iPhone, signs it for
+the App Store and uploads it to App Store Connect, where it lands in
+TestFlight. It runs on every published release and by hand
+(`workflow_dispatch`; turn off `upload` to keep the `.ipa` as an artifact
+instead). Submitting a version for review stays a step in App Store Connect.
+The plan, the product page and the review notes are in
+[`research/app-store-distribution.md`](research/app-store-distribution.md)
+and [`ios/AppStore/listing.md`](../ios/AppStore/listing.md).
+
+- **Version.** The App Store version is the repository version
+  (`pyproject.toml`). Each submission needs a higher one than the last, so an
+  iPhone-only fix ships as a patch release.
+- **Build number.** UTC `YYYYMMDD.HHMM` with no leading zeros (`20261123.520`), set by
+  `ios/scripts/archive-upload.sh`. It only grows and never collides with a
+  manual upload.
+- **The same script runs on a Mac.** Point it at the files instead of
+  secrets: `IOS_DIST_P12`, `IOS_DIST_P12_PASSWORD`, `IOS_PROFILE_APP`,
+  `IOS_PROFILE_LIVEACTIVITY`, `ASC_KEY_PATH`, `ASC_KEY_ID`, `ASC_ISSUER_ID`.
+  It needs no login keychain or Xcode account. `UPLOAD=0` stops at the
+  `.ipa`.
+
+| Secret | Value |
+| --- | --- |
+| `IOS_DIST_CERT_P12` | Base64 of the CI-only **Apple Distribution** identity (`.p12`). |
+| `IOS_DIST_CERT_PASSWORD` | Its password. |
+| `IOS_PROFILE_APP` | Base64 of the App Store profile *Huske iOS App Store CI* (`cloud.tiagomoraes.huske.ios`). |
+| `IOS_PROFILE_LIVEACTIVITY` | Base64 of *Huske iOS LiveActivity App Store CI* (`cloud.tiagomoraes.huske.ios.LiveActivity`). |
+| `APPLE_API_KEY_*` | Shared with notarization (above). The key must be App Manager. |
+
+**Renewal.** The certificate and both profiles expire on 2027-11-22.
+1. Make a new key and CSR with `openssl req -new -newkey rsa:2048 -nodes`.
+2. Create an Apple Distribution certificate from the CSR in Certificates,
+   Identifiers & Profiles.
+3. Regenerate both profiles with the new certificate.
+4. Build the `.p12` with `openssl pkcs12 -export -certpbe PBE-SHA1-3DES
+   -keypbe PBE-SHA1-3DES -macalg sha1`. macOS's `security import` rejects the
+   modern defaults.
+5. Update the four secrets.
+
+A profile that lists devices or was made by Xcode is refused by the script.
 
 ## PyPI Trusted Publishing
 

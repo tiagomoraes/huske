@@ -13,14 +13,17 @@ struct MacSettingsView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                Group {
-                    if let invite = app.pendingInvite {
-                        ConfirmPairingView(app: app, invite: invite)
-                    } else if app.sync.isPaired {
-                        PairedMacView(app: app)
-                    } else {
-                        UnpairedView(app: app)
+                VStack(spacing: 32) {
+                    Group {
+                        if let invite = app.pendingInvite {
+                            ConfirmPairingView(app: app, invite: invite)
+                        } else if app.sync.isPaired {
+                            PairedMacView(app: app)
+                        } else {
+                            UnpairedView(app: app)
+                        }
                     }
+                    PolicyLinks()
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
@@ -64,6 +67,12 @@ private struct UnpairedView: View {
                     .font(.plexSans(16, relativeTo: .body))
                     .foregroundStyle(Brand.fgMuted)
                     .fixedSize(horizontal: false, vertical: true)
+                Link(destination: AppLinks.site) {
+                    Text("No Huske on your Mac yet? It’s free at huske.tiagomoraes.cloud")
+                        .multilineTextAlignment(.leading)
+                }
+                .font(.plexSans(16, relativeTo: .body))
+                .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.top, 12)
 
@@ -102,6 +111,20 @@ private struct UnpairedView: View {
         .sheet(isPresented: $scanning) {
             QRScannerSheet { payload in app.receivePairingText(payload) }
         }
+    }
+}
+
+/// The privacy policy and support pages, reachable whether or not a Mac is
+/// paired (App Store guideline 5.1.1(i)).
+private struct PolicyLinks: View {
+    var body: some View {
+        HStack(spacing: 24) {
+            Link("Privacy policy", destination: AppLinks.privacy)
+            Link("Support", destination: AppLinks.support)
+        }
+        .font(.plexSans(14, relativeTo: .footnote))
+        .tint(Brand.fgMuted)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 }
 

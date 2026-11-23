@@ -54,6 +54,20 @@ Simulator builds need no signing team. To run on a device, set
 `cloud.tiagomoraes.huske.ios` (app) and
 `cloud.tiagomoraes.huske.ios.LiveActivity` (widget extension).
 
+### App Store readiness
+
+The app and the widget extension each carry a privacy manifest
+(`Huske/Resources/PrivacyInfo.xcprivacy`, `HuskeLiveActivity/PrivacyInfo.xcprivacy`):
+no tracking, no collected data, and a reason for every required-reason API the
+binary uses. Today these are UserDefaults (`CA92.1`) and file timestamps
+(`C617.1`, from `HuskeSync`). Code that starts using another one, such as
+`ProcessInfo.systemUptime` or a free-disk-space check, must add its reason in
+the same change. To see what a build references, run `nm -u` on the built
+binary. `ITSAppUsesNonExemptEncryption` is `NO` because the only cryptography
+is Apple's (Network.framework TLS-PSK, CryptoKit). Revisit it if a third-party
+crypto library is ever added. The plan for TestFlight and the App Store is in
+[`docs/research/app-store-distribution.md`](../docs/research/app-store-distribution.md).
+
 ## Layout
 
 | Path | What |
