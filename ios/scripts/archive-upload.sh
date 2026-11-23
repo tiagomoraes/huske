@@ -93,8 +93,8 @@ EXT_PROFILE=$(install_profile "$IOS_PROFILE_LIVEACTIVITY" "$EXT_ID")
 
 echo "==> project"
 ./scripts/generate.sh >/dev/null
-VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Huske/Info.plist)
-echo "    version $(sed -n 's/^version = "\(.*\)"/\1/p' ../pyproject.toml | head -1), build $BUILD_NUMBER"
+VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' ../pyproject.toml | head -1)
+echo "    version $VERSION, build $BUILD_NUMBER"
 
 echo "==> archive"
 rm -rf "$ARCHIVE" "$EXPORT_DIR"

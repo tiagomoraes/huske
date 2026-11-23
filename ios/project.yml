@@ -77,6 +77,14 @@ targets:
           UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+        # The iPhone app runs on iPad too (compatibility mode), and App Store
+        # Connect rejects a bundle whose iPad orientations can't all be used in
+        # multitasking. The iPhone itself stays portrait only.
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         UIRequiredDeviceCapabilities:
           - microphone
         NSMicrophoneUsageDescription: >-

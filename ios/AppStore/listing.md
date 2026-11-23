@@ -11,10 +11,11 @@ Plan and reasoning: [`docs/research/app-store-distribution.md`](../../docs/resea
 
 | Field | Value |
 |---|---|
-| Name (30) | Huske |
+| Name (30) | Huske for iPhone ("Huske" is taken; the home screen still says Huske) |
 | Subtitle (30) | Record here, transcribe on Mac |
 | Bundle ID | `cloud.tiagomoraes.huske.ios` |
 | SKU | `huske-ios` |
+| Apple ID | 6838172707 (https://apps.apple.com/app/id6838172707) |
 | Primary language | English (U.S.) |
 | Primary category | Productivity |
 | Secondary category | Utilities |

@@ -44,6 +44,13 @@ if [[ -n "$EXPECTED_BUILD" && "$app_build" != "$EXPECTED_BUILD" ]]; then
     fail "CFBundleVersion is $app_build, expected $EXPECTED_BUILD"
 fi
 
+# iPad multitasking: App Store Connect rejects an iPhone app whose iPad
+# orientations aren't all four (it runs on iPad in compatibility mode).
+ipad_orientations=$(/usr/libexec/PlistBuddy -c "Print :UISupportedInterfaceOrientations~ipad" "$APP/Info.plist" 2>/dev/null | grep -c UIInterfaceOrientation || true)
+[[ "$ipad_orientations" == 4 ]] \
+    && ok "all four iPad orientations" \
+    || fail "UISupportedInterfaceOrientations~ipad lists $ipad_orientations of 4 orientations (iPad multitasking)"
+
 # Purpose strings the app's features need.
 for key in NSMicrophoneUsageDescription NSCameraUsageDescription NSLocalNetworkUsageDescription; do
     [[ -n "$(plist "$APP" "$key")" ]] && ok "$key" || fail "$key missing"
