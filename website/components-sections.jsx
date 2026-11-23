@@ -769,7 +769,13 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.15.0", date: "2026-11-22", tag: "latest",
+    ver: "0.15.1", date: "2026-11-22", tag: "latest",
+    items: [
+      { kind: "fixed", text: <><strong>Huske.app 0.15.0 crashed on launch.</strong> It could find its fonts only on the Mac that built it, so it quit on every other Mac. 0.15.1 finds its resources itself, and every release now launches the packaged app, away from its build folder, before it's published.</> },
+    ],
+  },
+  {
+    ver: "0.15.0", date: "2026-11-22",
     items: [
       { kind: "added", text: <><strong>Huske for iPhone: record anywhere, transcribe on your Mac.</strong> A recorder that keeps going in the background, with a Live Activity on the Lock Screen and in the Dynamic Island. Start and stop it from the Action button, Control Center, Siri or Shortcuts, even with the phone locked. Each recording goes straight to your Mac — over Wi-Fi, or directly between the two devices when there is no network — is transcribed there, and comes back to the phone as text you can copy in one tap. Pairing is one QR code; there is no cloud and no account.</> },
       { kind: "fixed", text: <><strong>Remote voices no longer show up twice on speakers.</strong> Huske now <em>cancels</em> the meeting audio that leaks into the microphone with WebRTC AEC3, the echo canceller Chrome and Meet use, instead of only attenuating it. On a MacBook Pro's own speakers, a remote monologue that used to leak through word for word (55 of 55 words) now leaks 2. <code>huske echo-test</code> measures it on your hardware.</> },

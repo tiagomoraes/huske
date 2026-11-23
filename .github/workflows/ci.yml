@@ -151,6 +151,12 @@ jobs:
           HUSKE_CODESIGN_IDENTITY: "-"
           HUSKE_REQUIRE_APPLE_LLM: "1"
 
+      # v0.15.0's app crashed on launch on every Mac but the one that built it:
+      # the Bundle.module accessor fell back to this machine's .build path.
+      - name: Launch the packaged app away from its build folder
+        run: ./scripts/smoke-launch.sh
+        working-directory: macos
+
   swift:
     name: macOS app (Swift)
     runs-on: macos-15
