@@ -402,7 +402,9 @@ final class LinkSupervisorTests: SyncScenarioTestCase {
             return .milliseconds(30)
         })
 
-        let uploaded = await waitUntil { mac.uploaded == ["a"] }
+        // Three failures and three backoffs before the upload: generous room
+        // for a loaded CI runner (the wait ends as soon as it's uploaded).
+        let uploaded = await waitUntil(timeout: 15) { mac.uploaded == ["a"] }
         await settle()
 
         XCTAssertTrue(uploaded, "it keeps trying while the Mac is visible")
@@ -625,7 +627,9 @@ final class LinkSupervisorTests: SyncScenarioTestCase {
         addRecording("4E1C0A5B-0F7E-4C67-9C0B-3C8F3A1B2D11", title: "Reunião confidencial")
         let sync = makeManager(paired: mac, presence: FakePresence(reachable: true))
 
-        let fetched = await waitUntil {
+        // A refused connect, a backoff, then upload and transcript: room for a
+        // loaded CI runner (the wait ends as soon as the transcript is in).
+        let fetched = await waitUntil(timeout: 15) {
             self.library.recording(id: "4E1C0A5B-0F7E-4C67-9C0B-3C8F3A1B2D11")?.transcript != nil && !sync.isRunning
         }
         XCTAssertTrue(fetched)
