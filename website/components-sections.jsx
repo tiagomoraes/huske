@@ -769,7 +769,15 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.15.1", date: "2026-11-22", tag: "latest",
+    ver: "0.15.2", date: "2026-11-23", tag: "latest",
+    items: [
+      { kind: "added", text: <><strong>Huske for iPhone is getting ready for the App Store.</strong> - The Mac screen links to the privacy policy and the support page. - With no Mac paired, it says where to get Huske for Mac. - The empty library reminds you to let people know before you record them. - The app carries Apple's privacy manifests and export-compliance key.</> },
+      { kind: "added", text: <><strong>App Store builds, for maintainers.</strong> <code>ios/scripts/archive-upload.sh</code> signs the iPhone app for the App Store and uploads it to TestFlight, and a release now does the same in GitHub Actions (<code>ios-app-store.yml</code>). Its texts and pictures are in <code>ios/AppStore/</code>, and the plan behind it is in <code>docs/research/app-store-distribution.md</code>.</> },
+      { kind: "added", text: <><strong>Privacy policy and support pages on the website</strong> (<code>/privacy/</code>, <code>/support/</code>). They say what stays on your devices, what can leave them and when, and how to get help. The App Store listing and the iPhone app link to both.</> },
+    ],
+  },
+  {
+    ver: "0.15.1", date: "2026-11-22",
     items: [
       { kind: "fixed", text: <><strong>Huske.app 0.15.0 crashed on launch.</strong> It could find its fonts only on the Mac that built it, so it quit on every other Mac. 0.15.1 finds its resources itself, and every release now launches the packaged app, away from its build folder, before it's published.</> },
     ],

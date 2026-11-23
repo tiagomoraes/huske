@@ -6,6 +6,8 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.15.2 - 2026-11-23
+
 ### Added
 
 - **Huske for iPhone is getting ready for the App Store.**
