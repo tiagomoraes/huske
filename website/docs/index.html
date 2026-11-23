@@ -3,20 +3,24 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>huske — docs: install, cloud sync & MCP service</title>
-  <meta name="description" content="Set up huske on macOS, publish canonical transcripts to private Git, and run the isolated huske-mcp service on an always-on VPS."/>
+  <title>huske — docs: install, iPhone, transcription, cloud sync and MCP</title>
+  <meta name="description" content="Set up Huske.app and Huske for iPhone, choose the transcription model, language and dictionary, publish transcripts to a private GitHub repository, and run the huske-mcp service on a VPS."/>
   <meta property="og:title" content="huske — docs"/>
-  <meta property="og:description" content="Install, autostart, private Git transcript sync, and the resource-efficient isolated MCP service."/>
+  <meta property="og:description" content="Install, iPhone pairing, transcription settings, cloud sync and the always-on MCP service."/>
   <meta property="og:type" content="website"/>
   <meta name="twitter:card" content="summary"/>
   <link rel="icon" href="../assets/logo-favicon.svg"/>
   <link rel="stylesheet" href="../site.css"/>
+  <meta name="color-scheme" content="dark light"/>
   <script>
+    // An explicit choice wins; otherwise follow the system appearance.
     (function() {
-      try {
-        var t = localStorage.getItem("huske-theme") || "dark";
-        document.documentElement.setAttribute("data-theme", t);
-      } catch (e) {}
+      var t = null;
+      try { t = localStorage.getItem("huske-theme"); } catch (e) {}
+      if (!t) {
+        try { t = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"; } catch (e) { t = "dark"; }
+      }
+      document.documentElement.setAttribute("data-theme", t);
     })();
   </script>
   <script src="../version.js"></script>
@@ -25,18 +29,18 @@
   <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
   <script type="text/babel" src="../components-shell.jsx"></script>
   <script type="text/babel" src="../components-hero.jsx"></script>
-  <script type="text/babel" src="../components-sections.jsx"></script>
   <script type="text/babel" src="../components-docs.jsx"></script>
 </head>
-<body data-screen-label="02 huske docs">
+<body>
   <div id="root"></div>
   <script type="text/babel">
     function App() {
       const [theme, setTheme] = useTheme();
       return (
         <React.Fragment>
+          <a className="skip" href="#main">Skip to content</a>
           <Nav theme={theme} setTheme={setTheme} base="../" docsHref="./"/>
-          <main>
+          <main id="main">
             <Docs/>
           </main>
           <Footer base="../" docsHref="./"/>
