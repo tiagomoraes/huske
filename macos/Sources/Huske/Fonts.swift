@@ -7,6 +7,7 @@
 
 import AppKit
 import CoreText
+import HuskeKit
 import SwiftUI
 
 enum BrandFonts {
@@ -23,12 +24,19 @@ enum BrandFonts {
     ]
 
     /// Idempotent; call once at app start (before any view renders).
+    ///
+    /// The fonts come from the target's resource bundle, found with
+    /// `ResourceBundle.locate` and never through `Bundle.module`: the
+    /// accessor Xcode 26 generates traps on launch for a packaged app (it
+    /// skips `Contents/Resources`), which is how v0.15.0 shipped an app that
+    /// crashed on every Mac but the one that built it.
     static func registerAll() {
         guard !registered else { return }
+        guard let resources = ResourceBundle.locate(named: "Huske_Huske") else { return }
         var loadedAny = false
         for name in files {
             guard
-                let url = Bundle.module.url(
+                let url = resources.url(
                     forResource: name, withExtension: "ttf", subdirectory: "Fonts")
             else { continue }
             var error: Unmanaged<CFError>?

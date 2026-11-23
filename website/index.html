@@ -3,20 +3,24 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>huske | local-first audio recall</title>
-  <meta name="description" content="A native Mac app that captures your microphone and your computer's system audio, transcribes it on-device with Parakeet, and writes a day-organized Markdown ledger your agent can read."/>
-  <meta property="og:title" content="huske | local-first audio recall"/>
-  <meta property="og:description" content="A native Mac app that captures your microphone and your computer's system audio, transcribes it on-device with Parakeet, and writes a day-organized Markdown ledger your agent can read."/>
+  <title>huske | record on your Mac and iPhone, transcribe on your Mac</title>
+  <meta name="description" content="Huske records your microphone and your Mac's system audio, takes recordings from your iPhone without a cloud, and transcribes everything on your Mac into Markdown files you own."/>
+  <meta property="og:title" content="huske | record on your Mac and iPhone, transcribe on your Mac"/>
+  <meta property="og:description" content="Mac and iPhone recording, on-device transcription, echo cancellation, a dictionary for your words, and an optional private GitHub copy your AI tools can read."/>
   <meta property="og:type" content="website"/>
   <meta name="twitter:card" content="summary"/>
+  <meta name="color-scheme" content="dark light"/>
   <link rel="icon" href="assets/logo-favicon.svg"/>
   <link rel="stylesheet" href="site.css"/>
   <script>
+    // An explicit choice wins; otherwise follow the system appearance.
     (function() {
-      try {
-        var t = localStorage.getItem("huske-theme") || "dark";
-        document.documentElement.setAttribute("data-theme", t);
-      } catch (e) {}
+      var t = null;
+      try { t = localStorage.getItem("huske-theme"); } catch (e) {}
+      if (!t) {
+        try { t = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"; } catch (e) { t = "dark"; }
+      }
+      document.documentElement.setAttribute("data-theme", t);
     })();
   </script>
   <script src="version.js"></script>
@@ -27,26 +31,27 @@
   <script type="text/babel" src="components-hero.jsx"></script>
   <script type="text/babel" src="components-sections.jsx"></script>
 </head>
-<body data-screen-label="01 huske website">
+<body>
   <div id="root"></div>
   <script type="text/babel">
     function App() {
       const [theme, setTheme] = useTheme();
       return (
         <React.Fragment>
+          <a className="skip" href="#main">Skip to content</a>
           <Nav theme={theme} setTheme={setTheme}/>
-          <main>
+          <main id="main">
             <Hero/>
-            <GetStarted/>
-            <Pillars/>
+            <IPhone/>
             <HowItWorks/>
-            <OutputPreview/>
-            <SearchRecall/>
-            <Connect/>
+            <Quality/>
+            <Output/>
+            <Sync/>
             <Privacy/>
+            <GetStarted/>
             <Releases/>
-            <Community/>
             <FAQ/>
+            <OpenSource/>
           </main>
           <Footer/>
         </React.Fragment>
