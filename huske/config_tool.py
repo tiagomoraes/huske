@@ -18,6 +18,7 @@ from huske.config import (
     RuntimeConfig,
     _read_toml,
     default_user_config_path,
+    known_config,
     load_config,
     update_user_config,
     without_retired_config,
@@ -105,7 +106,10 @@ def set_config_value(
     """Validate then persist ``key = value`` into the user TOML."""
     value = _parse_value(raw_value)
     target = _config_file(config_path)
-    merged = {**without_retired_config(_read_toml(target)), key: value}
+    # Validate the keys this engine knows plus the new one: a key another
+    # engine wrote (e.g. `diarize`) must not block the write, and stays in the
+    # file. An unknown `key` itself still fails as an extra input.
+    merged = {**known_config(without_retired_config(_read_toml(target))), key: value}
     try:
         validated = RuntimeConfig(**merged)
     except ValidationError as exc:
@@ -136,7 +140,7 @@ def unset_config_value(key: str, config_path: Path | None = None) -> int:
     if key not in current:
         _print(f"{key} was not set  ({target})")
         return 0
-    candidate = dict(current)
+    candidate = known_config(current)
     candidate.pop(key)
     try:
         RuntimeConfig(**candidate)
