@@ -768,7 +768,14 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.15.1", date: "2026-11-22", tag: "latest",
+    ver: "0.15.2", date: "2026-11-23", tag: "latest",
+    items: [
+      { kind: "added", text: <><strong>Privacy and support pages.</strong> The site now says what stays on your devices, what can leave them and when, and how to get help.</> },
+      { kind: "added", text: <><strong>Huske for iPhone, ready for the App Store.</strong> It links to those pages, says where to get Huske for Mac when none is paired, and reminds you to let people know before you record them.</> },
+    ],
+  },
+  {
+    ver: "0.15.1", date: "2026-11-22",
     items: [
       { kind: "fixed", text: <><strong>Huske.app 0.15.0 crashed on launch.</strong> It could find its fonts only on the Mac that built it, so it quit on every other Mac. 0.15.1 finds its resources itself, and every release now launches the packaged app, away from its build folder, before it's published.</> },
     ],

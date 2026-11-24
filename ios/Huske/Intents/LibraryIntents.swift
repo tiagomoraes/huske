@@ -53,8 +53,11 @@ struct StartOrStopRecordingIntent: AudioRecordingIntent, LiveActivityIntent {
 
 struct StopCurrentRecordingIntent: AppIntent {
     static let title: LocalizedStringResource = "Stop Recording"
+    // App Store Connect refuses intent metadata that contains "Mac"
+    // (ITMS-90626, Invalid Siri Support): say "computer" in descriptions,
+    // display representations and phrases.
     static let description = IntentDescription(
-        "Stops and saves the Huske recording in progress, and returns it. It goes to your Mac for transcription the next time they meet.",
+        "Stops and saves the Huske recording in progress, and returns it. It's sent for transcription the next time your computer is nearby.",
         categoryName: "Recording")
 
     init() {}
@@ -94,7 +97,7 @@ enum TranscriptFormat: String, AppEnum {
     static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Transcript Format")
     static let caseDisplayRepresentations: [TranscriptFormat: DisplayRepresentation] = [
         .text: DisplayRepresentation(title: "Text", subtitle: "What was said, paragraph by paragraph"),
-        .markdown: DisplayRepresentation(title: "Markdown", subtitle: "With timecodes and sources, as on your Mac"),
+        .markdown: DisplayRepresentation(title: "Markdown", subtitle: "With timecodes and sources"),
     ]
 }
 

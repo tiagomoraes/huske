@@ -6,6 +6,33 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+### Fixed
+
+- **Huske for iPhone is an iPhone app again.** It was built as a universal
+  iPhone and iPad app by accident: XcodeGen's target preset overrode the
+  project's iPhone-only setting. The App Store would have needed an iPad
+  design and iPad screenshots for it. The archive check now refuses a build
+  that claims iPad.
+
+## 0.15.2 - 2026-11-23
+
+### Added
+
+- **Huske for iPhone is getting ready for the App Store.**
+  - The Mac screen links to the privacy policy and the support page.
+  - With no Mac paired, it says where to get Huske for Mac.
+  - The empty library reminds you to let people know before you record them.
+  - The app carries Apple's privacy manifests and export-compliance key.
+- **App Store builds, for maintainers.** `ios/scripts/archive-upload.sh` signs
+  the iPhone app for the App Store and uploads it to TestFlight, and a release
+  now does the same in GitHub Actions (`ios-app-store.yml`). Its texts and
+  pictures are in `ios/AppStore/`, and the plan behind it is in
+  `docs/research/app-store-distribution.md`.
+- **Privacy policy and support pages on the website**
+  (`/privacy/`, `/support/`). They say what stays on your devices, what can
+  leave them and when, and how to get help. The App Store listing and the
+  iPhone app link to both.
+
 ## 0.15.1 - 2026-11-22
 
 ### Fixed
