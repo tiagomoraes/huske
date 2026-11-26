@@ -15,6 +15,14 @@ This project uses semantic versioning after the first public release.
 
 ### Fixed
 
+- **Saving a setting no longer fails over a key from another engine.**
+  Huske.app saves every setting through `huske config set`, which checked the
+  whole config file. A key this engine doesn't know, such as `diarize` from a
+  branch build, failed every save with "diarize: Extra inputs are not
+  permitted", including the Cloud sync settings. `set` and `unset` now check
+  only the keys this engine knows, keep the others in the file, and still
+  reject a misspelled key.
+
 - **Huske for iPhone is an iPhone app again.** It was built as a universal
   iPhone and iPad app by accident: XcodeGen's target preset overrode the
   project's iPhone-only setting. The App Store would have needed an iPad

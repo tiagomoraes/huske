@@ -620,6 +620,13 @@ def without_retired_config(values: dict[str, Any]) -> dict[str, Any]:
 _warned_unknown: set[str] = set()
 
 
+def known_config(values: dict[str, Any]) -> dict[str, Any]:
+    """The keys of ``values`` this engine knows, for validating a file that
+    other engines also write. Writers keep the rest: `update_user_config`
+    preserves every key it doesn't touch."""
+    return {k: v for k, v in values.items() if k in RuntimeConfig.model_fields}
+
+
 def _without_unknown_keys(values: dict[str, Any], source: Path) -> dict[str, Any]:
     """Drop config-file keys this engine doesn't know, with one warning.
 
@@ -629,8 +636,7 @@ def _without_unknown_keys(values: dict[str, Any], source: Path) -> dict[str, Any
     Typos are still caught: `huske config set` validates keys before writing,
     and the warning names what was ignored.
     """
-    known = set(RuntimeConfig.model_fields)
-    unknown = sorted(k for k in values if k not in known)
+    unknown = sorted(k for k in values if k not in RuntimeConfig.model_fields)
     fresh = [k for k in unknown if k not in _warned_unknown]
     if fresh:
         _warned_unknown.update(fresh)
@@ -639,7 +645,7 @@ def _without_unknown_keys(values: dict[str, Any], source: Path) -> dict[str, Any
             + ", ".join(fresh),
             file=sys.stderr,
         )
-    return {k: v for k, v in values.items() if k in known}
+    return known_config(values)
 
 
 def default_user_config_path() -> Path:
