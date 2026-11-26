@@ -461,6 +461,56 @@ def test_rewrite_formula_preserves_unrelated_content() -> None:
     assert "end\nend\n" in new_text
 
 
+_MLX_FORMULA = '''  resource "mlx" do
+    url "https://files.pythonhosted.org/a/mlx-0.32.4-cp313-cp313-macosx_26_0_arm64.whl"
+    sha256 "1111111111111111111111111111111111111111111111111111111111111111"
+  end
+
+  resource "pyobjc-core" do
+    url "https://files.pythonhosted.org/b/pyobjc_core-13.0-cp313-cp313-macosx_10_13_universal2.whl"
+    sha256 "2222222222222222222222222222222222222222222222222222222222222222"
+  end
+'''
+
+
+def test_platform_tags_keep_the_formula_macos_wheel() -> None:
+    """pip picks the wheel for the Mac it runs on. On macOS 27 it chose mlx's
+    macosx_27_0 wheel, which would break installs on macOS 26 (v0.15.3)."""
+    pip_pkgs = {
+        "mlx": ("https://files.pythonhosted.org/c/mlx-0.32.5-cp313-cp313-macosx_27_0_arm64.whl", "a" * 64),
+        "pyobjc-core": (
+            "https://files.pythonhosted.org/d/pyobjc_core-13.1-cp313-cp313-macosx_10_13_universal2.whl",
+            "b" * 64,
+        ),
+    }
+    asked: list[tuple[str, str]] = []
+
+    def lookup(name: str, filename: str) -> tuple[str, str] | None:
+        asked.append((name, filename))
+        return (f"https://files.pythonhosted.org/e/{filename}", "c" * 64)
+
+    pinned, notes = update_homebrew_tap.keep_formula_platform_tags(_MLX_FORMULA, pip_pkgs, lookup)
+
+    assert pinned["mlx"] == (
+        "https://files.pythonhosted.org/e/mlx-0.32.5-cp313-cp313-macosx_26_0_arm64.whl",
+        "c" * 64,
+    )
+    assert pinned["pyobjc-core"] == pip_pkgs["pyobjc-core"]  # same tag: untouched
+    assert asked == [("mlx", "mlx-0.32.5-cp313-cp313-macosx_26_0_arm64.whl")]
+    assert any("macosx_26_0" in n for n in notes)
+
+
+def test_platform_tags_fall_back_to_pip_when_the_wheel_is_gone() -> None:
+    pip_pkgs = {
+        "mlx": ("https://files.pythonhosted.org/c/mlx-0.33.0-cp313-cp313-macosx_27_0_arm64.whl", "a" * 64),
+    }
+    pinned, notes = update_homebrew_tap.keep_formula_platform_tags(
+        _MLX_FORMULA, pip_pkgs, lambda name, filename: None
+    )
+    assert pinned["mlx"] == pip_pkgs["mlx"]
+    assert any("WARN" in n and "macosx_26_0" in n for n in notes)
+
+
 def test_normalize_handles_underscores_and_case() -> None:
     assert update_homebrew_tap.normalize("Pyobjc_Core") == "pyobjc-core"
     assert update_homebrew_tap.normalize("PyYAML") == "pyyaml"
