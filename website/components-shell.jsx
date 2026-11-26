@@ -234,7 +234,7 @@ const GH = "https://github.com/tiagomoraes/huske";
 
 // Huske for iPhone on the App Store. The id is App Store Connect's Apple ID
 // for the app record (docs/research/app-store-distribution.md).
-const IOS_APP_STORE_URL = "https://apps.apple.com/app/id6838172707";
+const IOS_APP_STORE_URL = "https://apps.apple.com/us/app/huske-for-iphone/id6838172707";
 
 const Footer = ({ base = "", docsHref = "docs/" }) => (
   <footer className="foot">

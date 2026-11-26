@@ -95,10 +95,15 @@ const IPhone = () => (
         </div>
       </div>
 
-      <p className="avail fine">
-        <a href={IOS_APP_STORE_URL}>Huske for iPhone is free on the App Store.</a> It needs iOS 18
-        or later, and Huske.app running on your Mac to transcribe.
-      </p>
+      <div className="avail">
+        <a className="store-badge" href={IOS_APP_STORE_URL}>
+          <img src="assets/app-store-badge.svg" width="120" height="40" alt="Download on the App Store"/>
+        </a>
+        <p className="fine">
+          Huske for iPhone is free. It needs iOS 18 or later, and Huske.app running on your Mac
+          to transcribe.
+        </p>
+      </div>
     </div>
   </section>
 );

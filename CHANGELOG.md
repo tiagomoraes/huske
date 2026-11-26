@@ -6,6 +6,13 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+### Added
+
+- **Huske for iPhone is on the App Store, free.** The website and the README
+  link to it: Apple's badge in the iPhone section, a line under the Mac
+  download, and a Smart App Banner that offers the app in Safari on iPhone.
+  The docs still explain how to build it yourself.
+
 ### Fixed
 
 - **Huske for iPhone is an iPhone app again.** It was built as a universal

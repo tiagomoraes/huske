@@ -207,7 +207,7 @@ p { margin: 0 0 14px; }
 .get { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .get .btn-primary { align-self: flex-start; padding: 15px 22px; font-size: 17px; }
 .get .btn-primary svg { width: 17px; height: 17px; }
-.get-note { margin: 0; font-size: 14.5px; line-height: 1.55; color: var(--text-2); }
+.get-note, .get-iphone { margin: 0; font-size: 14.5px; line-height: 1.55; color: var(--text-2); }
 .get-or { margin: 10px 0 0; font-size: 14.5px; color: var(--text-3); }
 
 /* ---- Engine install (shared with docs) ---- */
@@ -372,7 +372,11 @@ p { margin: 0 0 14px; }
 .siri { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
 .siri li { font-family: var(--font-serif); font-size: 19px; line-height: 1.4; }
 .siri-h { font-weight: 600; font-size: 16px; margin: 0 0 10px; }
-.avail { margin: clamp(40px, 5vw, 56px) 0 0; max-width: 72ch; }
+.avail { margin: clamp(40px, 5vw, 56px) 0 0; display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px; }
+.avail .fine { margin: 0; max-width: 60ch; }
+/* Apple's badge, unmodified: at least 40 px tall, with clear space around it. */
+.store-badge { display: inline-block; flex-shrink: 0; line-height: 0; border-radius: 7px; }
+.store-badge img { display: block; height: 40px; width: auto; }
 
 @media (max-width: 900px) {
   .iphone-grid { grid-template-columns: 1fr; }
