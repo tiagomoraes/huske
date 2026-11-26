@@ -232,6 +232,10 @@ const Nav = ({ theme, setTheme, base = "", docsHref = "docs/" }) => {
 
 const GH = "https://github.com/tiagomoraes/huske";
 
+// Huske for iPhone on the App Store. The id is App Store Connect's Apple ID
+// for the app record (docs/research/app-store-distribution.md).
+const IOS_APP_STORE_URL = "https://apps.apple.com/us/app/huske-for-iphone/id6838172707";
+
 const Footer = ({ base = "", docsHref = "docs/" }) => (
   <footer className="foot">
     <div className="page">
@@ -287,5 +291,5 @@ const Footer = ({ base = "", docsHref = "docs/" }) => (
 Object.assign(window, {
   Mark, SunIcon, MoonIcon, GhGlyph, StarGlyph, CopyGlyph, CheckGlyph, Chev,
   CopyButton, Term, useGitHubStars, formatStars,
-  useTheme, ThemeToggle, Nav, Footer, GH,
+  useTheme, ThemeToggle, Nav, Footer, GH, IOS_APP_STORE_URL,
 });

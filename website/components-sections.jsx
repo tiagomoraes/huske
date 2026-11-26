@@ -95,11 +95,15 @@ const IPhone = () => (
         </div>
       </div>
 
-      <p className="avail fine">
-        Huske for iPhone needs iOS 18 or later, and Huske.app running on your Mac. It isn’t in the
-        App Store: build it from the repository’s <code>ios</code> folder with Xcode, as
-        the <a href={`${GH}/blob/main/ios/README.md`} target="_blank" rel="noopener">iPhone README</a> explains.
-      </p>
+      <div className="avail">
+        <a className="store-badge" href={IOS_APP_STORE_URL}>
+          <img src="assets/app-store-badge.svg" width="120" height="40" alt="Download on the App Store"/>
+        </a>
+        <p className="fine">
+          Huske for iPhone is free. It needs iOS 18 or later, and Huske.app running on your Mac
+          to transcribe.
+        </p>
+      </div>
     </div>
   </section>
 );
@@ -1042,11 +1046,11 @@ const PATHS = [
   },
   {
     title: "Add your iPhone",
-    cost: "A minute, once the app is on your phone. No terminal.",
-    needs: "iOS 18 or later. For now the app is built from source with Xcode.",
+    cost: "About a minute. No terminal.",
+    needs: "An iPhone with iOS 18 or later.",
     steps: [
-      <>In Huske.app, open <strong>iPhone</strong> and choose <strong>Pair iPhone</strong>.</>,
-      <>Point the iPhone’s camera at the code.</>,
+      <>Install <a href={IOS_APP_STORE_URL}>Huske for iPhone</a> from the App Store. It’s free.</>,
+      <>In Huske.app, open <strong>iPhone</strong>, choose <strong>Pair iPhone</strong> and point the iPhone’s camera at the code.</>,
       <>Record anywhere. Huske offers to open at login, because the phone can only reach the Mac while Huske runs.</>,
     ],
   },
@@ -1119,7 +1123,7 @@ const FAQS = [
   },
   {
     q: "Is Huske for iPhone in the App Store?",
-    a: <p>No. Build it from the repository’s <code>ios</code> folder with Xcode; the <a href={`${GH}/blob/main/ios/README.md`} target="_blank" rel="noopener">iPhone README</a> has the steps. It needs iOS 18 or later.</p>,
+    a: <p>Yes, and it’s free: <a href={IOS_APP_STORE_URL}>Huske for iPhone</a> needs iOS 18 or later. You can still build it yourself from the repository’s <code>ios</code> folder; the <a href={`${GH}/blob/main/ios/README.md`} target="_blank" rel="noopener">iPhone README</a> has the steps.</p>,
   },
   {
     q: "Do I need headphones?",

@@ -209,7 +209,13 @@ const IPhoneDoc = () => (
     </p>
 
     <h3>Install it</h3>
-    <p>The iPhone app isn’t in the App Store. Build it with Xcode 26 or later and XcodeGen:</p>
+    <p>
+      <a href={IOS_APP_STORE_URL}>Huske for iPhone is free on the App Store.</a> On the phone it
+      records, plays back and shares recordings by itself; transcripts come from the Mac you pair it with.
+    </p>
+
+    <h4>Or build it yourself</h4>
+    <p>With Xcode 26 or later and XcodeGen:</p>
     <Term lines={[
       { cmd: "git clone https://github.com/tiagomoraes/huske.git" },
       { cmd: "brew install xcodegen" },

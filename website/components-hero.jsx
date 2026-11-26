@@ -195,6 +195,9 @@ const Hero = () => (
             Version {HUSKE_VERSION}, signed and notarized by Apple, so it opens straight from the
             download. macOS 14 or later on Apple silicon. The app installs its engine on first run.
           </p>
+          <p className="get-iphone">
+            On your iPhone, get <a href={IOS_APP_STORE_URL}>Huske for iPhone</a>. It’s free on the App Store.
+          </p>
           <p className="get-or">Or install the engine alone, for terminals, SSH and agents:</p>
           <InstallTabs/>
         </div>
