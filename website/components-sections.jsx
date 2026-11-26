@@ -95,11 +95,15 @@ const IPhone = () => (
         </div>
       </div>
 
-      <p className="avail fine">
-        Huske for iPhone needs iOS 18 or later, and Huske.app running on your Mac. It isn’t in the
-        App Store: build it from the repository’s <code>ios</code> folder with Xcode, as
-        the <a href={`${GH}/blob/main/ios/README.md`} target="_blank" rel="noopener">iPhone README</a> explains.
-      </p>
+      <div className="avail">
+        <a className="store-badge" href={IOS_APP_STORE_URL}>
+          <img src="assets/app-store-badge.svg" width="120" height="40" alt="Download on the App Store"/>
+        </a>
+        <p className="fine">
+          Huske for iPhone is free. It needs iOS 18 or later, and Huske.app running on your Mac
+          to transcribe.
+        </p>
+      </div>
     </div>
   </section>
 );
@@ -769,7 +773,15 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.15.2", date: "2026-11-23", tag: "latest",
+    ver: "0.15.3", date: "2026-11-26", tag: "latest",
+    items: [
+      { kind: "added", text: <><strong>Huske for iPhone is on the App Store, free.</strong> <a href={IOS_APP_STORE_URL}>Get it from the App Store</a>, or from the banner Safari on iPhone shows at the top of this site.</> },
+      { kind: "fixed", text: <><strong>Settings save again when the config has a key from another version.</strong> A key this version doesn’t know, such as <code>diarize</code>, blocked every save, Cloud sync included. It’s now left alone.</> },
+      { kind: "fixed", text: <><strong>Huske for iPhone is built as an iPhone app.</strong> It no longer claims iPad support it doesn’t have.</> },
+    ],
+  },
+  {
+    ver: "0.15.2", date: "2026-11-23",
     items: [
       { kind: "added", text: <><strong>Privacy and support pages.</strong> The site now says what stays on your devices, what can leave them and when, and how to get help.</> },
       { kind: "added", text: <><strong>Huske for iPhone, ready for the App Store.</strong> It links to those pages, says where to get Huske for Mac when none is paired, and reminds you to let people know before you record them.</> },
@@ -1042,11 +1054,11 @@ const PATHS = [
   },
   {
     title: "Add your iPhone",
-    cost: "A minute, once the app is on your phone. No terminal.",
-    needs: "iOS 18 or later. For now the app is built from source with Xcode.",
+    cost: "About a minute. No terminal.",
+    needs: "An iPhone with iOS 18 or later.",
     steps: [
-      <>In Huske.app, open <strong>iPhone</strong> and choose <strong>Pair iPhone</strong>.</>,
-      <>Point the iPhone’s camera at the code.</>,
+      <>Install <a href={IOS_APP_STORE_URL}>Huske for iPhone</a> from the App Store. It’s free.</>,
+      <>In Huske.app, open <strong>iPhone</strong>, choose <strong>Pair iPhone</strong> and point the iPhone’s camera at the code.</>,
       <>Record anywhere. Huske offers to open at login, because the phone can only reach the Mac while Huske runs.</>,
     ],
   },
@@ -1119,7 +1131,7 @@ const FAQS = [
   },
   {
     q: "Is Huske for iPhone in the App Store?",
-    a: <p>No. Build it from the repository’s <code>ios</code> folder with Xcode; the <a href={`${GH}/blob/main/ios/README.md`} target="_blank" rel="noopener">iPhone README</a> has the steps. It needs iOS 18 or later.</p>,
+    a: <p>Yes, and it’s free: <a href={IOS_APP_STORE_URL}>Huske for iPhone</a> needs iOS 18 or later. You can still build it yourself from the repository’s <code>ios</code> folder; the <a href={`${GH}/blob/main/ios/README.md`} target="_blank" rel="noopener">iPhone README</a> has the steps.</p>,
   },
   {
     q: "Do I need headphones?",

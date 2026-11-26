@@ -54,6 +54,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: cloud.tiagomoraes.huske.ios
         PRODUCT_NAME: Huske
+        # iPhone only. XcodeGen's application preset sets "1,2" on the target,
+        # which overrides the project-level value above, so say it here too.
+        TARGETED_DEVICE_FAMILY: "1"
         # Empty for everyday (automatic) signing. The App Store build
         # (scripts/archive-upload.sh) signs manually and names the profile.
         PROVISIONING_PROFILE_SPECIFIER: $(HUSKE_APP_PROFILE)
@@ -131,6 +134,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: cloud.tiagomoraes.huske.ios.LiveActivity
         PRODUCT_NAME: HuskeLiveActivity
+        TARGETED_DEVICE_FAMILY: "1"
         PROVISIONING_PROFILE_SPECIFIER: $(HUSKE_LIVEACTIVITY_PROFILE)
         SKIP_INSTALL: YES
         APPLICATION_EXTENSION_API_ONLY: YES

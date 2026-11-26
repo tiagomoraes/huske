@@ -6,6 +6,31 @@ This project uses semantic versioning after the first public release.
 
 ## Unreleased
 
+## 0.15.3 - 2026-11-26
+
+### Added
+
+- **Huske for iPhone is on the App Store, free.** The website and the README
+  link to it: Apple's badge in the iPhone section, a line under the Mac
+  download, and a Smart App Banner that offers the app in Safari on iPhone.
+  The docs still explain how to build it yourself.
+
+### Fixed
+
+- **Saving a setting no longer fails over a key from another engine.**
+  Huske.app saves every setting through `huske config set`, which checked the
+  whole config file. A key this engine doesn't know, such as `diarize` from a
+  branch build, failed every save with "diarize: Extra inputs are not
+  permitted", including the Cloud sync settings. `set` and `unset` now check
+  only the keys this engine knows, keep the others in the file, and still
+  reject a misspelled key.
+
+- **Huske for iPhone is an iPhone app again.** It was built as a universal
+  iPhone and iPad app by accident: XcodeGen's target preset overrode the
+  project's iPhone-only setting. The App Store would have needed an iPad
+  design and iPad screenshots for it. The archive check now refuses a build
+  that claims iPad.
+
 ## 0.15.2 - 2026-11-23
 
 ### Added

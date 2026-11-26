@@ -28,6 +28,10 @@ it about your day.
 - **Continuous capture** — mic (sounddevice) + system audio (Core Audio process tap
   on macOS 14.4+, ScreenCaptureKit fallback on older macOS), source-tagged and
   gapless at chunk boundaries.
+- **Huske for iPhone** — record anywhere, transcribe on your Mac. Recordings
+  reach Huske.app over Wi‑Fi or peer to peer, with no cloud, and the transcript
+  comes back to the phone.
+  [Free on the App Store](https://apps.apple.com/us/app/huske-for-iphone/id6838172707).
 - **No drivers, no Audio MIDI Setup** — system audio comes through Apple's
   built-in capture APIs. Grant the macOS audio/screen capture permission once.
 - **Local transcription** — [Parakeet](https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3)
@@ -184,7 +188,7 @@ session-only — set `distill_enabled` in config to make it the default.
 For prerelease builds or exact GitHub tags, install directly from the repository:
 
 ```bash
-uv tool install "git+https://github.com/tiagomoraes/huske.git@v0.15.2"
+uv tool install "git+https://github.com/tiagomoraes/huske.git@v0.15.3"
 ```
 
 See [quickstart.md](specs/001-huske-recorder/quickstart.md) for the full setup.

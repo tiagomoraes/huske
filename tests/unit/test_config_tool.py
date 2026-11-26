@@ -101,6 +101,33 @@ def test_set_rejects_unknown_key(config_path: Path, capsys: pytest.CaptureFixtur
     assert not config_path.exists()
 
 
+def test_set_keeps_keys_written_by_another_engine(
+    config_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A key this version doesn't know (e.g. `diarize`, from a branch build or a
+    newer engine) must not block setting a known one, and must survive the write.
+    Huske.app saves every setting through `huske config set`."""
+    config_path.write_text("diarize = true\nchunk_minutes = 5.0\n", encoding="utf-8")
+
+    assert set_config_value("speech_gated", "false", config_path=config_path) == 0
+
+    import tomllib
+
+    data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    assert data == {"diarize": True, "chunk_minutes": 5.0, "speech_gated": False}
+    assert "[error]" not in capsys.readouterr().out
+
+
+def test_set_still_rejects_an_unknown_key_beside_foreign_ones(
+    config_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path.write_text("diarize = true\n", encoding="utf-8")
+
+    assert set_config_value("no_such_key", "1", config_path=config_path) == 2
+    assert "no_such_key" in capsys.readouterr().out
+    assert config_path.read_text(encoding="utf-8") == "diarize = true\n"
+
+
 def test_unset_removes_key_and_preserves_others(
     config_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -112,6 +139,19 @@ def test_unset_removes_key_and_preserves_others(
 
     data = tomllib.loads(config_path.read_text(encoding="utf-8"))
     assert data == {"model": "small"}
+
+
+def test_unset_keeps_keys_written_by_another_engine(
+    config_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path.write_text("diarize = true\nchunk_minutes = 5.0\n", encoding="utf-8")
+
+    assert unset_config_value("chunk_minutes", config_path=config_path) == 0
+
+    import tomllib
+
+    data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    assert data == {"diarize": True}
 
 
 def test_unset_unknown_key_errors(config_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
