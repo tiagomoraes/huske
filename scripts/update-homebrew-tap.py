@@ -36,6 +36,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn
@@ -181,6 +182,58 @@ def parse_formula_resources(text: str) -> list[FormulaResource]:
     ]
 
 
+_MACOS_TAG_RE = re.compile(r"macosx_\d+_\d+_(?:arm64|x86_64|universal2)")
+
+
+def keep_formula_platform_tags(
+    formula_text: str,
+    pip_pkgs: dict[str, tuple[str, str]],
+    lookup: Callable[[str, str], tuple[str, str] | None],
+) -> tuple[dict[str, tuple[str, str]], list[str]]:
+    """Keep each wheel's macOS tag as the formula has it.
+
+    pip picks the wheel for the Mac it runs on. Some projects (mlx, mlx-metal)
+    publish one wheel per macOS release, so on a newer Mac pip moves them to a
+    wheel older macOS versions can't install: v0.15.3 came out of macOS 27 with
+    `macosx_27_0` mlx wheels in place of `macosx_26_0`. For each resource whose
+    tag changed, ask ``lookup(name, filename)`` for the same release with the
+    formula's tag. Returns the adjusted packages and one note per change.
+    """
+    pinned = dict(pip_pkgs)
+    notes: list[str] = []
+    for resource in parse_formula_resources(formula_text):
+        name = normalize(resource.name)
+        if name not in pip_pkgs:
+            continue
+        old = _MACOS_TAG_RE.search(resource.url.rsplit("/", 1)[-1])
+        new_filename = pip_pkgs[name][0].rsplit("/", 1)[-1]
+        new = _MACOS_TAG_RE.search(new_filename)
+        if not old or not new or old.group(0) == new.group(0):
+            continue
+        wanted = new_filename.replace(new.group(0), old.group(0))
+        found = lookup(name, wanted)
+        if found:
+            pinned[name] = found
+            notes.append(f"{resource.name}: kept {old.group(0)} ({wanted}), not pip's {new.group(0)}")
+        else:
+            notes.append(
+                f"WARN: {resource.name}: PyPI has no {wanted}; using pip's {new_filename}. "
+                f"Check which macOS versions can still install it."
+            )
+    return pinned, notes
+
+
+def pypi_wheel(name: str, filename: str) -> tuple[str, str] | None:
+    """(url, sha256) of ``filename`` in its PyPI release, or None."""
+    version = filename.split("-")[1]
+    with urllib.request.urlopen(PYPI_INDEX.format(name=name, version=version)) as resp:
+        release = json.load(resp)
+    for entry in release.get("urls", []):
+        if entry["filename"] == filename:
+            return entry["url"], entry["digests"]["sha256"]
+    return None
+
+
 def rewrite_formula(
     formula_text: str,
     new_sdist_url: str,
@@ -265,6 +318,9 @@ def main() -> int:
     print(f"\npip report has {len(pip_pkgs)} packages (incl. huske)\n")
 
     original = formula.read_text(encoding="utf-8")
+    pip_pkgs, tag_notes = keep_formula_platform_tags(original, pip_pkgs, pypi_wheel)
+    for note in tag_notes:
+        print(f"  {note}")
     rewritten, added, removed = rewrite_formula(original, sdist_url, sdist_sha, pip_pkgs)
 
     if rewritten == original:
