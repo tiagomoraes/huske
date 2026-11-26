@@ -773,7 +773,15 @@ const Privacy = () => (
 
 const RELEASES = [
   {
-    ver: "0.15.2", date: "2026-11-23", tag: "latest",
+    ver: "0.15.3", date: "2026-11-26", tag: "latest",
+    items: [
+      { kind: "added", text: <><strong>Huske for iPhone is on the App Store, free.</strong> <a href={IOS_APP_STORE_URL}>Get it from the App Store</a>, or from the banner Safari on iPhone shows at the top of this site.</> },
+      { kind: "fixed", text: <><strong>Settings save again when the config has a key from another version.</strong> A key this version doesn’t know, such as <code>diarize</code>, blocked every save, Cloud sync included. It’s now left alone.</> },
+      { kind: "fixed", text: <><strong>Huske for iPhone is built as an iPhone app.</strong> It no longer claims iPad support it doesn’t have.</> },
+    ],
+  },
+  {
+    ver: "0.15.2", date: "2026-11-23",
     items: [
       { kind: "added", text: <><strong>Privacy and support pages.</strong> The site now says what stays on your devices, what can leave them and when, and how to get help.</> },
       { kind: "added", text: <><strong>Huske for iPhone, ready for the App Store.</strong> It links to those pages, says where to get Huske for Mac when none is paired, and reminds you to let people know before you record them.</> },
